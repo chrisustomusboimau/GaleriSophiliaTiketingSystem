@@ -1,0 +1,100 @@
+from collections.abc import AsyncGenerator
+import uuid
+from datetime import datetime
+
+# Updated to use standard Uuid (cross-compatible with SQLite and PostgreSQL)
+from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, Uuid
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
+from sqlalchemy.orm import DeclarativeBase, relationship
+
+from fastapi_users.db import SQLAlchemyUserDatabase, SQLAlchemyBaseUserTableUUID
+from fastapi import Depends
+
+DATABASE_URL = "sqlite+aiosqlite:///./test.db"
+
+class Base(DeclarativeBase):
+    pass
+
+
+class User(SQLAlchemyBaseUserTableUUID, Base):
+    """
+    Admin user model. 
+    Public visitors do not have accounts, so transactions do not require a user_id.
+    """
+    pass
+
+
+class TransactionEntry(Base):
+    """
+    Core table for visitor queue tickets and payment state.
+    """
+    __tablename__ = "transactions"
+
+    id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    queue_number = Column(Integer, nullable=False, unique=True, index=True)
+    
+    # Ticket Categories
+    under_8_count = Column(Integer, default=0, nullable=False)
+    under_22_count = Column(Integer, default=0, nullable=False)
+    adult_count = Column(Integer, default=0, nullable=False)
+    
+    # Financials & State
+    total_price = Column(Integer, nullable=False) # Using Integer to prevent float precision bugs
+    status = Column(String, nullable=False, default="pending") # 'pending', 'paid', 'cancelled'
+    
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Relationships
+    # lazy="selectin" is crucial for async SQLAlchemy to fetch child rows without throwing Greenlet errors.
+    origins = relationship(
+        "TransactionOriginEntry",
+        back_populates="transaction",
+        cascade="all, delete-orphan",
+        lazy="selectin" 
+    )
+
+
+class TransactionOriginEntry(Base):
+    """
+    Tracks the origin countries for a specific transaction.
+    Normalized to support groups of visitors coming from multiple different countries.
+    """
+    __tablename__ = "transaction_origins"
+
+    id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    
+    # Foreign Key linking back to the main transaction
+    transaction_id = Column(Uuid(as_uuid=True), ForeignKey("transactions.id", ondelete="CASCADE"), nullable=False)
+    
+    # Origin Details
+    country_code = Column(String(2), nullable=False) # e.g., 'id', 'us', 'jp'
+    count = Column(Integer, nullable=False, default=1) # Number of people from this country
+
+    # Relationships
+    transaction = relationship("TransactionEntry", back_populates="origins")
+
+
+# ==========================================
+# DATABASE SETUP & HELPERS
+# ==========================================
+
+engine = create_async_engine(DATABASE_URL)
+async_session_maker = async_sessionmaker(engine, expire_on_commit=False)
+
+
+async def create_db_and_tables():
+    """Creates all tables. For production, consider using Alembic for migrations."""
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+
+async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
+    """Dependency to yield a database session per request."""
+    async with async_session_maker() as session:
+        yield session
+
+
+async def get_user_db(session: AsyncSession = Depends(get_async_session)):
+    """Dependency used by fastapi-users to access the User table."""
+    yield SQLAlchemyUserDatabase(session, User)
