@@ -41,7 +41,7 @@ Proyek ini mengotomatisasi alur pembelian tiket museum. Fitur utamanya adalah fl
 ---
 
 ## Demo
-![Demo Video](./demoVideo.gif)
+![Demo Video](./demo.mp4)
 
 ---
 
