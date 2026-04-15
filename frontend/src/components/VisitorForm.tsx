@@ -89,7 +89,7 @@ const CounterInput: React.FC<CounterInputProps> = ({
   return (
     <div className="mb-6 p-4 border rounded-lg bg-white shadow-sm">
       <div className="flex justify-between mb-2">
-        <label htmlFor={inputId} className="font-medium cursor-pointer">
+        <label htmlFor={inputId} className="font-medium cursor-pointer whitespace-pre-line">
           {label}
         </label>
         <span className="text-gray-600">{formatCurrency(price)}</span>

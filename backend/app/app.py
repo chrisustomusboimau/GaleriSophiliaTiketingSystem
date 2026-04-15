@@ -11,7 +11,8 @@ from sqlalchemy.exc import IntegrityError
 # Assuming you update your schemas and DB models to match the new architecture.
 from app.schema import (
     UserCreate, UserRead, UserUpdate, 
-    TransactionCreate, TransactionResponse, TransactionStatusUpdate
+    TransactionCreate, TransactionResponse, TransactionStatusUpdate,
+    TransactionUpdateData
 )
 from app.db import (
     create_db_and_tables, get_async_session, User,
@@ -21,8 +22,8 @@ from app.users import auth_backend, current_active_user, fastapi_users
 
 # --- SERVER-SIDE PRICE CONFIGURATION ---
 PRICES = {
-    "under_8": 50000,
-    "under_22": 75000,
+    "under_8": 25000,
+    "under_22": 50000,
     "adult": 100000
 }
 
@@ -184,14 +185,11 @@ async def update_transaction_status(
 
 
 # ==========================================
-# BAGIAN BARU: EDIT TRANSAKSI (DITAMBAHKAN)
+# EDIT TRANSAKSI
 # ==========================================
 
 # Idealnya ini ditaruh di app/schema.py, tapi saya taruh di sini agar file ini langsung jalan.
-class TransactionUpdateData(BaseModel):
-    under_8_count: Optional[int] = None
-    under_22_count: Optional[int] = None
-    adult_count: Optional[int] = None
+
 
 @app.patch("/api/v1/transactions/{transaction_id}/edit", response_model=TransactionResponse, tags=["transactions"])
 async def edit_transaction_data(

@@ -1,6 +1,8 @@
 from collections.abc import AsyncGenerator
 import uuid
 from datetime import datetime
+from zoneinfo import ZoneInfo
+
 
 # Updated to use standard Uuid (cross-compatible with SQLite and PostgreSQL)
 from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, Uuid
@@ -11,6 +13,7 @@ from fastapi_users.db import SQLAlchemyUserDatabase, SQLAlchemyBaseUserTableUUID
 from fastapi import Depends
 
 DATABASE_URL = "sqlite+aiosqlite:///./test.db"
+WIB = ZoneInfo("Asia/Jakarta")
 
 class Base(DeclarativeBase):
     pass
@@ -43,7 +46,7 @@ class TransactionEntry(Base):
     status = Column(String, nullable=False, default="pending") # 'pending', 'paid', 'cancelled'
     
     # Timestamps
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True),default=lambda: datetime.now(WIB))
 
     # Relationships
     # lazy="selectin" is crucial for async SQLAlchemy to fetch child rows without throwing Greenlet errors.

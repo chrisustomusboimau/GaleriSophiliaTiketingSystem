@@ -3,6 +3,7 @@ from typing import List
 import uuid
 from datetime import datetime
 from fastapi_users import schemas
+from typing import List, Optional
 
 
 class OriginBase(BaseModel):
@@ -24,6 +25,11 @@ class TransactionResponse(TransactionCreate):
     
     class Config:
         orm_mode = True # or model_config = ConfigDict(from_attributes=True) for Pydantic V2
+
+class TransactionUpdateData(BaseModel):
+    under_8_count: Optional[int] = None
+    under_22_count: Optional[int] = None
+    adult_count: Optional[int] = None
 
 class TransactionStatusUpdate(BaseModel):
     status: str = Field(..., pattern="^(pending|paid|cancelled)$")

@@ -88,27 +88,56 @@ const PaymentHistoryPage: React.FC = () => {
     setIsModalOpen(true);
   };
 
+  // ==========================================
+  // FUNGSI UPDATE TIKET & STATUS (DIPERBARUI)
+  // ==========================================
   const handleSaveEdit = async (id: string, updatedData: any) => {
-    const response = await fetch(`/api/v1/transactions/${id}/edit`, {
-      method: "PATCH",
-      headers: getAuthHeaders(),
-      body: JSON.stringify(updatedData),
-    });
+    try {
+      // 1. Update jumlah tiket terlebih dahulu
+      const responseEdit = await fetch(`/api/v1/transactions/${id}/edit`, {
+        method: "PATCH",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          under_8_count: updatedData.under_8_count,
+          under_22_count: updatedData.under_22_count,
+          adult_count: updatedData.adult_count
+        }),
+      });
 
-    if (!response.ok) {
-      if (response.status === 401) {
-        handleUnauthorized();
-        throw new Error("Unauthorized");
+      if (!responseEdit.ok) {
+        if (responseEdit.status === 401) {
+          handleUnauthorized();
+          return;
+        }
+        throw new Error("Gagal menyimpan jumlah tiket.");
       }
-      throw new Error("Gagal menyimpan data.");
-    }
 
-    await loadTransactions();
+      // 2. Update status pembayaran
+      if (updatedData.status) {
+        const responseStatus = await fetch(`/api/v1/transactions/${id}/status`, {
+          method: "PATCH",
+          headers: getAuthHeaders(),
+          body: JSON.stringify({ status: updatedData.status }),
+        });
+
+        if (!responseStatus.ok) {
+          if (responseStatus.status === 401) {
+            handleUnauthorized();
+            return;
+          }
+          throw new Error("Gagal menyimpan status tiket.");
+        }
+      }
+
+      // 3. Refresh data setelah sukses mengubah keduanya
+      await loadTransactions();
+      
+    } catch (error) {
+      console.error(error);
+      throw error; // Melempar error agar ditangkap oleh blok try-catch di dalam Modal
+    }
   };
 
-  // ==========================================
-  // FUNGSI DELETE (DITAMBAHKAN)
-  // ==========================================
   const handleDeleteTransaction = async (id: string) => {
     const response = await fetch(`/api/v1/transactions/${id}`, {
       method: "DELETE",
@@ -275,6 +304,7 @@ const PaymentHistoryPage: React.FC = () => {
                 <option value="all">Semua Status</option>
                 <option value="paid">Lunas (Paid)</option>
                 <option value="pending">Menunggu (Pending)</option>
+                <option value="cancelled">Batal (Cancelled)</option>
               </select>
 
               <button
@@ -326,7 +356,6 @@ const PaymentHistoryPage: React.FC = () => {
         </div>
       </main>
 
-      {/* DITAMBAHKAN PROP onDelete */}
       <EditTransactionModal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}

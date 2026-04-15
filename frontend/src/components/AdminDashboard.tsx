@@ -7,13 +7,13 @@
  * - Auto-refreshes data periodically (polling).
  * - Sends PATCH requests to update payment status to 'paid'.
  * - Optimistically updates local state for immediate visual feedback.
- * - Opens an edit modal to modify ticket counts and DELETE tickets.
+ * - Opens an edit modal to modify ticket counts, STATUS, and DELETE tickets.
  */
 
 import React, { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { formatCurrency, PRICES } from "../utils/priceCalculator";
-import EditTransactionModal from "./EditTransactionModal"; // DITAMBAHKAN: Import Modal
+import EditTransactionModal from "./EditTransactionModal"; 
 
 /* =====================================================
    TYPES & INTERFACES
@@ -234,27 +234,56 @@ const AdminDashboard: React.FC = () => {
     setIsModalOpen(true);
   };
 
+  // ==========================================
+  // FUNGSI UPDATE TIKET & STATUS (DIPERBARUI)
+  // ==========================================
   const handleSaveEdit = async (id: string, updatedData: any) => {
-    const response = await fetch(`/api/v1/transactions/${id}/edit`, {
-      method: "PATCH",
-      headers: getAuthHeaders(),
-      body: JSON.stringify(updatedData),
-    });
+    try {
+      // 1. Panggil endpoint untuk update jumlah tiket
+      const responseEdit = await fetch(`/api/v1/transactions/${id}/edit`, {
+        method: "PATCH",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          under_8_count: updatedData.under_8_count,
+          under_22_count: updatedData.under_22_count,
+          adult_count: updatedData.adult_count
+        }),
+      });
 
-    if (!response.ok) {
-      if (response.status === 401) {
-        handleUnauthorized();
-        throw new Error("Unauthorized");
+      if (!responseEdit.ok) {
+        if (responseEdit.status === 401) {
+          handleUnauthorized();
+          return;
+        }
+        throw new Error("Gagal menyimpan jumlah tiket.");
       }
-      throw new Error("Gagal menyimpan data.");
-    }
 
-    await loadVisitors();
+      // 2. Jika status dikirimkan, panggil endpoint untuk update status
+      if (updatedData.status) {
+        const responseStatus = await fetch(`/api/v1/transactions/${id}/status`, {
+          method: "PATCH",
+          headers: getAuthHeaders(),
+          body: JSON.stringify({ status: updatedData.status }),
+        });
+
+        if (!responseStatus.ok) {
+          if (responseStatus.status === 401) {
+            handleUnauthorized();
+            return;
+          }
+          throw new Error("Gagal menyimpan status tiket.");
+        }
+      }
+
+      // 3. Muat ulang data pengunjung dari server
+      await loadVisitors();
+      
+    } catch (error) {
+      console.error(error);
+      throw error; // Lempar error agar modal tahu proses gagal
+    }
   };
 
-  // ==========================================
-  // FUNGSI DELETE (DITAMBAHKAN)
-  // ==========================================
   const handleDeleteTransaction = async (id: string) => {
     const response = await fetch(`/api/v1/transactions/${id}`, {
       method: "DELETE",
@@ -269,7 +298,6 @@ const AdminDashboard: React.FC = () => {
       throw new Error("Gagal menghapus data.");
     }
 
-    // Perbarui state secara lokal untuk umpan balik yang lebih cepat (menghapus kartu)
     setVisitors((prev) => prev.filter((v) => v.id !== id));
   };
 
@@ -333,7 +361,6 @@ const AdminDashboard: React.FC = () => {
         </div>
       )}
 
-      {/* PROP onDelete DITAMBAHKAN KE SINI */}
       <EditTransactionModal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
