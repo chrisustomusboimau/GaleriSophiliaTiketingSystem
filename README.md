@@ -40,12 +40,8 @@ Proyek ini mengotomatisasi alur pembelian tiket museum. Fitur utamanya adalah fl
 
 ---
 
-## Logika Bisnis: Perhitungan Pengunjung Unik
-Sistem ini menyimpan data dalam bentuk array `items` per lantai di database, namun menampilkannya secara cerdas di Dashboard:
-- **Skenario**: 1 Orang Dewasa membeli tiket untuk Lantai 1 DAN Lantai 5.
-- **Database**: Menyimpan 2 row di tabel `transaction_items`.
-- **Dashboard/Excel**: Menampilkan total **1 Orang Dewasa** untuk transaksi tersebut.
-- **Hasil**: Data kapasitas riil pengunjung di gedung tetap akurat.
+## Demo
+![Demo Video](./demoVideo.gif)
 
 ---
 
