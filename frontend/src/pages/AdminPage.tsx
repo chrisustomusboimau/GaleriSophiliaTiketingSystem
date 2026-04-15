@@ -34,14 +34,6 @@ const AdminPage: React.FC = () => {
             <div className="hidden sm:block text-sm font-medium bg-blue-100 text-blue-800 px-3 py-1 rounded-full">
               Admin Dashboard
             </div>
-            
-            {/* DITAMBAHKAN: Tombol Tambah Manual */}
-            <button
-              onClick={() => setIsManualModalOpen(true)}
-              className="text-sm font-medium px-4 py-1.5 rounded-full bg-emerald-600 text-white hover:bg-emerald-700 transition-colors shadow-sm"
-            >
-              + Tambah Manual
-            </button>
 
             {/* DITAMBAHKAN: Tombol navigasi ke Halaman Riwayat */}
             <button

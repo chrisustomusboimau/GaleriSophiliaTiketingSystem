@@ -6,7 +6,7 @@ import { useLanguage } from "../contexts/LanguageContext";
  * Komponen LanguageSelector
  * -----------------------------------------------
  * Komponen ini digunakan untuk menampilkan pilihan bahasa kepada pengguna
- * serta tombol untuk melanjutkan ke halaman form. Komponen ini menggunakan
+ * serta tombol untuk melanjutkan ke halaman pemilihan tiket. Komponen ini menggunakan
  * context untuk mengelola state bahasa yang sedang dipilih dan juga
  * menerapkan terjemahan dinamis berdasarkan bahasa yang dipilih.
  *
@@ -14,7 +14,7 @@ import { useLanguage } from "../contexts/LanguageContext";
  * - Menampilkan judul dan deskripsi sambutan sesuai bahasa.
  * - Menyediakan tiga tombol untuk memilih bahasa: Indonesia, Inggris, dan Mandarin.
  * - Menyorot tombol bahasa yang sedang aktif.
- * - Tombol "Lanjutkan" untuk berpindah ke halaman form.
+ * - Tombol "Lanjutkan" untuk berpindah ke halaman pemilihan tiket.
  */
 const LanguageSelector: React.FC = () => {
   // Mengambil state bahasa, fungsi untuk mengubah bahasa, dan objek terjemahan dari context
@@ -27,10 +27,10 @@ const LanguageSelector: React.FC = () => {
    * Fungsi handleContinue
    * ---------------------
    * Fungsi ini akan dijalankan ketika tombol "Lanjutkan" diklik.
-   * Akan mengarahkan pengguna ke halaman '/form'.
+   * Akan mengarahkan pengguna ke halaman '/ticket-selection'.
    */
   const handleContinue = () => {
-    navigate("/form");
+    navigate("/ticket-selection"); // <-- UPDATED PATH
   };
 
   return (
@@ -94,7 +94,7 @@ const LanguageSelector: React.FC = () => {
           <span className="font-medium text-gray-800">中文</span>
         </button>
       </div>
-      {/* Tombol untuk melanjutkan ke halaman form */}
+      {/* Tombol untuk melanjutkan ke halaman pemilihan tiket */}
       <button
         onClick={handleContinue}
         className="w-full bg-blue-600 text-white py-3 px-4 rounded-lg font-medium text-lg hover:bg-blue-700 transition-colors"

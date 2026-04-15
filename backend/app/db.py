@@ -28,36 +28,35 @@ class User(SQLAlchemyBaseUserTableUUID, Base):
 
 
 class TransactionEntry(Base):
-    """
-    Core table for visitor queue tickets and payment state.
-    """
     __tablename__ = "transactions"
 
     id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
     queue_number = Column(Integer, nullable=False, unique=True, index=True)
-    
-    # Ticket Categories
-    under_8_count = Column(Integer, default=0, nullable=False)
-    under_22_count = Column(Integer, default=0, nullable=False)
-    adult_count = Column(Integer, default=0, nullable=False)
-    
-    # Financials & State
-    total_price = Column(Integer, nullable=False) # Using Integer to prevent float precision bugs
-    status = Column(String, nullable=False, default="pending") # 'pending', 'paid', 'cancelled'
-    
-    # Timestamps
-    created_at = Column(DateTime(timezone=True),default=lambda: datetime.now(WIB))
+    total_price = Column(Integer, nullable=False)
+    status = Column(String, nullable=False, default="pending")
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(WIB))
 
     # Relationships
-    # lazy="selectin" is crucial for async SQLAlchemy to fetch child rows without throwing Greenlet errors.
-    origins = relationship(
-        "TransactionOriginEntry",
-        back_populates="transaction",
-        cascade="all, delete-orphan",
-        lazy="selectin" 
-    )
+    items = relationship("TransactionItem", back_populates="transaction", cascade="all, delete-orphan", lazy="selectin")
+    origins = relationship("TransactionOriginEntry", back_populates="transaction", cascade="all, delete-orphan", lazy="selectin")
 
+class TransactionItem(Base):
+    """
+    Stores each specific ticket type selected in a transaction.
+    Example: 2 Adults for Floor 6, 1 Child for Floor 1.
+    """
+    __tablename__ = "transaction_items"
 
+    id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    transaction_id = Column(Uuid(as_uuid=True), ForeignKey("transactions.id", ondelete="CASCADE"), nullable=False)
+    
+    floor = Column(String, nullable=False)        # e.g., "Floor 1", "Floor 5", "Floor 6/7"
+    age_category = Column(String, nullable=False) # e.g., "adult", "student", "child"
+    quantity = Column(Integer, nullable=False, default=1)
+    unit_price = Column(Integer, nullable=False)  # Price at time of purchase
+
+    transaction = relationship("TransactionEntry", back_populates="items")
+    
 class TransactionOriginEntry(Base):
     """
     Tracks the origin countries for a specific transaction.

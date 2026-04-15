@@ -2,6 +2,7 @@ import React from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { LanguageProvider } from "./contexts/LanguageContext";
 import ScanPage from "./pages/ScanPage";
+import TicketSelectionPage from "./pages/TicketSelectionPage"; // <-- ADDED
 import VisitorFormPage from "./pages/VisitorFormPage";
 import QueuePage from "./pages/QueuePage";
 import AdminPage from "./pages/AdminPage";
@@ -17,12 +18,13 @@ import ProtectedRoute from "./components/ProtectedRoute";
  * - `BrowserRouter`   — enables client-side routing via React Router.
  *
  * Route structure:
- * /               → Language selection screen (ScanPage)
- * /form           → Visitor ticket form (VisitorFormPage)
- * /queue/:id      → Queue number confirmation screen (QueuePage)
- * /login          → Admin/Staff login screen (LoginPage)
- * /admin          → Cashier dashboard (AdminPage) — PROTECTED
- * /admin/history  → Transaction history table (PaymentHistoryPage) — PROTECTED
+ * /                  → Language selection screen (ScanPage)
+ * /ticket-selection  → Ticket category selection (TicketSelectionPage) // <-- ADDED
+ * /visitor-form      → Visitor details and origin form (VisitorFormPage) // <-- UPDATED PATH
+ * /queue/:id         → Queue number confirmation screen (QueuePage)
+ * /login             → Admin/Staff login screen (LoginPage)
+ * /admin             → Cashier dashboard (AdminPage) — PROTECTED
+ * /admin/history     → Transaction history table (PaymentHistoryPage) — PROTECTED
  */
 export function App() {
   return (
@@ -30,16 +32,17 @@ export function App() {
       <BrowserRouter>
         <div className="w-full min-h-screen bg-slate-50">
           <Routes>
-            {/* Public routes — unchanged */}
+            {/* Public routes */}
             <Route path="/" element={<ScanPage />} />
-            <Route path="/form" element={<VisitorFormPage />} />
+            <Route path="/ticket-selection" element={<TicketSelectionPage />} /> {/* <-- ADDED */}
+            <Route path="/visitor-form" element={<VisitorFormPage />} />         {/* <-- UPDATED */}
             <Route path="/queue/:id" element={<QueuePage />} />
             <Route path="/login" element={<LoginPage />} />
 
             {/* Protected routes — ProtectedRoute checks token before rendering */}
             <Route element={<ProtectedRoute />}>
               <Route path="/admin" element={<AdminPage />} />
-              <Route path="/admin/history" element={<PaymentHistoryPage />} /> {/* ADDED */}
+              <Route path="/admin/history" element={<PaymentHistoryPage />} />
             </Route>
 
             {/* Any unknown path falls back to home */}

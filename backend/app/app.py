@@ -8,7 +8,8 @@ from typing import List, Optional
 from pydantic import BaseModel 
 from sqlalchemy.exc import IntegrityError
 
-# Assuming you update your schemas and DB models to match the new architecture.
+# --- CORRECTED IMPORTS ---
+# Removed TransactionItem from schema, added to db
 from app.schema import (
     UserCreate, UserRead, UserUpdate, 
     TransactionCreate, TransactionResponse, TransactionStatusUpdate,
@@ -16,15 +17,15 @@ from app.schema import (
 )
 from app.db import (
     create_db_and_tables, get_async_session, User,
-    TransactionEntry, TransactionOriginEntry
+    TransactionEntry, TransactionOriginEntry, TransactionItem 
 )
 from app.users import auth_backend, current_active_user, fastapi_users
 
 # --- SERVER-SIDE PRICE CONFIGURATION ---
-PRICES = {
-    "under_8": 25000,
-    "under_22": 50000,
-    "adult": 100000
+PRICES_MAP = {
+    "Floor 6/7": {"adult": 100000, "student": 50000, "child": 25000},
+    "Floor 5":   {"adult": 40000,  "student": 20000, "child": 10000},
+    "Floor 1":   {"adult": 60000,  "student": 40000, "child": 20000},
 }
 
 @asynccontextmanager
@@ -39,7 +40,7 @@ app = FastAPI(lifespan=lifespan)
 # ==========================================
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"], # Your Vite frontend URLs
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"], 
     allow_credentials=True,
     allow_methods=["*"], 
     allow_headers=["*"], 
@@ -67,45 +68,52 @@ async def create_transaction(
 ):
     for attempt in range(MAX_RETRY):
         try:
-            # 1. hitung total harga
-            calculated_total = (
-                (payload.under_8_count * PRICES["under_8"]) +
-                (payload.under_22_count * PRICES["under_22"]) +
-                (payload.adult_count * PRICES["adult"])
-            )
+            total_price = 0
+            transaction_items = []
 
-            # 2. ambil queue terakhir
-            result = await session.execute(
-                select(func.max(TransactionEntry.queue_number))
-            )
+            # 1. Logic: Calculate dynamic price and prepare items
+            for item in payload.items:
+                floor_prices = PRICES_MAP.get(item.floor)
+                if not floor_prices:
+                    raise HTTPException(status_code=400, detail=f"Invalid floor: {item.floor}")
+                
+                price = floor_prices.get(item.age_category)
+                if price is None:
+                    raise HTTPException(status_code=400, detail=f"Invalid age category: {item.age_category}")
+                
+                item_total = price * item.quantity
+                total_price += item_total
+                
+                transaction_items.append(TransactionItem(
+                    floor=item.floor,
+                    age_category=item.age_category,
+                    quantity=item.quantity,
+                    unit_price=price
+                ))
+
+            # 2. Handle Queue Number
+            result = await session.execute(select(func.max(TransactionEntry.queue_number)))
             max_queue = result.scalar() or 0
 
-            # 3. buat transaksi
+            # 3. Create main transaction
             new_transaction = TransactionEntry(
                 queue_number=max_queue + 1,
-                under_8_count=payload.under_8_count,
-                under_22_count=payload.under_22_count,
-                adult_count=payload.adult_count,
-                total_price=calculated_total,
-                status="pending"
+                total_price=total_price,
+                status="pending",
+                items=transaction_items,
+                origins=[TransactionOriginEntry(**o.dict()) for o in payload.origins]
             )
 
             session.add(new_transaction)
             await session.commit()
             await session.refresh(new_transaction)
-
             return new_transaction
 
         except IntegrityError:
-            # terjadi race condition
             await session.rollback()
-
-    # jika semua retry gagal
-    raise HTTPException(
-        status_code=409,
-        detail="Queue conflict, please retry"
-    )
-
+            continue 
+            
+    raise HTTPException(status_code=409, detail="Queue conflict, please retry")
 
 @app.get("/api/v1/transactions/{transaction_id}", response_model=TransactionResponse, tags=["transactions"])
 async def get_transaction_details(
@@ -188,50 +196,46 @@ async def update_transaction_status(
 # EDIT TRANSAKSI
 # ==========================================
 
-# Idealnya ini ditaruh di app/schema.py, tapi saya taruh di sini agar file ini langsung jalan.
-
-
 @app.patch("/api/v1/transactions/{transaction_id}/edit", response_model=TransactionResponse, tags=["transactions"])
 async def edit_transaction_data(
     transaction_id: uuid.UUID,
-    payload: TransactionUpdateData,
+    payload: TransactionUpdateData, # Use the new update schema
     session: AsyncSession = Depends(get_async_session),
-    user: User = Depends(current_active_user) # ADMIN ONLY
+    user: User = Depends(current_active_user)
 ):
     """
-    ADMIN: Mengedit detail transaksi (jumlah tiket) dan menghitung ulang total harga.
+    ADMIN: Completely updates items and recalculates price, and optionally updates status.
     """
+    result = await session.execute(select(TransactionEntry).where(TransactionEntry.id == transaction_id))
+    entry = result.scalars().first()
+
+    if not entry:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+
+    # 1. Update Items & Recalculate Price (If items were provided)
+    if payload.items is not None:
+        entry.items = [] # Clear old items
+        
+        total_price = 0
+        for item in payload.items:
+            # Enforce server-side pricing for security
+            price = PRICES_MAP[item.floor][item.age_category]
+            total_price += price * item.quantity
+            entry.items.append(TransactionItem(
+                floor=item.floor, age_category=item.age_category, 
+                quantity=item.quantity, unit_price=price
+            ))
+
+        entry.total_price = total_price
+
+    # 2. Update Status (If status was provided)
+    if payload.status is not None:
+        entry.status = payload.status
+
     try:
-        result = await session.execute(
-            select(TransactionEntry).where(TransactionEntry.id == transaction_id)
-        )
-        entry = result.scalars().first()
-
-        if not entry:
-            raise HTTPException(status_code=404, detail="Ticket not found")
-
-        # Update data jika field diberikan dalam request
-        if payload.under_8_count is not None:
-            entry.under_8_count = payload.under_8_count
-        if payload.under_22_count is not None:
-            entry.under_22_count = payload.under_22_count
-        if payload.adult_count is not None:
-            entry.adult_count = payload.adult_count
-
-        # KALKULASI ULANG HARGA DI SERVER (Sangat penting untuk keamanan)
-        entry.total_price = (
-            (entry.under_8_count * PRICES["under_8"]) +
-            (entry.under_22_count * PRICES["under_22"]) +
-            (entry.adult_count * PRICES["adult"])
-        )
-
         await session.commit()
         await session.refresh(entry)
-        
         return entry
-
-    except HTTPException:
-        raise
     except Exception as e:
         await session.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to edit transaction: {e}")

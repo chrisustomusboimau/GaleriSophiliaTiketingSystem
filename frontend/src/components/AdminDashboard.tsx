@@ -7,27 +7,37 @@
  * - Auto-refreshes data periodically (polling).
  * - Sends PATCH requests to update payment status to 'paid'.
  * - Optimistically updates local state for immediate visual feedback.
- * - Opens an edit modal to modify ticket counts, STATUS, and DELETE tickets.
+ * - Opens an edit modal to modify ticket items, STATUS, and DELETE tickets.
+ * - High-visibility summary grid for UNIQUE people counts.
+ * - Sub-list grouped by floor.
+ * - Handles Manual Entry and displays Success Queue Modal.
  */
 
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { formatCurrency, PRICES } from "../utils/priceCalculator";
+import { formatCurrency } from "../utils/priceCalculator";
 import EditTransactionModal from "./EditTransactionModal"; 
+import ManualEntryModal from "./ManualEntryModal";
+import SuccessQueueModal from "./SuccessQueueModal";
 
 /* =====================================================
    TYPES & INTERFACES
 ===================================================== */
 
+export interface TransactionItem {
+  floor: string;
+  age_category: string;
+  quantity: number;
+  unit_price: number;
+}
+
 export interface Visitor {
   id: string;
   queue_number: number;
   created_at: string;
-  under_8_count: number;
-  under_22_count: number;
-  adult_count: number;
   total_price: number;
   status: "pending" | "paid" | "cancelled";
+  items: TransactionItem[];
 }
 
 interface VisitorCardProps {
@@ -36,6 +46,19 @@ interface VisitorCardProps {
   onConfirmPayment: (id: string) => void;
   onEdit: (visitor: Visitor) => void; 
 }
+
+/* =====================================================
+   HELPERS
+===================================================== */
+
+/** Returns a specific color class based on floor name for better UI distinction */
+const getFloorColorClass = (floor: string): string => {
+  const f = floor.toLowerCase();
+  if (f.includes("6") || f.includes("7")) return "bg-purple-100 text-purple-700 border-purple-200";
+  if (f.includes("5")) return "bg-amber-100 text-amber-700 border-amber-200";
+  if (f.includes("1")) return "bg-emerald-100 text-emerald-700 border-emerald-200";
+  return "bg-gray-100 text-gray-700 border-gray-200";
+};
 
 /* =====================================================
    SUB-COMPONENTS
@@ -47,13 +70,47 @@ const VisitorCard: React.FC<VisitorCardProps> = ({
   onConfirmPayment,
   onEdit, 
 }) => {
+  
+  // 1. Calculate the UNIQUE number of PEOPLE per age category for the summary
+  const ageCategorySummary = useMemo(() => {
+    const uniqueCounts: Record<string, number> = {
+      adult: 0,
+      student: 0,
+      child: 0
+    };
+
+    const seenCategories = new Set<string>();
+
+    for (const item of visitor.items) {
+      const cat = item.age_category.toLowerCase();
+      if (!seenCategories.has(cat)) {
+        uniqueCounts[cat] = item.quantity;
+        seenCategories.add(cat);
+      }
+    }
+
+    return uniqueCounts;
+  }, [visitor.items]);
+
+  // 2. Group items by floor dynamically for the breakdown
+  const groupedByFloor = useMemo(() => {
+    return visitor.items.reduce((acc, item) => {
+      if (!acc[item.floor]) acc[item.floor] = [];
+      acc[item.floor].push(item);
+      return acc;
+    }, {} as Record<string, TransactionItem[]>);
+  }, [visitor.items]);
+
   return (
     <div className="bg-white rounded-lg shadow-md overflow-hidden border border-gray-200 flex flex-col">
       <header className="bg-blue-600 p-4 text-white flex justify-between items-center">
-        <h4 className="font-bold text-lg">
-          Nomor Antrian: {visitor.queue_number}
-        </h4>
-        <span className="text-xs bg-blue-500 px-2 py-1 rounded shadow-inner">
+        <div>
+          <h4 className="font-bold text-lg leading-none">
+            #{visitor.queue_number}
+          </h4>
+          <span className="text-[10px] opacity-80 uppercase tracking-widest">Antrian</span>
+        </div>
+        <span className="text-xs bg-blue-700 px-2 py-1 rounded shadow-inner font-mono">
           {new Date(visitor.created_at).toLocaleTimeString([], {
             hour: "2-digit",
             minute: "2-digit",
@@ -61,70 +118,81 @@ const VisitorCard: React.FC<VisitorCardProps> = ({
         </span>
       </header>
 
-      <div className="p-4 flex-1 flex flex-col">
-        <div className="space-y-2 text-sm flex-1 mb-4">
-          {visitor.under_8_count > 0 && (
-            <div className="flex justify-between">
-              <span className="text-gray-600">Anak (&lt; 8 thn):</span>
-              <span className="font-medium">
-                {visitor.under_8_count} × {formatCurrency(PRICES.UNDER_8)} ={" "}
-                {formatCurrency(visitor.under_8_count * PRICES.UNDER_8)}
+      <div className="p-4 flex-1 flex flex-col bg-slate-50/50">
+        
+        {/* --- HIGH-VISIBILITY SUMMARY SECTION (PEOPLE COUNT) --- */}
+        <div className="grid grid-cols-3 gap-2 mb-4">
+          {['adult', 'student', 'child'].map((cat) => (
+            <div key={cat} className="bg-white border rounded-lg p-2 text-center shadow-sm">
+              <span className="text-[10px] uppercase font-bold text-gray-400 block mb-1">
+                {cat === 'child' ? 'Children' : cat + 's'}
+              </span>
+              <span className={`text-xl font-black ${ageCategorySummary[cat] > 0 ? 'text-blue-600' : 'text-gray-300'}`}>
+                {ageCategorySummary[cat]}
               </span>
             </div>
-          )}
+          ))}
+        </div>
 
-          {visitor.under_22_count > 0 && (
-            <div className="flex justify-between">
-              <span className="text-gray-600">Remaja (&lt; 22 thn):</span>
-              <span className="font-medium">
-                {visitor.under_22_count} × {formatCurrency(PRICES.UNDER_22)} ={" "}
-                {formatCurrency(visitor.under_22_count * PRICES.UNDER_22)}
-              </span>
+        {/* --- DETAILED FLOOR BREAKDOWN --- */}
+        <div className="flex-1 space-y-4 mb-4">
+          <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-2">Detail Per Lantai</p>
+          
+          {Object.entries(groupedByFloor).map(([floorName, items]) => (
+            <div key={floorName} className="bg-white border rounded-lg overflow-hidden shadow-sm">
+              <div className={`px-3 py-1.5 text-xs font-bold border-b ${getFloorColorClass(floorName)}`}>
+                {floorName}
+              </div>
+              <div className="p-2 space-y-1.5">
+                {items.map((item, idx) => (
+                  <div key={idx} className="flex justify-between items-center text-[13px]">
+                    <span className="text-gray-700 capitalize">
+                      {item.age_category}
+                    </span>
+                    <div className="text-right">
+                      <span className="text-gray-400 text-[11px] block leading-none">
+                        {item.quantity} x {formatCurrency(item.unit_price)}
+                      </span>
+                      <span className="font-semibold text-gray-900">
+                        {formatCurrency(item.quantity * item.unit_price)}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
-          )}
+          ))}
 
-          {visitor.adult_count > 0 && (
-            <div className="flex justify-between">
-              <span className="text-gray-600">Dewasa (22+ thn):</span>
-              <span className="font-medium">
-                {visitor.adult_count} × {formatCurrency(PRICES.ADULT)} ={" "}
-                {formatCurrency(visitor.adult_count * PRICES.ADULT)}
-              </span>
-            </div>
+          {visitor.items.length === 0 && (
+            <p className="text-gray-400 italic text-center py-4 text-sm">Tidak ada tiket.</p>
           )}
+        </div>
 
-          <div className="flex justify-between pt-3 border-t border-gray-200 mt-3 text-base font-bold">
-            <span>Total:</span>
-            <span className="text-blue-700">
+        {/* --- TOTALS & ACTIONS --- */}
+        <div className="pt-3 border-t border-dashed border-gray-300">
+          <div className="flex justify-between items-center mb-4">
+            <span className="text-sm font-medium text-gray-500 uppercase tracking-wider">Total Tagihan</span>
+            <span className="text-xl font-black text-blue-700">
               {formatCurrency(visitor.total_price)}
             </span>
           </div>
-        </div>
 
-        <div className="flex gap-2">
-          <button
-            onClick={() => onEdit(visitor)}
-            disabled={isProcessing}
-            className={`w-1/3 py-2 px-2 rounded font-medium transition-colors duration-200 border border-gray-300 text-gray-700 ${
-              isProcessing
-                ? "bg-gray-100 cursor-not-allowed opacity-50"
-                : "bg-white hover:bg-gray-50 shadow-sm"
-            }`}
-          >
-            Edit
-          </button>
-          <button
-            onClick={() => onConfirmPayment(visitor.id)}
-            disabled={isProcessing}
-            className={`w-2/3 py-2 px-4 rounded font-medium transition-colors duration-200 ${
-              isProcessing
-                ? "bg-gray-300 text-gray-500 cursor-not-allowed"
-                : "bg-green-600 text-white hover:bg-green-700 shadow-sm"
-            }`}
-            aria-busy={isProcessing}
-          >
-            {isProcessing ? "Memproses..." : "Konfirmasi"}
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={() => onEdit(visitor)}
+              disabled={isProcessing}
+              className="flex-1 py-2.5 px-2 rounded-lg font-bold text-sm transition-all border border-gray-300 text-gray-700 bg-white hover:bg-gray-50 active:scale-95 disabled:opacity-50"
+            >
+              Ubah Tiket
+            </button>
+            <button
+              onClick={() => onConfirmPayment(visitor.id)}
+              disabled={isProcessing}
+              className="flex-[2] py-2.5 px-4 rounded-lg font-bold text-sm transition-all bg-green-600 text-white hover:bg-green-700 active:scale-95 shadow-lg shadow-green-200 disabled:bg-gray-300"
+            >
+              {isProcessing ? "Memproses..." : "Bayar Lunas"}
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -144,9 +212,12 @@ const AdminDashboard: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [processingId, setProcessingId] = useState<string | null>(null);
 
-  // --- Modal State ---
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  // --- Modal States ---
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [selectedVisitor, setSelectedVisitor] = useState<Visitor | null>(null);
+  
+  const [isManualEntryOpen, setIsManualEntryOpen] = useState(false);
+  const [successQueueNumber, setSuccessQueueNumber] = useState<number | null>(null);
 
   // --- Helpers ---
   const getAuthHeaders = () => {
@@ -231,34 +302,29 @@ const AdminDashboard: React.FC = () => {
 
   const handleEditClick = (visitor: Visitor) => {
     setSelectedVisitor(visitor);
-    setIsModalOpen(true);
+    setIsEditModalOpen(true);
   };
 
-  // ==========================================
-  // FUNGSI UPDATE TIKET & STATUS (DIPERBARUI)
-  // ==========================================
   const handleSaveEdit = async (id: string, updatedData: any) => {
     try {
-      // 1. Panggil endpoint untuk update jumlah tiket
-      const responseEdit = await fetch(`/api/v1/transactions/${id}/edit`, {
-        method: "PATCH",
-        headers: getAuthHeaders(),
-        body: JSON.stringify({
-          under_8_count: updatedData.under_8_count,
-          under_22_count: updatedData.under_22_count,
-          adult_count: updatedData.adult_count
-        }),
-      });
+      if (updatedData.items) {
+        const responseEdit = await fetch(`/api/v1/transactions/${id}/edit`, {
+          method: "PATCH",
+          headers: getAuthHeaders(),
+          body: JSON.stringify({
+            items: updatedData.items 
+          }),
+        });
 
-      if (!responseEdit.ok) {
-        if (responseEdit.status === 401) {
-          handleUnauthorized();
-          return;
+        if (!responseEdit.ok) {
+          if (responseEdit.status === 401) {
+            handleUnauthorized();
+            return;
+          }
+          throw new Error("Gagal menyimpan jumlah tiket.");
         }
-        throw new Error("Gagal menyimpan jumlah tiket.");
       }
 
-      // 2. Jika status dikirimkan, panggil endpoint untuk update status
       if (updatedData.status) {
         const responseStatus = await fetch(`/api/v1/transactions/${id}/status`, {
           method: "PATCH",
@@ -275,12 +341,11 @@ const AdminDashboard: React.FC = () => {
         }
       }
 
-      // 3. Muat ulang data pengunjung dari server
       await loadVisitors();
       
     } catch (error) {
       console.error(error);
-      throw error; // Lempar error agar modal tahu proses gagal
+      throw error; 
     }
   };
 
@@ -301,6 +366,19 @@ const AdminDashboard: React.FC = () => {
     setVisitors((prev) => prev.filter((v) => v.id !== id));
   };
 
+  // --- Manual Entry Specific Handlers ---
+  const handleManualEntrySuccess = (newQueueNumber: number) => {
+    // Hanya tampilkan modal sukses, JANGAN panggil loadVisitors di sini.
+    setSuccessQueueNumber(newQueueNumber);
+  };
+
+  const handleCloseSuccessModal = () => {
+    // Sembunyikan modal sukses
+    setSuccessQueueNumber(null);
+    // Refresh data setelah kasir menekan tombol "Selesai"
+    loadVisitors();
+  };
+
   // --- Effects ---
   useEffect(() => {
     loadVisitors();
@@ -310,10 +388,14 @@ const AdminDashboard: React.FC = () => {
 
   // --- Render ---
   return (
-    <div className="w-full max-w-6xl mx-auto p-4">
-      <header className="mb-6">
-        <h2 className="text-2xl font-bold text-gray-800">Dashboard Kasir</h2>
-        <p className="text-gray-600">Kelola antrian dan pembayaran tiket pengunjung</p>
+    <div className="w-full max-w-6xl mx-auto p-4 min-h-screen relative flex flex-col">
+      
+      <header className="mb-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-800">Dashboard Kasir</h2>
+          <p className="text-gray-600">Kelola antrian dan pembayaran tiket pengunjung</p>
+        </div>
+        {/* Tombol Tambah Manual dipindah dari sini ke bawah */}
       </header>
 
       <div className="mb-6 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 border-b pb-4">
@@ -324,13 +406,22 @@ const AdminDashboard: React.FC = () => {
           </span>
         </h3>
 
-        <button
-          onClick={loadVisitors}
-          disabled={isLoading}
-          className="text-sm font-medium px-4 py-2 bg-white border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-        >
-          {isLoading ? "Memuat ulang..." : "Segarkan Data"}
-        </button>
+        <div className="flex gap-3">
+          <button
+            onClick={() => setIsManualEntryOpen(true)}
+            className="text-sm font-bold px-4 py-2 bg-emerald-600 text-white rounded-md hover:bg-emerald-700 shadow-sm transition-colors focus:ring-2 focus:ring-emerald-500"
+          >
+            + Tambah Manual
+          </button>
+          
+          <button
+            onClick={loadVisitors}
+            disabled={isLoading}
+            className="text-sm font-medium px-4 py-2 bg-white border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
+          >
+            {isLoading ? "Memuat..." : "Segarkan Data"}
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -340,7 +431,7 @@ const AdminDashboard: React.FC = () => {
       )}
 
       {visitors.length === 0 ? (
-        <div className="bg-gray-50 border border-dashed border-gray-300 rounded-lg p-12 text-center">
+        <div className="flex-1 bg-gray-50 border border-dashed border-gray-300 rounded-lg p-12 flex items-center justify-center">
           <p className="text-gray-500 text-lg">
             {isLoading
               ? "Mengambil data pengunjung dari server..."
@@ -348,7 +439,7 @@ const AdminDashboard: React.FC = () => {
           </p>
         </div>
       ) : (
-        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 pb-12">
           {visitors.map((visitor) => (
             <VisitorCard
               key={visitor.id}
@@ -361,13 +452,31 @@ const AdminDashboard: React.FC = () => {
         </div>
       )}
 
+      {/* =========================================================
+          MODALS AREA 
+          Diletakkan di luar struktur hierarki utama agar z-index optimal
+      ========================================================= */}
+      
       <EditTransactionModal
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
+        isOpen={isEditModalOpen}
+        onClose={() => setIsEditModalOpen(false)}
         transaction={selectedVisitor}
         onSave={handleSaveEdit}
         onDelete={handleDeleteTransaction} 
       />
+
+      <ManualEntryModal 
+        isOpen={isManualEntryOpen} 
+        onClose={() => setIsManualEntryOpen(false)} 
+        onSuccess={handleManualEntrySuccess} 
+      />
+
+      <SuccessQueueModal 
+        isOpen={successQueueNumber !== null} 
+        queueNumber={successQueueNumber} 
+        onClose={handleCloseSuccessModal} 
+      />
+
     </div>
   );
 };

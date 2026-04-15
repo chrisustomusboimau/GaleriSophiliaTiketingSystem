@@ -1,33 +1,52 @@
 /**
- * Ticket prices in Indonesian Rupiah (IDR), grouped by visitor age category.
+ * Centralized pricing configuration based on exhibition floors.
  * Update these values here to apply changes across the entire application.
  */
-export const PRICES = {
-  /** Children under 8 years old */
-  UNDER_8: 25_000,
-  /** Teenagers under 22 years old */
-  UNDER_22: 50_000,
-  /** Adults aged 22 and above */
-  ADULT: 100_000,
-} as const;
+export const FLOOR_PRICES: Record<string, { adult: number; student: number; child: number }> = {
+  'Floor 6/7': { adult: 100_000, student: 50_000, child: 25_000 },
+  'Floor 5': { adult: 40_000, student: 20_000, child: 10_000 },
+  'Floor 1': { adult: 60_000, student: 40_000, child: 20_000 }
+};
 
 /**
- * Calculates the total ticket price for a group of visitors.
+ * Calculates the aggregate unit price per age category based on the selected floors.
+ * * @example
+ * // Returns { adult: 100000, student: 60000, child: 30000 }
+ * calculateAggregatePrices(['Floor 1', 'Floor 5'])
  *
- * @param under8Count  - Number of children under 8 years old.
- * @param under22Count - Number of teenagers under 22 years old.
- * @param adultCount   - Number of adults aged 22 and above.
+ * @param selectedFloors - Array of selected floor IDs.
+ * @returns An object containing the combined price for adult, student, and child.
+ */
+export function calculateAggregatePrices(selectedFloors: string[]) {
+  let adult = 0, student = 0, child = 0;
+  
+  selectedFloors.forEach(floor => {
+    const prices = FLOOR_PRICES[floor];
+    if (prices) {
+      adult += prices.adult;
+      student += prices.student;
+      child += prices.child;
+    }
+  });
+
+  return { adult, student, child };
+}
+
+/**
+ * Calculates the final grand total for the transaction.
+ *
+ * @param counts - The number of visitors in each category.
+ * @param aggregatePrices - The combined unit price per category based on selected floors.
  * @returns Total price in IDR.
  */
 export function calculateTotalPrice(
-  under8Count: number,
-  under22Count: number,
-  adultCount: number
+  counts: { adult: number; student: number; child: number },
+  aggregatePrices: { adult: number; student: number; child: number }
 ): number {
   return (
-    under8Count * PRICES.UNDER_8 +
-    under22Count * PRICES.UNDER_22 +
-    adultCount * PRICES.ADULT
+    (counts.adult * aggregatePrices.adult) +
+    (counts.student * aggregatePrices.student) +
+    (counts.child * aggregatePrices.child)
   );
 }
 
@@ -36,9 +55,6 @@ export function calculateTotalPrice(
  *
  * @param amount - The amount in IDR.
  * @returns A formatted string, e.g. `"Rp 25.000"`.
- *
- * @example
- * formatCurrency(25_000); // "Rp 25.000"
  */
 export function formatCurrency(amount: number): string {
   return new Intl.NumberFormat("id-ID", {

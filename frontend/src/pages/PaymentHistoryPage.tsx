@@ -88,31 +88,24 @@ const PaymentHistoryPage: React.FC = () => {
     setIsModalOpen(true);
   };
 
-  // ==========================================
-  // FUNGSI UPDATE TIKET & STATUS (DIPERBARUI)
-  // ==========================================
   const handleSaveEdit = async (id: string, updatedData: any) => {
     try {
-      // 1. Update jumlah tiket terlebih dahulu
-      const responseEdit = await fetch(`/api/v1/transactions/${id}/edit`, {
-        method: "PATCH",
-        headers: getAuthHeaders(),
-        body: JSON.stringify({
-          under_8_count: updatedData.under_8_count,
-          under_22_count: updatedData.under_22_count,
-          adult_count: updatedData.adult_count
-        }),
-      });
+      if (updatedData.items) {
+        const responseEdit = await fetch(`/api/v1/transactions/${id}/edit`, {
+          method: "PATCH",
+          headers: getAuthHeaders(),
+          body: JSON.stringify({ items: updatedData.items }),
+        });
 
-      if (!responseEdit.ok) {
-        if (responseEdit.status === 401) {
-          handleUnauthorized();
-          return;
+        if (!responseEdit.ok) {
+          if (responseEdit.status === 401) {
+            handleUnauthorized();
+            return;
+          }
+          throw new Error("Gagal menyimpan jumlah tiket.");
         }
-        throw new Error("Gagal menyimpan jumlah tiket.");
       }
 
-      // 2. Update status pembayaran
       if (updatedData.status) {
         const responseStatus = await fetch(`/api/v1/transactions/${id}/status`, {
           method: "PATCH",
@@ -129,12 +122,10 @@ const PaymentHistoryPage: React.FC = () => {
         }
       }
 
-      // 3. Refresh data setelah sukses mengubah keduanya
       await loadTransactions();
-      
     } catch (error) {
       console.error(error);
-      throw error; // Melempar error agar ditangkap oleh blok try-catch di dalam Modal
+      throw error; 
     }
   };
 
@@ -156,7 +147,7 @@ const PaymentHistoryPage: React.FC = () => {
   };
 
   // ==========================================
-  // DERIVED SUMMARY DATA
+  // DERIVED SUMMARY DATA (UNIQUE PEOPLE COUNT)
   // ==========================================
   const summaryStats = useMemo(() => {
     let totalChildren = 0;
@@ -165,10 +156,19 @@ const PaymentHistoryPage: React.FC = () => {
     let totalRevenue = 0;
 
     transactions.forEach((tx) => {
-      totalChildren += tx.under_8_count || 0;
-      totalTeens += tx.under_22_count || 0;
-      totalAdults += tx.adult_count || 0;
       totalRevenue += tx.total_price || 0; 
+      
+      const seenCategories = new Set<string>();
+
+      tx.items.forEach(item => {
+        const cat = item.age_category.toLowerCase();
+        if (!seenCategories.has(cat)) {
+          if (cat === 'child') totalChildren += item.quantity;
+          else if (cat === 'student' || cat === 'teen') totalTeens += item.quantity;
+          else if (cat === 'adult') totalAdults += item.quantity;
+          seenCategories.add(cat);
+        }
+      });
     });
 
     return {
@@ -188,7 +188,6 @@ const PaymentHistoryPage: React.FC = () => {
     
     try {
       setIsExporting(true);
-      
       const workbook = new ExcelJS.Workbook();
       const worksheet = workbook.addWorksheet("Riwayat Transaksi");
 
@@ -197,9 +196,10 @@ const PaymentHistoryPage: React.FC = () => {
         { header: "ID Transaksi", key: "id", width: 40 },
         { header: "Tanggal", key: "date", width: 20 },
         { header: "Waktu", key: "time", width: 15 },
-        { header: "Anak (< 8 thn)", key: "under_8", width: 18 },
-        { header: "Remaja (< 22 thn)", key: "under_22", width: 20 },
-        { header: "Dewasa (22+ thn)", key: "adult", width: 20 },
+        { header: "Lantai yang Dipilih", key: "floors", width: 30 },
+        { header: "Anak (Orang)", key: "child", width: 15 },
+        { header: "Remaja (Orang)", key: "student", width: 18 },
+        { header: "Dewasa (Orang)", key: "adult", width: 18 },
         { header: "Total Pembayaran", key: "total_price", width: 25 },
         { header: "Status", key: "status", width: 15 },
       ];
@@ -226,14 +226,30 @@ const PaymentHistoryPage: React.FC = () => {
         const dateStr = `${dateObj.getDate().toString().padStart(2, "0")}/${(dateObj.getMonth() + 1).toString().padStart(2, "0")}/${dateObj.getFullYear()}`;
         const timeStr = `${dateObj.getHours().toString().padStart(2, "0")}:${dateObj.getMinutes().toString().padStart(2, "0")}`;
 
+        const uniqueCounts = { adult: 0, student: 0, child: 0 };
+        const seenCategories = new Set<string>();
+        
+        tx.items.forEach(item => {
+          const cat = item.age_category.toLowerCase();
+          if (!seenCategories.has(cat)) {
+            if (cat === 'adult') uniqueCounts.adult = item.quantity;
+            if (cat === 'student' || cat === 'teen') uniqueCounts.student = item.quantity;
+            if (cat === 'child') uniqueCounts.child = item.quantity;
+            seenCategories.add(cat);
+          }
+        });
+
+        const uniqueFloors = Array.from(new Set(tx.items.map(i => i.floor))).sort().join(", ");
+
         const row = worksheet.addRow({
           queue_number: tx.queue_number,
           id: tx.id,
           date: dateStr,
           time: timeStr,
-          under_8: tx.under_8_count,
-          under_22: tx.under_22_count,
-          adult: tx.adult_count,
+          floors: uniqueFloors,
+          child: uniqueCounts.child,
+          student: uniqueCounts.student,
+          adult: uniqueCounts.adult,
           total_price: tx.total_price,
           status: statusMap[tx.status] || tx.status,
         });
@@ -243,11 +259,9 @@ const PaymentHistoryPage: React.FC = () => {
 
       const now = new Date();
       const dateSuffix = `${now.getFullYear()}${(now.getMonth() + 1).toString().padStart(2, '0')}${now.getDate().toString().padStart(2, '0')}_${now.getHours().toString().padStart(2, '0')}${now.getMinutes().toString().padStart(2, '0')}`;
-      const fileName = `Report_Transaksi_${dateSuffix}.xlsx`;
-
       const buffer = await workbook.xlsx.writeBuffer();
       const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-      saveAs(blob, fileName);
+      saveAs(blob, `Report_Transaksi_${dateSuffix}.xlsx`);
 
     } catch (err) {
       console.error("Failed to export to Excel:", err);
@@ -264,6 +278,7 @@ const PaymentHistoryPage: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
+      {/* Header ... */}
       <header className="bg-white shadow-sm">
         <div className="max-w-7xl mx-auto py-4 px-4 flex justify-between items-center">
           <h1 className="text-2xl font-bold text-gray-800">Museum Ticketing</h1>
@@ -289,6 +304,7 @@ const PaymentHistoryPage: React.FC = () => {
 
       <main className="flex-1 p-4">
         <div className="max-w-6xl mx-auto space-y-6">
+          {/* Controls Header ... */}
           <header className="flex flex-col sm:flex-row sm:justify-between sm:items-end border-b border-gray-200 pb-4 gap-4 mt-4">
             <div>
               <h2 className="text-2xl font-bold text-gray-800">Riwayat Pembayaran</h2>
@@ -320,26 +336,19 @@ const PaymentHistoryPage: React.FC = () => {
                 disabled={isExporting || transactions.length === 0}
                 className="text-sm font-medium px-4 py-2 bg-green-600 border border-green-600 rounded-md text-white hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm flex items-center gap-2"
               >
-                {isExporting ? (
-                  <span>Mengekspor...</span>
-                ) : (
-                  <>
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
-                    </svg>
-                    Export Excel
-                  </>
-                )}
+                {isExporting ? <span>Mengekspor...</span> : <span>Export Excel</span>}
               </button>
             </div>
           </header>
 
+          {/* SUMMARY DENGAN PROP TRANSACTIONS */}
           <Summary 
             totalVisitors={summaryStats.totalVisitors}
             totalChildren={summaryStats.totalChildren}
             totalTeens={summaryStats.totalTeens}
             totalAdults={summaryStats.totalAdults}
             totalRevenue={summaryStats.totalRevenue}
+            transactions={transactions} 
           />
 
           {error && (

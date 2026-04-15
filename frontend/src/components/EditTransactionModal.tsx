@@ -3,140 +3,165 @@
  * ----------------------------------------------------
  * Komponen modal (popup) untuk mengedit, mengubah status,
  * dan menghapus transaksi tiket pengunjung.
+ * Diperbarui untuk mendukung skema array 'items' (dinamis per lantai).
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from "react";
+import { formatCurrency } from "../utils/priceCalculator";
 
-// Mendefinisikan tipe data yang dibutuhkan modal
+/* =====================================================
+   TYPES & INTERFACES
+===================================================== */
+
+export interface TransactionItem {
+  floor: string;
+  age_category: string;
+  quantity: number;
+  unit_price: number;
+}
+
 export interface TransactionData {
   id: string;
   queue_number: number;
-  under_8_count: number;
-  under_22_count: number;
-  adult_count: number;
-  status: "pending" | "paid" | "cancelled" | string; // DITAMBAHKAN: Status
+  status: "pending" | "paid" | "cancelled" | string;
+  total_price: number;
+  items: TransactionItem[];
 }
 
 interface EditTransactionModalProps {
   isOpen: boolean;
   onClose: () => void;
   transaction: TransactionData | null;
-  // DITAMBAHKAN: status pada onSave
-  onSave: (id: string, updatedData: { under_8_count: number; under_22_count: number; adult_count: number; status: string }) => Promise<void>;
-  onDelete: (id: string) => Promise<void>; 
+  onSave: (id: string, updatedData: { items?: TransactionItem[]; status?: string }) => Promise<void>;
+  onDelete: (id: string) => Promise<void>;
 }
 
-const EditTransactionModal: React.FC<EditTransactionModalProps> = ({ 
-  isOpen, 
-  onClose, 
-  transaction, 
+/* =====================================================
+   MAIN COMPONENT
+===================================================== */
+
+const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
+  isOpen,
+  onClose,
+  transaction,
   onSave,
-  onDelete 
+  onDelete,
 }) => {
-  // State untuk menyimpan data form yang sedang diedit
-  const [formData, setFormData] = useState({
-    under_8_count: 0,
-    under_22_count: 0,
-    adult_count: 0,
-    status: "pending", // DITAMBAHKAN: State untuk status
-  });
-  
+  // --- Local State ---
+  const [editedItems, setEditedItems] = useState<TransactionItem[]>([]);
+  const [editedStatus, setEditedStatus] = useState<string>("pending");
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  // Efek ini berjalan setiap kali modal dibuka atau data transaksi yang dipilih berubah
+  // Sync local state when the modal opens or transaction changes
   useEffect(() => {
-    if (transaction) {
-      setFormData({
-        under_8_count: transaction.under_8_count,
-        under_22_count: transaction.under_22_count,
-        adult_count: transaction.adult_count,
-        status: transaction.status, // Sinkronisasi status awal
-      });
+    if (transaction && isOpen) {
+      // Deep copy the items so we don't accidentally mutate the dashboard's state directly
+      setEditedItems(JSON.parse(JSON.stringify(transaction.items || [])));
+      setEditedStatus(transaction.status);
+      setError(null);
     }
-  }, [transaction]);
+  }, [transaction, isOpen]);
 
-  if (!isOpen || !transaction) return null;
+  // Dynamically calculate the new total price based on edits
+  const newTotalPrice = useMemo(() => {
+    return editedItems.reduce(
+      (sum, item) => sum + item.quantity * item.unit_price,
+      0
+    );
+  }, [editedItems]);
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    const { name, value } = e.target;
-    
-    // Jika yang diubah adalah status (berupa string)
-    if (name === "status") {
-      setFormData((prev) => ({ ...prev, [name]: value }));
-    } else {
-      // Jika yang diubah adalah jumlah tiket (berupa angka)
-      setFormData((prev) => ({ 
-        ...prev, 
-        [name]: Math.max(0, parseInt(value) || 0) 
-      }));
-    }
+  // --- Handlers ---
+  const handleQuantityChange = (index: number, newQty: number) => {
+    setEditedItems((prev) => {
+      const updated = [...prev];
+      updated[index].quantity = Math.max(0, newQty); // Prevent negative numbers
+      return updated;
+    });
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsSaving(true);
+  const handleSave = async () => {
+    if (!transaction) return;
+    
+    // Validate: Don't allow saving if total tickets is 0
+    const totalTickets = editedItems.reduce((sum, item) => sum + item.quantity, 0);
+    if (totalTickets === 0 && editedStatus !== "cancelled") {
+      setError("Jumlah total tiket tidak boleh 0. Hapus transaksi atau ubah status ke Cancelled.");
+      return;
+    }
+
     try {
-      await onSave(transaction.id, formData);
-      onClose(); 
-    } catch (error) {
-      console.error("Gagal menyimpan perubahan", error);
-      alert("Gagal menyimpan perubahan. Silakan coba lagi.");
+      setIsSaving(true);
+      setError(null);
+      await onSave(transaction.id, {
+        items: editedItems,
+        status: editedStatus,
+      });
+      onClose();
+    } catch (err: any) {
+      setError(err.message || "Gagal menyimpan perubahan.");
     } finally {
       setIsSaving(false);
     }
   };
 
   const handleDelete = async () => {
+    if (!transaction) return;
     const confirmDelete = window.confirm(
-      `Apakah Anda yakin ingin menghapus tiket Antrian #${transaction.queue_number}? Tindakan ini tidak dapat dibatalkan.`
+      `Apakah Anda yakin ingin menghapus transaksi antrian ${transaction.queue_number} secara permanen?`
     );
-    
     if (!confirmDelete) return;
 
-    setIsDeleting(true);
     try {
+      setIsDeleting(true);
+      setError(null);
       await onDelete(transaction.id);
-      onClose(); 
-    } catch (error) {
-      console.error("Gagal menghapus tiket", error);
-      alert("Gagal menghapus tiket. Silakan periksa koneksi Anda dan coba lagi.");
+      onClose();
+    } catch (err: any) {
+      setError(err.message || "Gagal menghapus transaksi.");
     } finally {
       setIsDeleting(false);
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 px-4 backdrop-blur-sm transition-opacity">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-md overflow-hidden transform transition-all">
-        
-        <div className="bg-blue-600 px-4 py-3 flex justify-between items-center text-white">
-          <h3 className="font-bold text-lg">Edit Tiket #{transaction.queue_number}</h3>
-          <button 
-            onClick={onClose} 
-            className="text-white hover:text-gray-200 text-2xl font-bold leading-none focus:outline-none"
-            aria-label="Tutup modal"
-          >
-            &times;
-          </button>
-        </div>
-        
-        <form onSubmit={handleSubmit} className="p-5 space-y-4">
-          <div className="bg-blue-50 text-blue-800 text-sm p-3 rounded-md mb-4 border border-blue-100">
-            Perbarui jumlah tiket dan status di bawah ini. Total harga akan dikalkulasi ulang secara otomatis.
-          </div>
+  if (!isOpen || !transaction) return null;
 
-          {/* DITAMBAHKAN: Dropdown untuk mengubah Status Pembayaran */}
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 animate-in fade-in duration-200">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
+        
+        {/* HEADER */}
+        <header className="bg-slate-50 border-b p-5 flex justify-between items-center">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <h3 className="text-xl font-bold text-gray-800">Edit Transaksi</h3>
+            <p className="text-sm text-gray-500">Antrian: <span className="font-bold text-gray-800">{transaction.queue_number}</span></p>
+          </div>
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-600 font-bold text-xl px-2"
+          >
+            ✕
+          </button>
+        </header>
+
+        {/* BODY */}
+        <div className="p-5 overflow-y-auto flex-1">
+          {error && (
+            <div className="mb-4 p-3 bg-red-50 text-red-700 text-sm border-l-4 border-red-500 rounded-r">
+              {error}
+            </div>
+          )}
+
+          {/* STATUS DROPDOWN */}
+          <div className="mb-6">
+            <label className="block text-sm font-bold text-gray-700 mb-2">
               Status Pembayaran
             </label>
             <select
-              name="status"
-              value={formData.status}
-              onChange={handleChange}
-              disabled={isSaving || isDeleting}
-              className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 p-2.5 border outline-none transition-colors disabled:bg-gray-100 font-medium"
+              value={editedStatus}
+              onChange={(e) => setEditedStatus(e.target.value)}
+              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
             >
               <option value="pending">🟡 Menunggu (Pending)</option>
               <option value="paid">🟢 Lunas (Paid)</option>
@@ -144,83 +169,86 @@ const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
             </select>
           </div>
 
-          <div className="border-t border-gray-200 my-4 pt-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Anak (&lt; 8 thn)
-              </label>
-              <input
-                type="number"
-                name="under_8_count"
-                min="0"
-                value={formData.under_8_count}
-                onChange={handleChange}
-                disabled={isSaving || isDeleting}
-                className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 p-2.5 border outline-none transition-colors disabled:bg-gray-100"
-              />
-            </div>
-            
-            <div className="mt-4">
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Remaja (&lt; 22 thn)
-              </label>
-              <input
-                type="number"
-                name="under_22_count"
-                min="0"
-                value={formData.under_22_count}
-                onChange={handleChange}
-                disabled={isSaving || isDeleting}
-                className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 p-2.5 border outline-none transition-colors disabled:bg-gray-100"
-              />
-            </div>
-            
-            <div className="mt-4">
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Dewasa (22+ thn)
-              </label>
-              <input
-                type="number"
-                name="adult_count"
-                min="0"
-                value={formData.adult_count}
-                onChange={handleChange}
-                disabled={isSaving || isDeleting}
-                className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 p-2.5 border outline-none transition-colors disabled:bg-gray-100"
-              />
+          {/* DYNAMIC ITEMS LIST */}
+          <div className="mb-2">
+            <label className="block text-sm font-bold text-gray-700 mb-2">
+              Detail Tiket
+            </label>
+            <div className="space-y-3">
+              {editedItems.map((item, idx) => (
+                <div key={idx} className="flex items-center justify-between p-3 border border-gray-200 rounded-lg bg-slate-50">
+                  <div className="flex-1">
+                    <p className="font-medium text-gray-800 capitalize">
+                      {item.age_category} <span className="text-xs font-normal text-gray-500">({item.floor})</span>
+                    </p>
+                    <p className="text-sm text-gray-500">{formatCurrency(item.unit_price)}</p>
+                  </div>
+                  
+                  {/* QUANTITY CONTROLS */}
+                  <div className="flex items-center gap-3 bg-white border border-gray-200 rounded-lg p-1 shadow-sm">
+                    <button
+                      onClick={() => handleQuantityChange(idx, item.quantity - 1)}
+                      className="w-8 h-8 flex items-center justify-center font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-md transition-colors"
+                      disabled={item.quantity === 0}
+                    >
+                      -
+                    </button>
+                    <span className="w-6 text-center font-bold text-gray-800">
+                      {item.quantity}
+                    </span>
+                    <button
+                      onClick={() => handleQuantityChange(idx, item.quantity + 1)}
+                      className="w-8 h-8 flex items-center justify-center font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors"
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+              ))}
+
+              {editedItems.length === 0 && (
+                <p className="text-gray-500 italic text-sm py-2">Tidak ada data tiket.</p>
+              )}
             </div>
           </div>
+        </div>
 
-          <div className="flex justify-between items-center pt-5 mt-2 border-t border-gray-100">
+        {/* FOOTER & TOTALS */}
+        <div className="bg-slate-50 border-t p-5">
+          <div className="flex justify-between items-center mb-4">
+            <span className="text-gray-600 font-medium">Total Harga Baru:</span>
+            <span className={`text-xl font-bold ${newTotalPrice !== transaction.total_price ? 'text-blue-700' : 'text-gray-800'}`}>
+              {formatCurrency(newTotalPrice)}
+            </span>
+          </div>
+
+          <div className="flex gap-3">
             <button
-              type="button"
               onClick={handleDelete}
               disabled={isSaving || isDeleting}
-              className="px-4 py-2 text-sm font-medium text-red-600 bg-white border border-red-200 hover:bg-red-50 hover:border-red-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 transition-colors disabled:opacity-50"
+              className="px-4 py-2 bg-red-100 text-red-700 hover:bg-red-200 font-medium rounded-lg transition-colors disabled:opacity-50"
             >
-              {isDeleting ? "Menghapus..." : "Hapus Tiket"}
+              {isDeleting ? "Menghapus..." : "Hapus"}
             </button>
-
-            <div className="flex gap-3">
-              <button 
-                type="button" 
-                onClick={onClose} 
+            <div className="flex-1 flex gap-3 justify-end">
+              <button
+                onClick={onClose}
                 disabled={isSaving || isDeleting}
-                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors disabled:opacity-50"
+                className="px-4 py-2 border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 font-medium rounded-lg transition-colors"
               >
                 Batal
               </button>
-              
-              <button 
-                type="submit" 
-                disabled={isSaving || isDeleting} 
-                className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors disabled:bg-blue-400 flex items-center justify-center min-w-[140px]"
+              <button
+                onClick={handleSave}
+                disabled={isSaving || isDeleting}
+                className="px-6 py-2 bg-blue-600 text-white hover:bg-blue-700 font-medium rounded-lg shadow-sm transition-colors disabled:opacity-50"
               >
                 {isSaving ? "Menyimpan..." : "Simpan Perubahan"}
               </button>
             </div>
           </div>
-        </form>
+        </div>
+
       </div>
     </div>
   );
