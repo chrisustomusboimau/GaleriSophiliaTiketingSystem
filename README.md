@@ -1,21 +1,21 @@
-# 🏛️ Museum Ticketing & Queue Management System
+# Galeri Sophilia Ticketing & Queue Management System
 
 Sistem manajemen tiket museum terintegrasi yang mencakup antarmuka pengunjung (Kiosk), sistem manajemen antrean, dan Dashboard Admin (Kasir) dengan kendali penuh atas transaksi.
 
-## 🚀 Ringkasan Proyek
+## Ringkasan Proyek
 Proyek ini mengotomatisasi alur pembelian tiket museum. Fitur utamanya adalah fleksibilitas pemilihan multi-lantai dalam satu transaksi dengan tetap menjaga integritas data statistik melalui logika **Unique People Count**. Sistem ini menggunakan arsitektur asinkron untuk performa tinggi dan keamanan berbasis JWT.
 
 ---
 
-## ✨ Fitur Utama
+## Fitur Utama
 
-### 👨‍👩‍👧‍👦 Sisi Pengunjung (Kios Digital)
+### Sisi Pengunjung
 - **Dynamic Floor Selection**: Pilih kombinasi lantai (Floor 1, 5, 6/7) dengan harga agregat yang dihitung otomatis oleh server.
 - **Smart Visitor Input**: Input jumlah orang (Anak, Remaja, Dewasa) dengan kontrol tombol `+/-` dan fitur *auto-select*.
 - **Queue Number Generation**: Mendapatkan nomor antrean instan setelah data tersimpan di database.
 - **Multi-language Support**: Tersedia dalam Bahasa Indonesia, English, dan Mandarin.
 
-### 💼 Sisi Admin / Kasir (Dashboard)
+### Sisi Admin / Kasir
 - **Live Monitoring Dashboard**: Memantau antrean berstatus `pending` secara real-time.
 - **Manual Entry System**: Modal khusus bagi kasir untuk melayani pengunjung *walk-in* dengan alur pemilihan lantai yang cepat.
 - **Transaction Management**: Konfirmasi pembayaran (`paid`), edit detail tiket, atau pembatalan transaksi (`cancelled`).
@@ -24,7 +24,7 @@ Proyek ini mengotomatisasi alur pembelian tiket museum. Fitur utamanya adalah fl
 
 ---
 
-## 🛠️ Stack Teknologi
+## Stack Teknologi
 
 ### Frontend
 - **Framework**: React 18 (TypeScript)
@@ -40,7 +40,7 @@ Proyek ini mengotomatisasi alur pembelian tiket museum. Fitur utamanya adalah fl
 
 ---
 
-## 📊 Logika Bisnis: Perhitungan Pengunjung Unik
+## Logika Bisnis: Perhitungan Pengunjung Unik
 Sistem ini menyimpan data dalam bentuk array `items` per lantai di database, namun menampilkannya secara cerdas di Dashboard:
 - **Skenario**: 1 Orang Dewasa membeli tiket untuk Lantai 1 DAN Lantai 5.
 - **Database**: Menyimpan 2 row di tabel `transaction_items`.
@@ -49,7 +49,7 @@ Sistem ini menyimpan data dalam bentuk array `items` per lantai di database, nam
 
 ---
 
-## 🔌 API Endpoints (v1)
+## API Endpoints (v1)
 
 ### Public (Visitor)
 - `POST /api/v1/transactions`: Membuat transaksi baru & generate nomor antrean.
@@ -63,7 +63,7 @@ Sistem ini menyimpan data dalam bentuk array `items` per lantai di database, nam
 
 ---
 
-## ⚙️ Konfigurasi Harga (Server-Side)
+## Konfigurasi Harga (Server-Side)
 Harga tiket dikelola sepenuhnya oleh server untuk keamanan:
 - **Floor 6/7**: Adult (100k), Student (50k), Child (25k)
 - **Floor 5**: Adult (40k), Student (20k), Child (10k)
@@ -71,7 +71,7 @@ Harga tiket dikelola sepenuhnya oleh server untuk keamanan:
 
 ---
 
-## 🚀 Cara Menjalankan
+## Cara Menjalankan
 
 ### 1. Jalankan Backend
 ```bash
