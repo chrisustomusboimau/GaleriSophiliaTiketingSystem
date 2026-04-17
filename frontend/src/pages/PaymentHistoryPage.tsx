@@ -22,7 +22,7 @@ const PaymentHistoryPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isExporting, setIsExporting] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState<string>("paid");
 
   // --- Modal State ---
   const [isModalOpen, setIsModalOpen] = useState(false);

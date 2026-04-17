@@ -10,6 +10,7 @@
  * - Submits data to the backend API as an array of items.
  * - Multi-language support via LanguageContext.
  * - FIX: Resolved the backspace "0" bug for numeric inputs.
+ * - FEATURE: Added real-time visual indicator for country count validation.
  */
 
 import React, { useEffect, useMemo, useState } from "react";
@@ -51,14 +52,14 @@ const getDefaultCountryByLanguage = (language: "id" | "en" | "zh"): string => {
 ===================================================== */
 
 interface VisitorCounts {
-  child: number | string;   // DIBERIKAN IZIN MENJADI STRING AGAR BISA ""
-  student: number | string; // DIBERIKAN IZIN MENJADI STRING AGAR BISA ""
-  adult: number | string;   // DIBERIKAN IZIN MENJADI STRING AGAR BISA ""
+  child: number | string;   
+  student: number | string; 
+  adult: number | string;   
 }
 
 interface CountryVisitor {
   countryCode: string;
-  count: number | string; // Diberikan izin untuk origin input juga
+  count: number | string; 
 }
 
 interface CounterInputProps {
@@ -87,7 +88,6 @@ const CounterInput: React.FC<CounterInputProps> = ({
   const inputId = `counter-${label.replace(/\s+/g, "-").toLowerCase()}`;
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    // FIX: Jika string kosong, simpan sebagai string kosong. Jika tidak, parse ke angka.
     if (e.target.value === "") {
       onChange("");
     } else {
@@ -121,7 +121,7 @@ const CounterInput: React.FC<CounterInputProps> = ({
           min={0}
           value={value}
           onChange={handleInputChange}
-          onFocus={(e) => e.target.select()} // FIX TAMBAHAN: Auto-select saat di-klik
+          onFocus={(e) => e.target.select()} 
           className="w-24 py-2 font-bold text-center border rounded-md focus:ring-2 focus:ring-blue-500 outline-none"
         />
 
@@ -189,30 +189,29 @@ const VisitorForm: React.FC = () => {
 
   // --- Derived Data (Memoized) ---
   
-  // 1. Calculate the combined price per person based on selected floors
   const aggregatePrices = useMemo(
     () => calculateAggregatePrices(selectedFloors),
     [selectedFloors]
   );
 
-  // Parse counts to pure numbers for accurate math
   const pureCounts = useMemo(() => ({
     child: Number(counts.child) || 0,
     student: Number(counts.student) || 0,
     adult: Number(counts.adult) || 0,
   }), [counts]);
 
+  // Total pengunjung yang diinput di kategori usia
   const totalVisitors = useMemo(
     () => pureCounts.child + pureCounts.student + pureCounts.adult,
     [pureCounts]
   );
 
+  // Total pengunjung yang diinput di form asal negara
   const totalFromCountries = useMemo(
     () => countryVisitors.reduce((sum, c) => sum + (Number(c.count) || 0), 0),
     [countryVisitors]
   );
 
-  // 2. Calculate final grand total for the UI preview
   const totalPrice = useMemo(
     () => calculateTotalPrice(pureCounts, aggregatePrices),
     [pureCounts, aggregatePrices]
@@ -227,32 +226,30 @@ const VisitorForm: React.FC = () => {
     setCountryVisitors((prev) => [...prev, { countryCode: "id", count: 1 }]);
   };
 
-const handleUpdateCountry = (
-    index: number,
-    key: keyof CountryVisitor,
-    value: string | number
-  ) => {
-    setCountryVisitors((prev) =>
-      prev.map((c, i) => {
-        if (i !== index) return c;
+  const handleUpdateCountry = (
+      index: number,
+      key: keyof CountryVisitor,
+      value: string | number
+    ) => {
+      setCountryVisitors((prev) =>
+        prev.map((c, i) => {
+          if (i !== index) return c;
 
-        // Perbaikan TypeScript: Pisahkan logika berdasarkan key-nya secara eksplisit
-        if (key === "countryCode") {
-          return { ...c, countryCode: value as string };
-        }
+          if (key === "countryCode") {
+            return { ...c, countryCode: value as string };
+          }
 
-        if (key === "count") {
-          // Menangani bug backspace (mengizinkan string kosong sementara)
-          return {
-            ...c,
-            count: value === "" ? "" : Math.max(0, parseInt(value as string) || 0),
-          };
-        }
+          if (key === "count") {
+            return {
+              ...c,
+              count: value === "" ? "" : Math.max(0, parseInt(value as string) || 0),
+            };
+          }
 
-        return c;
-      })
-    );
-  };
+          return c;
+        })
+      );
+    };
 
   const handleRemoveCountry = (index: number) => {
     setCountryVisitors((prev) => prev.filter((_, i) => i !== index));
@@ -279,7 +276,6 @@ const handleUpdateCountry = (
     try {
       setIsSubmitting(true);
 
-      // 1. Map frontend state to the new API payload contract (Itemized per floor)
       const items: { floor: string; age_category: string; quantity: number }[] = [];
       
       selectedFloors.forEach(floor => {
@@ -292,11 +288,10 @@ const handleUpdateCountry = (
         items,
         origins: countryVisitors.map((c) => ({
           country_code: c.countryCode,
-          count: Number(c.count) || 0, // Pastikan dikirim sebagai number murni
+          count: Number(c.count) || 0, 
         })),
       };
 
-      // 2. Make the POST request to the backend
       const response = await fetch("/api/v1/transactions", {
         method: "POST",
         headers: {
@@ -305,7 +300,6 @@ const handleUpdateCountry = (
         body: JSON.stringify(payload),
       });
 
-      // 3. Handle non-2xx HTTP responses
       if (!response.ok) {
         let errorMessage = "Terjadi kesalahan pada server. Silakan coba lagi.";
         try {
@@ -317,14 +311,12 @@ const handleUpdateCountry = (
         throw new Error(errorMessage);
       }
 
-      // 4. Parse successful response
       const data = await response.json();
 
       if (!data || !data.id) {
         throw new Error("Respon server tidak valid (ID tidak ditemukan).");
       }
 
-      // 5. Navigate to the queue display page
       navigate(`/queue/${data.id}`, {
         state: {
           origins: countryVisitors,
@@ -353,7 +345,7 @@ const handleUpdateCountry = (
         </p>
       </header>
 
-      {/* Age Category Inputs mapped to aggregated floor prices */}
+      {/* Age Category Inputs */}
       <CounterInput
         label={translations.childLabel[language]}
         price={aggregatePrices.child}
@@ -375,14 +367,20 @@ const handleUpdateCountry = (
 
       {/* Multi-Country Input Section */}
       <div className="mb-6 p-4 border rounded-lg bg-white shadow-sm">
-        <label className="block mb-4 font-medium">
-          {translations.countryOrigin[language]}
-        </label>
+        
+        {/* HEADER NEGARA & INDIKATOR SINKRONISASI */}
+        <div className="flex justify-between items-center mb-4 border-b pb-2">
+          <label className="block font-medium">
+            {translations.countryOrigin[language]}
+          </label>
+          <span className={`text-xs font-bold px-2 py-1 rounded ${totalVisitors !== totalFromCountries ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>
+            {totalFromCountries} / {totalVisitors} {translations.people[language]}
+          </span>
+        </div>
 
         <div className="space-y-3">
           {countryVisitors.map((country, index) => (
             <div key={index} className="flex flex-row items-center gap-2 w-full">
-              {/* 1. Select Negara: Mengambil ruang paling besar (misal 70% atau flex-grow) */}
               <select
                 value={country.countryCode}
                 onChange={(e) => handleUpdateCountry(index, "countryCode", e.target.value)}
@@ -395,7 +393,6 @@ const handleUpdateCountry = (
                 ))}
               </select>
 
-              {/* 2. Input Angka: Ukuran sedang (misal flex-1) */}
               <input
                 type="number"
                 min={1}
@@ -405,7 +402,6 @@ const handleUpdateCountry = (
                 className="flex-1 min-w-0 p-3 text-center border rounded-md focus:ring-2 focus:ring-blue-500 outline-none bg-white font-bold"
               />
 
-              {/* 3. Tombol Hapus: Mengambil ruang paling sedikit atau tetap */}
               {countryVisitors.length > 1 ? (
                 <button
                   type="button"
@@ -416,7 +412,6 @@ const handleUpdateCountry = (
                   ✕
                 </button>
               ) : (
-                // Placeholder agar layout tetap simetris meski tombol hapus tidak ada
                 <div className="w-10 flex-none" />
               )}
             </div>

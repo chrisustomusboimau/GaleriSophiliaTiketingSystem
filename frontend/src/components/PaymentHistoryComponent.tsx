@@ -4,7 +4,7 @@
  * Reusable table component to display a list of transactions.
  * Designed to match the styling of the AdminDashboard cards.
  * Updated to support dynamic item arrays, showing unique people
- * counts per age category and their selected floors in separate columns.
+ * counts per age category, their origin countries, and selected floors.
  */
 
 import React from "react";
@@ -21,6 +21,12 @@ export interface TransactionItem {
   unit_price: number;
 }
 
+// Tambahkan interface untuk Asal Negara
+export interface TransactionOrigin {
+  country_code: string;
+  count: number;
+}
+
 export interface Transaction {
   id: string;
   queue_number: number;
@@ -28,6 +34,7 @@ export interface Transaction {
   total_price: number;
   status: "pending" | "paid" | "cancelled";
   items: TransactionItem[]; 
+  origins?: TransactionOrigin[]; // Tambahkan properti origins
 }
 
 interface PaymentHistoryComponentProps {
@@ -89,8 +96,9 @@ const PaymentHistoryComponent: React.FC<PaymentHistoryComponentProps> = ({
             <tr className="bg-blue-600 text-white text-sm font-medium uppercase tracking-wider">
               <th className="p-4 rounded-tl-lg">No. Antrian</th>
               <th className="p-4">Tanggal & Waktu</th>
-              <th className="p-4">Kategori Usia</th> {/* KOLOM DIPISAH 1 */}
-              <th className="p-4">Lantai</th>        {/* KOLOM DIPISAH 2 */}
+              <th className="p-4">Kategori Usia</th> 
+              <th className="p-4">Asal Negara</th>   {/* KOLOM BARU: ASAL NEGARA */}
+              <th className="p-4">Lantai</th>        
               <th className="p-4">Total</th>
               <th className="p-4 text-center">Status</th>
               <th className="p-4 rounded-tr-lg text-center">Aksi</th>
@@ -148,7 +156,27 @@ const PaymentHistoryComponent: React.FC<PaymentHistoryComponentProps> = ({
                     </div>
                   </td>
 
-                  {/* KOLOM 2: LANTAI YANG DIPILIH */}
+                  {/* KOLOM BARU: ASAL NEGARA */}
+                  <td className="p-4 align-top">
+                    <div className="space-y-1.5">
+                      {tx.origins && tx.origins.length > 0 ? (
+                        tx.origins.map((origin, idx) => (
+                          <div key={idx} className="flex items-center text-sm">
+                            <span className="font-medium text-gray-700 w-10 uppercase">
+                              {origin.country_code}
+                            </span>
+                            <span className="font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded ml-2">
+                              {origin.count}
+                            </span>
+                          </div>
+                        ))
+                      ) : (
+                        <span className="text-sm text-gray-400 italic">-</span>
+                      )}
+                    </div>
+                  </td>
+
+                  {/* KOLOM 3: LANTAI YANG DIPILIH */}
                   <td className="p-4 align-top">
                     <div className="flex flex-wrap gap-1.5">
                       {allUniqueFloors.length > 0 ? (

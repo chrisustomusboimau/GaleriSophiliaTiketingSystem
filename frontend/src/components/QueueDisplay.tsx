@@ -16,30 +16,26 @@ import { useLanguage } from "../contexts/LanguageContext";
    TYPES & INTERFACES
 ===================================================== */
 
-export interface TransactionOrigin {
-  country_code: string;
-  count: number;
-}
-
 export interface TransactionItem {
   floor: string;
   age_category: string;
   quantity: number;
-  unit_price?: number; 
+  unit_price?: number;
 }
 
-export interface Visitor {
+/**
+ * UI-specific visitor model (bukan model backend)
+ */
+export interface QueueDisplayVisitor {
   id: string;
   queue_number: number;
   total_price: number;
-  status: string;
   created_at: string;
-  origins: TransactionOrigin[]; 
-  items: TransactionItem[]; 
+  items: TransactionItem[];
 }
 
 interface QueueDisplayProps {
-  visitor: Visitor;
+  visitor: QueueDisplayVisitor;
 }
 
 /* =====================================================

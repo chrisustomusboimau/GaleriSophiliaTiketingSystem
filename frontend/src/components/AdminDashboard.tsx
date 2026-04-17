@@ -11,6 +11,7 @@
  * - High-visibility summary grid for UNIQUE people counts.
  * - Sub-list grouped by floor.
  * - Handles Manual Entry and displays Success Queue Modal.
+ * - SEARCH/FILTER based on queue number or transaction ID.
  */
 
 import React, { useEffect, useState, useCallback, useMemo } from "react";
@@ -208,6 +209,7 @@ const AdminDashboard: React.FC = () => {
 
   // --- State ---
   const [visitors, setVisitors] = useState<Visitor[]>([]);
+  const [searchQuery, setSearchQuery] = useState<string>(""); // State untuk pencarian
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [processingId, setProcessingId] = useState<string | null>(null);
@@ -264,6 +266,19 @@ const AdminDashboard: React.FC = () => {
       setIsLoading(false);
     }
   }, [handleUnauthorized]);
+
+// --- Derived State (Filter Pencarian KHUSUS NOMOR ANTRIAN) ---
+  const filteredVisitors = useMemo(() => {
+    if (!searchQuery.trim()) return visitors;
+    
+    // Hapus spasi dan pastikan formatnya string untuk dicocokkan
+    const query = searchQuery.trim();
+    
+    return visitors.filter((v) =>
+      // Hanya mencocokkan string nomor antrian
+      v.queue_number.toString().includes(query)
+    );
+  }, [visitors, searchQuery]);
 
   // --- Handlers ---
   const handlePaymentConfirmation = async (id: string) => {
@@ -368,14 +383,11 @@ const AdminDashboard: React.FC = () => {
 
   // --- Manual Entry Specific Handlers ---
   const handleManualEntrySuccess = (newQueueNumber: number) => {
-    // Hanya tampilkan modal sukses, JANGAN panggil loadVisitors di sini.
     setSuccessQueueNumber(newQueueNumber);
   };
 
   const handleCloseSuccessModal = () => {
-    // Sembunyikan modal sukses
     setSuccessQueueNumber(null);
-    // Refresh data setelah kasir menekan tombol "Selesai"
     loadVisitors();
   };
 
@@ -395,32 +407,49 @@ const AdminDashboard: React.FC = () => {
           <h2 className="text-2xl font-bold text-gray-800">Dashboard Kasir</h2>
           <p className="text-gray-600">Kelola antrian dan pembayaran tiket pengunjung</p>
         </div>
-        {/* Tombol Tambah Manual dipindah dari sini ke bawah */}
       </header>
 
-      <div className="mb-6 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 border-b pb-4">
-        <h3 className="font-medium text-gray-700 text-lg">
+      <div className="mb-6 flex flex-col md:flex-row md:justify-between md:items-center gap-4 border-b pb-4">
+        <h3 className="font-medium text-gray-700 text-lg whitespace-nowrap">
           Pengunjung Menunggu:{" "}
-          <span className="font-bold text-blue-700 bg-blue-100 px-3 py-1 rounded-full ml-2">
-            {visitors.length}
+          <span className="font-bold text-blue-700 bg-blue-100 px-3 py-1 rounded-full ml-1">
+            {filteredVisitors.length}
           </span>
         </h3>
 
-        <div className="flex gap-3">
-          <button
-            onClick={() => setIsManualEntryOpen(true)}
-            className="text-sm font-bold px-4 py-2 bg-emerald-600 text-white rounded-md hover:bg-emerald-700 shadow-sm transition-colors focus:ring-2 focus:ring-emerald-500"
-          >
-            + Tambah Manual
-          </button>
-          
-          <button
-            onClick={loadVisitors}
-            disabled={isLoading}
-            className="text-sm font-medium px-4 py-2 bg-white border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
-          >
-            {isLoading ? "Memuat..." : "Segarkan Data"}
-          </button>
+        <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
+          {/* Kolom Pencarian */}
+          <div className="relative w-full sm:w-64">
+            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+              <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+              </svg>
+            </div>
+            <input
+              type="text"
+              placeholder="Cari No. Antrian"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 outline-none text-sm transition-shadow"
+            />
+          </div>
+
+          <div className="flex gap-2 w-full sm:w-auto">
+            <button
+              onClick={() => setIsManualEntryOpen(true)}
+              className="flex-1 sm:flex-none text-sm font-bold px-4 py-2 bg-emerald-600 text-white rounded-md hover:bg-emerald-700 shadow-sm transition-colors focus:ring-2 focus:ring-emerald-500"
+            >
+              + Tambah Manual
+            </button>
+            
+            <button
+              onClick={loadVisitors}
+              disabled={isLoading}
+              className="flex-1 sm:flex-none text-sm font-medium px-4 py-2 bg-white border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
+            >
+              {isLoading ? "Memuat..." : "Segarkan"}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -432,15 +461,21 @@ const AdminDashboard: React.FC = () => {
 
       {visitors.length === 0 ? (
         <div className="flex-1 bg-gray-50 border border-dashed border-gray-300 rounded-lg p-12 flex items-center justify-center">
-          <p className="text-gray-500 text-lg">
+          <p className="text-gray-500 text-lg text-center">
             {isLoading
               ? "Mengambil data pengunjung dari server..."
               : "Tidak ada pengunjung yang sedang menunggu pembayaran."}
           </p>
         </div>
+      ) : filteredVisitors.length === 0 ? (
+        <div className="flex-1 bg-gray-50 border border-dashed border-gray-300 rounded-lg p-12 flex items-center justify-center">
+          <p className="text-gray-500 text-lg text-center">
+            Pencarian untuk <span className="font-bold text-gray-700">"{searchQuery}"</span> tidak ditemukan.
+          </p>
+        </div>
       ) : (
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 pb-12">
-          {visitors.map((visitor) => (
+          {filteredVisitors.map((visitor) => (
             <VisitorCard
               key={visitor.id}
               visitor={visitor}
@@ -454,7 +489,6 @@ const AdminDashboard: React.FC = () => {
 
       {/* =========================================================
           MODALS AREA 
-          Diletakkan di luar struktur hierarki utama agar z-index optimal
       ========================================================= */}
       
       <EditTransactionModal
