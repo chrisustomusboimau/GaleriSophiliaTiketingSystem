@@ -35,9 +35,9 @@ interface LanguageContextType {
  */
 const defaultTranslations = {
   welcomeTitle: {
-    id: "Selamat Datang di Galeri Sophilia",
-    en: "Welcome to the Galeri Sophilia",
-    zh: "欢迎来到索菲莉亚画廊",
+    id: "Selamat Datang di Galeri Sophilia", // Galeri -> Galeria
+    en: "Welcome to the Galeri Sophilia", // Welcome to Galeria Sophilia
+    zh: "欢迎来到索菲莉亚画廊", // 画廊 -> 美术馆 (Untuk '索菲莉亚' perlu samaain dengan punya GS, takut beda)
   },
   welcomeDescription: {
     id: "Silakan pilih bahasa Anda untuk melanjutkan",
@@ -52,21 +52,21 @@ const defaultTranslations = {
   ticketingTitle: {
     id: "Pembelian Tiket Museum",
     en: "Museum Ticketing",
-    zh: "博物馆售票",
+    zh: "博物馆售票", // 博物馆 -> 美术馆
   },
   visitorCount: {
     id: "Jumlah Pengunjung",
-    en: "Visitor Count",
+    en: "Visitor Count", // Number of Visitors
     zh: "访客数量",
   },
   visitorDescription: {
     id: "Masukkan jumlah pengunjung berdasarkan usia",
-    en: "Enter the number of visitors by age",
-    zh: "按年龄输入访客数量",
+    en: "Enter the number of visitors by age", // Please select the number of visitors by age category
+    zh: "按年龄输入访客数量", // 请按年龄段选择访客人数
   },
   childLabel: {
     id: "Anak \n(< 8 tahun)",
-    en: "Child \n(< 8 years)",
+    en: "Child \n(< 8 years)", // (Under 8)
     zh: "儿童\n（8岁以下）",
   },
   teenLabel: {
@@ -76,13 +76,13 @@ const defaultTranslations = {
   },
   adultLabel: {
     id: "Dewasa \n(≥ 22 tahun)",
-    en: "Adult \n(≥ years and above)",
+    en: "Adult \n(≥ years and above)", // tambah 22
     zh: "成人\n（22岁及以上）",
   },
   totalVisitors: {
     id: "Total Pengunjung:",
     en: "Total Visitors:",
-    zh: "访客总数：",
+    zh: "访客总数：", 
   },
   totalPrice: {
     id: "Total Harga:",
@@ -102,7 +102,7 @@ const defaultTranslations = {
   people: {
     id: "orang",
     en: "people",
-    zh: "人",
+    zh: "人", // 位
   },
   countryOrigin: {
     id: "Negara Asal",
@@ -116,7 +116,7 @@ const defaultTranslations = {
   },
   visitorAmountError: {
     id: "Jumlah pengunjung tidak sesuai dengan negara asal",
-    en: "The number of visitors does not match their country of origin",
+    en: "The number of visitors does not match their country of origin", // their -> the
     zh: "访客数量与其原籍国不符",
   },
   visitorAmountRequired: {
@@ -126,7 +126,7 @@ const defaultTranslations = {
   },
   addCountry: {
     id: "Tambah Negara",
-    en: "Add Country",
+    en: "Add Country", // Country -> Nationality
     zh: "添加国家",
   },
   queueNumberLabel: {
@@ -136,17 +136,17 @@ const defaultTranslations = {
   },
   visitorDetailTitle: {
     id: "Detail Pengunjung",
-    en: "Visitor Details",
+    en: "Visitor Details", // Details -> Information
     zh: "访客详情",
   },
   totalPriceLabel: {
     id: "Total Harga",
-    en: "Total Price",
-    zh: "总价",
+    en: "Total Price", 
+    zh: "总价", 
   },
   queueInstruction: {
     id: "Silakan tunjukkan QR Code atau nomor antrian ini kepada petugas kasir untuk melakukan pembayaran dan mendapatkan tiket masuk fisik Anda.",
-    en: "Please show this QR code or queue number to the cashier to make the payment and receive your physical entrance ticket.",
+    en: "Please show this QR code or queue number to the cashier to make the payment and receive your physical entrance ticket.", // Please present this QR code or ticket number to the cashier for payment and to collect your physical entrance ticket.
     zh: "请向收银员出示此二维码或排队号码以完成付款并领取实体入场票。",
   },
 
