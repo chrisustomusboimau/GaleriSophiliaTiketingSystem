@@ -7,6 +7,8 @@ import uuid
 from typing import List, Optional
 from pydantic import BaseModel 
 from sqlalchemy.exc import IntegrityError
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 # --- CORRECTED IMPORTS ---
 # Removed TransactionItem from schema, added to db
@@ -27,6 +29,8 @@ PRICES_MAP = {
     "Floor 5":   {"adult": 40000,  "student": 20000, "child": 10000},
     "Floor 1":   {"adult": 60000,  "student": 40000, "child": 20000},
 }
+
+WIB = ZoneInfo("Asia/Jakarta")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -140,19 +144,34 @@ async def get_transaction_details(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Internal server error {e}")
 
-
+# --- API 1: HANYA DATA HARI INI (Zona Waktu WIB) ---
 @app.get("/api/v1/transactions", response_model=List[TransactionResponse], tags=["transactions"])
-async def list_transactions(
+async def list_today_transactions(
     status: Optional[str] = Query(None, description="Filter by payment status (e.g., 'pending')"),
     session: AsyncSession = Depends(get_async_session),
     user: User = Depends(current_active_user) # ADMIN ONLY
 ):
     """
-    ADMIN: Lists all transactions. Used by the cashier dashboard.
-    Can be filtered by status.
+    ADMIN: Lists transactions FOR TODAY ONLY (WIB Timezone). 
+    Used by the cashier dashboard for real-time monitoring.
     """
     try:
+        # 1. Dapatkan waktu saat ini secara akurat di zona WIB
+        now_wib = datetime.now(WIB)
+        
+        # 2. Tentukan batas awal hari ini di WIB (Tepat jam 00:00:00)
+        start_of_today_wib = datetime(now_wib.year, now_wib.month, now_wib.day, tzinfo=WIB)
+        
+        # 3. Tentukan batas awal besok di WIB (Tepat jam 00:00:00 besoknya)
+        start_of_tomorrow_wib = start_of_today_wib + timedelta(days=1)
+
         query = select(TransactionEntry).order_by(TransactionEntry.created_at.asc())
+        
+        # 4. Filter menggunakan Range Time (Lebih aman dari timezone bug & lebih cepat untuk DB Indexing)
+        query = query.where(
+            TransactionEntry.created_at >= start_of_today_wib,
+            TransactionEntry.created_at < start_of_tomorrow_wib
+        )
         
         if status:
             query = query.where(TransactionEntry.status == status)
@@ -161,9 +180,33 @@ async def list_transactions(
         entries = result.scalars().unique().all()
         return entries
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to fetch transactions {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch today's transactions: {e}")
 
 
+# --- API 2: KESELURUHAN DATA (HISTORIS) ---
+@app.get("/api/v1/transactions/all", response_model=List[TransactionResponse], tags=["transactions"])
+async def list_all_transactions(
+    status: Optional[str] = Query(None, description="Filter by payment status (e.g., 'pending')"),
+    session: AsyncSession = Depends(get_async_session),
+    user: User = Depends(current_active_user) # ADMIN ONLY
+):
+    """
+    ADMIN: Lists ALL historical transactions. 
+    Can be filtered by status.
+    """
+    try:
+        query = select(TransactionEntry).order_by(TransactionEntry.created_at.asc())
+        
+        # Filter berdasarkan status (jika ada)
+        if status:
+            query = query.where(TransactionEntry.status == status)
+
+        result = await session.execute(query)
+        entries = result.scalars().unique().all()
+        return entries
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch all transactions: {e}")
+    
 @app.patch("/api/v1/transactions/{transaction_id}/status", tags=["transactions"])
 async def update_transaction_status(
     transaction_id: uuid.UUID,

@@ -35,9 +35,9 @@ interface LanguageContextType {
  */
 const defaultTranslations = {
   welcomeTitle: {
-    id: "Selamat Datang di Galeri Sophilia", // Galeri -> Galeria
-    en: "Welcome to the Galeri Sophilia", // Welcome to Galeria Sophilia
-    zh: "欢迎来到索菲莉亚画廊", // 画廊 -> 美术馆 (Untuk '索菲莉亚' perlu samaain dengan punya GS, takut beda)
+    id: "Selamat Datang di Galeria Sophilia", // Galeri -> Galeria
+    en: "Welcome to Galeria Sophilia", // Welcome to Galeria Sophilia
+    zh: "欢迎来到索菲莉亚美术馆", // 画廊 -> 美术馆 (Untuk '索菲莉亚' perlu samaain dengan punya GS, takut beda)
   },
   welcomeDescription: {
     id: "Silakan pilih bahasa Anda untuk melanjutkan",
@@ -52,17 +52,17 @@ const defaultTranslations = {
   ticketingTitle: {
     id: "Pembelian Tiket Museum",
     en: "Museum Ticketing",
-    zh: "博物馆售票", // 博物馆 -> 美术馆
+    zh: "美术馆售票", // 博物馆 -> 美术馆
   },
   visitorCount: {
     id: "Jumlah Pengunjung",
-    en: "Visitor Count", // Number of Visitors
+    en: "Number of Visitors", // Number of Visitors
     zh: "访客数量",
   },
   visitorDescription: {
     id: "Masukkan jumlah pengunjung berdasarkan usia",
-    en: "Enter the number of visitors by age", // Please select the number of visitors by age category
-    zh: "按年龄输入访客数量", // 请按年龄段选择访客人数
+    en: "Please select the number of visitors by age category", // Please select the number of visitors by age category
+    zh: "请按年龄段选择访客人数", // 请按年龄段选择访客人数
   },
   childLabel: {
     id: "Anak \n(< 8 tahun)",
@@ -76,7 +76,7 @@ const defaultTranslations = {
   },
   adultLabel: {
     id: "Dewasa \n(≥ 22 tahun)",
-    en: "Adult \n(≥ years and above)", // tambah 22
+    en: "Adult \n(≥ 22 years and above)", // tambah 22
     zh: "成人\n（22岁及以上）",
   },
   totalVisitors: {
@@ -102,7 +102,7 @@ const defaultTranslations = {
   people: {
     id: "orang",
     en: "people",
-    zh: "人", // 位
+    zh: "位", // 位
   },
   countryOrigin: {
     id: "Negara Asal",
@@ -116,7 +116,7 @@ const defaultTranslations = {
   },
   visitorAmountError: {
     id: "Jumlah pengunjung tidak sesuai dengan negara asal",
-    en: "The number of visitors does not match their country of origin", // their -> the
+    en: "The number of visitors does not match the country of origin", // their -> the
     zh: "访客数量与其原籍国不符",
   },
   visitorAmountRequired: {
@@ -126,7 +126,7 @@ const defaultTranslations = {
   },
   addCountry: {
     id: "Tambah Negara",
-    en: "Add Country", // Country -> Nationality
+    en: "Add Nationality", // Country -> Nationality
     zh: "添加国家",
   },
   queueNumberLabel: {
@@ -136,7 +136,7 @@ const defaultTranslations = {
   },
   visitorDetailTitle: {
     id: "Detail Pengunjung",
-    en: "Visitor Details", // Details -> Information
+    en: "Visitor Information", // Details -> Information
     zh: "访客详情",
   },
   totalPriceLabel: {
