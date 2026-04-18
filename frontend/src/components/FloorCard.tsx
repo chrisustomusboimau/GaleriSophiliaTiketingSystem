@@ -26,17 +26,19 @@ const FloorCard: React.FC<FloorCardProps> = ({ floor, isSelected, onToggle, labe
       onClick={() => onToggle(floor.id)}
       className={`w-full p-6 rounded-xl border-2 text-left transition-all duration-200 ${
         isSelected
-          ? 'border-blue-600 bg-blue-50 shadow-md scale-[1.02]'
-          : 'border-gray-200 bg-white hover:border-blue-300'
+          ? 'border-[#fb9418] bg-orange-50 shadow-md scale-[1.02]' // Menggunakan aksen oranye
+          : 'border-gray-200 bg-white hover:border-[#fb9418]' // Efek hover oranye
       }`}
     >
       <div className="flex items-start justify-between mb-4">
-        <h3 className={`text-xl font-bold ${isSelected ? 'text-blue-700' : 'text-gray-800'}`}>
+        {/* Judul lantai menjadi oranye jika dipilih, hitam jika tidak */}
+        <h3 className={`text-xl font-bold ${isSelected ? 'text-[#fb9418]' : 'text-black'}`}>
           {floor.label}
         </h3>
         
+        {/* Indikator Checkbox berubah menjadi oranye saat dipilih */}
         <div className={`w-6 h-6 rounded-md flex items-center justify-center border-2 transition-colors ${
-          isSelected ? 'bg-blue-600 border-blue-600 text-white' : 'border-gray-300 bg-white'
+          isSelected ? 'bg-[#fb9418] border-[#fb9418] text-[#fcfcfc]' : 'border-gray-300 bg-white'
         }`}>
           {isSelected && <span className="font-bold">✓</span>}
         </div>
@@ -45,15 +47,15 @@ const FloorCard: React.FC<FloorCardProps> = ({ floor, isSelected, onToggle, labe
       <div className="bg-white/60 p-3 rounded-lg border border-gray-100 space-y-2">
         <div className="flex justify-between text-sm">
           <span className="text-gray-600 font-medium">{labels.adult}</span>
-          <span className="font-bold text-gray-800">Rp {floor.prices.adult.toLocaleString('id-ID')}</span>
+          <span className="font-bold text-black">Rp {floor.prices.adult.toLocaleString('id-ID')}</span>
         </div>
         <div className="flex justify-between text-sm">
           <span className="text-gray-600 font-medium">{labels.teen}</span>
-          <span className="font-bold text-gray-800">Rp {floor.prices.student.toLocaleString('id-ID')}</span>
+          <span className="font-bold text-black">Rp {floor.prices.student.toLocaleString('id-ID')}</span>
         </div>
         <div className="flex justify-between text-sm">
           <span className="text-gray-600 font-medium">{labels.child}</span>
-          <span className="font-bold text-gray-800">Rp {floor.prices.child.toLocaleString('id-ID')}</span>
+          <span className="font-bold text-black">Rp {floor.prices.child.toLocaleString('id-ID')}</span>
         </div>
       </div>
     </button>

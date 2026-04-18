@@ -1,105 +1,109 @@
+/**
+ * LanguageSelector.tsx
+ * -----------------------------------------------
+ * Komponen ini digunakan untuk menampilkan pilihan bahasa kepada pengguna
+ * serta tombol untuk melanjutkan ke halaman pemilihan tiket.
+ * Diperbarui agar sesuai dengan identitas visual Galeria Sophilia (Hitam, Oranye, Putih).
+ */
 import React from "react";
 import { useNavigate } from "react-router-dom";
 import { useLanguage } from "../contexts/LanguageContext";
 
-/**
- * Komponen LanguageSelector
- * -----------------------------------------------
- * Komponen ini digunakan untuk menampilkan pilihan bahasa kepada pengguna
- * serta tombol untuk melanjutkan ke halaman pemilihan tiket. Komponen ini menggunakan
- * context untuk mengelola state bahasa yang sedang dipilih dan juga
- * menerapkan terjemahan dinamis berdasarkan bahasa yang dipilih.
- *
- * Fitur utama:
- * - Menampilkan judul dan deskripsi sambutan sesuai bahasa.
- * - Menyediakan tiga tombol untuk memilih bahasa: Indonesia, Inggris, dan Mandarin.
- * - Menyorot tombol bahasa yang sedang aktif.
- * - Tombol "Lanjutkan" untuk berpindah ke halaman pemilihan tiket.
- */
 const LanguageSelector: React.FC = () => {
-  // Mengambil state bahasa, fungsi untuk mengubah bahasa, dan objek terjemahan dari context
   const { language, setLanguage, translations } = useLanguage();
-
-  // Hook untuk melakukan navigasi antar halaman menggunakan react-router-dom
   const navigate = useNavigate();
 
-  /**
-   * Fungsi handleContinue
-   * ---------------------
-   * Fungsi ini akan dijalankan ketika tombol "Lanjutkan" diklik.
-   * Akan mengarahkan pengguna ke halaman '/ticket-selection'.
-   */
   const handleContinue = () => {
-    navigate("/ticket-selection"); // <-- UPDATED PATH
+    navigate("/ticket-selection"); 
   };
 
   return (
-    // Container utama dengan styling Tailwind CSS
-    <div className="w-full max-w-md bg-white rounded-lg shadow-md p-6">
+    // Menggunakan w-full dan menghapus background/shadow luar agar 
+    // menyatu dengan sempurna saat dipanggil di dalam Card putih pada ScanPage.tsx
+    <div className="w-full flex flex-col items-center">
+      
       {/* Bagian judul dan deskripsi sambutan */}
       <div className="text-center mb-8">
-        {/* Judul sambutan, diambil dari objek translations sesuai bahasa */}
-        <h2 className="text-2xl font-bold text-gray-800 mb-2">
+        <h2 className="text-2xl font-bold text-black mb-2">
           {translations.welcomeTitle[language]}
         </h2>
-        {/* Deskripsi sambutan */}
-        <p className="text-gray-600">
+        <p className="text-gray-500 text-sm">
           {translations.welcomeDescription[language]}
         </p>
       </div>
+
       {/* Grid tombol pilihan bahasa */}
-      <div className="grid grid-cols-3 gap-4 mb-8">
+      <div className="grid grid-cols-3 gap-3 sm:gap-4 w-full mb-8">
+        
         {/* Tombol Bahasa Indonesia */}
         <button
           onClick={() => setLanguage("id")}
-          className={`flex flex-col items-center justify-center p-4 rounded-lg border-2 transition-all ${
+          className={`flex flex-col items-center justify-center p-4 rounded-xl border-2 transition-all duration-200 ${
             language === "id"
-              ? "border-blue-600 bg-blue-50" // Jika aktif, border dan background biru
-              : "border-gray-200 hover:border-blue-300" // Jika tidak aktif, border abu dan efek hover biru
+              ? "border-[#fb9418] bg-orange-50 shadow-sm scale-[1.02]" 
+              : "border-gray-200 bg-white hover:border-[#fb9418]" 
           }`}
         >
-          {/* Ikon lingkaran dengan inisial bahasa */}
-          <div className="w-12 h-12 flex items-center justify-center bg-red-100 rounded-full mb-2">
-            <span className="text-xl font-bold text-red-600">ID</span>
+          {/* Ikon lingkaran elegan (Berubah oranye jika aktif) */}
+          <div className={`w-12 h-12 flex items-center justify-center rounded-full mb-3 transition-colors ${
+            language === "id" ? "bg-[#fb9418] text-[#fcfcfc]" : "bg-gray-100 text-gray-400"
+          }`}>
+            <span className="text-lg font-bold">ID</span>
           </div>
-          {/* Label bahasa */}
-          <span className="font-medium text-gray-800">Indonesia</span>
+          <span className={`font-bold text-sm ${language === "id" ? "text-black" : "text-gray-500"}`}>
+            Indonesia
+          </span>
         </button>
+
         {/* Tombol Bahasa Inggris */}
         <button
           onClick={() => setLanguage("en")}
-          className={`flex flex-col items-center justify-center p-4 rounded-lg border-2 transition-all ${
+          className={`flex flex-col items-center justify-center p-4 rounded-xl border-2 transition-all duration-200 ${
             language === "en"
-              ? "border-blue-600 bg-blue-50"
-              : "border-gray-200 hover:border-blue-300"
+              ? "border-[#fb9418] bg-orange-50 shadow-sm scale-[1.02]"
+              : "border-gray-200 bg-white hover:border-[#fb9418]"
           }`}
         >
-          <div className="w-12 h-12 flex items-center justify-center bg-blue-100 rounded-full mb-2">
-            <span className="text-xl font-bold text-blue-600">EN</span>
+          <div className={`w-12 h-12 flex items-center justify-center rounded-full mb-3 transition-colors ${
+            language === "en" ? "bg-[#fb9418] text-[#fcfcfc]" : "bg-gray-100 text-gray-400"
+          }`}>
+            <span className="text-lg font-bold">EN</span>
           </div>
-          <span className="font-medium text-gray-800">English</span>
+          <span className={`font-bold text-sm ${language === "en" ? "text-black" : "text-gray-500"}`}>
+            English
+          </span>
         </button>
+
         {/* Tombol Bahasa Mandarin */}
         <button
           onClick={() => setLanguage("zh")}
-          className={`flex flex-col items-center justify-center p-4 rounded-lg border-2 transition-all ${
+          className={`flex flex-col items-center justify-center p-4 rounded-xl border-2 transition-all duration-200 ${
             language === "zh"
-              ? "border-blue-600 bg-blue-50"
-              : "border-gray-200 hover:border-blue-300"
+              ? "border-[#fb9418] bg-orange-50 shadow-sm scale-[1.02]"
+              : "border-gray-200 bg-white hover:border-[#fb9418]"
           }`}
         >
-          <div className="w-12 h-12 flex items-center justify-center bg-yellow-100 rounded-full mb-2">
-            <span className="text-xl font-bold text-yellow-600">中</span>
+          <div className={`w-12 h-12 flex items-center justify-center rounded-full mb-3 transition-colors ${
+            language === "zh" ? "bg-[#fb9418] text-[#fcfcfc]" : "bg-gray-100 text-gray-400"
+          }`}>
+            <span className="text-lg font-bold">中</span>
           </div>
-          <span className="font-medium text-gray-800">中文</span>
+          <span className={`font-bold text-sm ${language === "zh" ? "text-black" : "text-gray-500"}`}>
+            中文
+          </span>
         </button>
+
       </div>
-      {/* Tombol untuk melanjutkan ke halaman pemilihan tiket */}
+
+      {/* Tombol Lanjutkan */}
       <button
         onClick={handleContinue}
-        className="w-full bg-blue-600 text-white py-3 px-4 rounded-lg font-medium text-lg hover:bg-blue-700 transition-colors"
+        className="w-full bg-[#fb9418] text-[#fcfcfc] py-3.5 px-4 rounded-xl font-bold text-lg hover:bg-orange-500 active:scale-95 transition-all shadow-md flex justify-center items-center gap-2"
       >
         {translations.continueButton[language]}
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+        </svg>
       </button>
     </div>
   );

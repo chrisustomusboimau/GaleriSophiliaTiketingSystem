@@ -2,10 +2,7 @@
  * QueueDisplay.tsx
  * ----------------------------------------------------
  * Component to display the generated queue ticket.
- * * Features:
- * - Shows the large queue number and Transaction ID.
- * - Groups and displays a highly detailed, receipt-style price breakdown.
- * - Aligned with the new FastAPI backend data contract (items array).
+ * Diperbarui dengan identitas visual Galeria Sophilia.
  */
 
 import React, { useMemo } from 'react';
@@ -23,9 +20,6 @@ export interface TransactionItem {
   unit_price?: number;
 }
 
-/**
- * UI-specific visitor model (bukan model backend)
- */
 export interface QueueDisplayVisitor {
   id: string;
   queue_number: number;
@@ -76,27 +70,31 @@ const QueueDisplay: React.FC<QueueDisplayProps> = ({ visitor }) => {
   }, [visitor.items]);
 
   return (
-    <div className="w-full max-w-md mx-auto bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden">
+    <div className="w-full max-w-md mx-auto bg-[#fcfcfc] rounded-2xl shadow-2xl border border-gray-200 overflow-hidden">
       
-      {/* Header: Queue Number & ID */}
-      <header className="bg-blue-600 p-6 text-center">
-        <h2 className="text-blue-100 text-lg font-medium mb-1 tracking-wide">
+      {/* Header: Queue Number & ID (Tema Galeri Gelap) */}
+      <header className="bg-black pt-10 pb-8 px-6 text-center border-b-[6px] border-[#fb9418]">
+        <h2 className="text-[#fcfcfc] text-sm md:text-base font-light mb-3 tracking-[0.25em] uppercase">
           {translations.queueNumberLabel[language]}
         </h2>
-        <div className="text-6xl font-extrabold text-white tracking-tight drop-shadow-md">
+        
+        <div className="text-8xl font-extrabold text-[#fb9418] tracking-tighter leading-none mb-6">
           {visitor.queue_number}
         </div>
-        <p className="text-sm text-blue-200 mt-4 font-mono bg-blue-700/30 inline-block px-3 py-1 rounded-md">
-          ID: {visitor.id}
-        </p>
+        
+        <div className="inline-block bg-[#1a1a1a] border border-zinc-800 px-4 py-2 rounded-lg">
+          <p className="text-xs md:text-sm text-gray-400 font-mono tracking-widest">
+            ID: {visitor.id}
+          </p>
+        </div>
       </header>
 
       {/* Body Area */}
-      <div className="p-6 md:p-8">
+      <div className="p-6 md:p-8 bg-[#fcfcfc]">
         
         {/* Ticket Details Section */}
         <section className="mb-8">
-          <h3 className="text-lg font-bold text-gray-800 mb-4 border-b border-gray-100 pb-2">
+          <h3 className="text-sm md:text-base font-bold text-black mb-5 border-b border-gray-200 pb-3 uppercase tracking-widest">
             Rincian Tiket
           </h3>
           
@@ -108,18 +106,18 @@ const QueueDisplay: React.FC<QueueDisplayProps> = ({ visitor }) => {
                 const pricePerPerson = data.quantity > 0 ? data.subtotal / data.quantity : 0;
                 
                 return (
-                  <div key={idx} className="bg-slate-50 border border-slate-200 rounded-lg p-4 shadow-sm">
+                  <div key={idx} className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
                     {/* Category Header */}
-                    <div className="flex justify-between items-end mb-3 border-b border-slate-200 pb-2">
+                    <div className="flex justify-between items-end mb-4 border-b border-gray-100 pb-3">
                       <div>
-                        <span className="font-bold text-gray-800 capitalize block text-lg">
+                        <span className="font-bold text-black capitalize block text-lg mb-1">
                           {getCategoryLabel(category)}
                         </span>
-                        <span className="text-xs font-semibold text-blue-600 bg-blue-100 px-2 py-0.5 rounded-full">
+                        <span className="text-xs font-bold text-[#fb9418] bg-orange-50 border border-orange-100 px-3 py-1 rounded-full">
                           {data.quantity} Orang
                         </span>
                       </div>
-                      <span className="font-bold text-blue-700 text-lg">
+                      <span className="font-bold text-[#fb9418] text-xl">
                         {formatCurrency(data.subtotal)}
                       </span>
                     </div>
@@ -130,8 +128,8 @@ const QueueDisplay: React.FC<QueueDisplayProps> = ({ visitor }) => {
                         const price = item.unit_price || 0;
                         return (
                           <div key={i} className="flex justify-between text-sm">
-                            <span className="text-gray-600">{item.floor}</span>
-                            <span className="text-gray-800 font-medium">
+                            <span className="text-gray-600 font-medium">{item.floor}</span>
+                            <span className="text-black font-bold">
                               {item.quantity} &times; {formatCurrency(price)}
                             </span>
                           </div>
@@ -139,22 +137,24 @@ const QueueDisplay: React.FC<QueueDisplayProps> = ({ visitor }) => {
                       })}
                       
                       {/* Price Per Person Summary */}
-                      <div className="flex justify-between text-xs text-gray-500 pt-2 mt-2 border-t border-slate-200 border-dashed">
+                      <div className="flex justify-between text-xs text-gray-500 pt-3 mt-3 border-t border-gray-200 border-dashed">
                         <span>Total per orang:</span>
-                        <span className="font-semibold">{formatCurrency(pricePerPerson)}</span>
+                        <span className="font-semibold text-gray-700">{formatCurrency(pricePerPerson)}</span>
                       </div>
                     </div>
                   </div>
                 );
               })
             ) : (
-              <p className="text-gray-500 italic text-sm text-center bg-gray-50 py-4 rounded-lg">Data tiket tidak tersedia.</p>
+              <p className="text-gray-500 italic text-sm text-center bg-gray-50 py-4 rounded-xl border border-gray-200">
+                Data tiket tidak tersedia.
+              </p>
             )}
 
             {/* Final Grand Total */}
-            <div className="flex justify-between items-end pt-5 border-t-2 border-gray-800 mt-6">
-              <span className="font-bold text-gray-800 uppercase tracking-wide">Total Pembayaran:</span>
-              <span className="font-extrabold text-2xl text-blue-700">
+            <div className="flex justify-between items-end pt-5 border-t-2 border-black mt-8">
+              <span className="font-bold text-black uppercase tracking-wide">Total Pembayaran:</span>
+              <span className="font-extrabold text-3xl text-[#fb9418]">
                 {formatCurrency(visitor.total_price)}
               </span>
             </div>
@@ -162,12 +162,12 @@ const QueueDisplay: React.FC<QueueDisplayProps> = ({ visitor }) => {
           </div>
         </section>
 
-        {/* Instructions / Warning */}
-        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 flex gap-3 items-start shadow-sm">
-          <svg className="w-6 h-6 text-amber-500 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        {/* Instructions / Warning (Diselaraskan dengan aksen Oranye) */}
+        <div className="bg-orange-50 border border-orange-200 rounded-xl p-5 flex gap-4 items-start shadow-sm mt-8">
+          <svg className="w-6 h-6 text-[#fb9418] shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
-          <p className="text-sm text-amber-900 leading-relaxed font-medium">
+          <p className="text-sm text-black leading-relaxed font-medium">
             {translations.queueInstruction[language]}
           </p>
         </div>

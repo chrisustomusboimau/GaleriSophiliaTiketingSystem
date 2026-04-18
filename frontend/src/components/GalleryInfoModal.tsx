@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react';
 
 // Import gambar placeholder
 // Sesuaikan path '../assets/Sophilia.jpg' dengan struktur folder Anda.
-// Jika file modal ini ada di 'src/components', maka path ini sudah benar.
 import sophiliaImg from '../assets/Sophilia.jpg';
 
 interface GalleryInfoModalProps {
@@ -29,24 +28,24 @@ const GalleryInfoModal: React.FC<GalleryInfoModalProps> = ({ isOpen, onClose }) 
   return (
     <div 
       className={`fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 transition-all duration-300 ${
-        isOpen ? 'bg-black/40 backdrop-blur-sm opacity-100' : 'bg-black/0 opacity-0 pointer-events-none'
+        isOpen ? 'bg-black/60 backdrop-blur-sm opacity-100' : 'bg-black/0 opacity-0 pointer-events-none'
       }`}
       onClick={onClose} // Tutup saat klik di luar (backdrop)
     >
       <div 
-        className={`bg-white w-full max-w-2xl max-h-[90vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden transition-all duration-300 transform ${
+        className={`bg-[#fcfcfc] w-full max-w-2xl max-h-[90vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden transition-all duration-300 transform ${
           isOpen ? 'translate-y-0 scale-100 opacity-100' : 'translate-y-8 scale-95 opacity-0'
         }`}
         onClick={(e) => e.stopPropagation()} // Cegah klik di dalam box menutup modal
       >
         {/* Header Lengket (Sticky) */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 shrink-0 bg-white/90 backdrop-blur">
-          <h2 className="text-xl sm:text-2xl font-bold text-gray-800 tracking-wide">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 shrink-0 bg-[#fcfcfc]/90 backdrop-blur">
+          <h2 className="text-xl sm:text-2xl font-bold text-black tracking-wide uppercase">
             Panduan Eksibisi Galeri
           </h2>
           <button 
             onClick={onClose}
-            className="p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-full transition-colors focus:outline-none"
+            className="p-2 text-gray-400 hover:text-[#fb9418] hover:bg-orange-50 rounded-full transition-colors focus:outline-none"
             aria-label="Tutup"
           >
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -56,19 +55,19 @@ const GalleryInfoModal: React.FC<GalleryInfoModalProps> = ({ isOpen, onClose }) 
         </div>
 
         {/* Konten Scrollable */}
-        <div className="p-6 overflow-y-auto space-y-10 text-gray-600 custom-scrollbar">
+        <div className="p-6 overflow-y-auto space-y-10 text-gray-700 custom-scrollbar">
           
           {/* Lantai 1 */}
           <section>
-            <h3 className="text-lg font-bold text-blue-800 uppercase tracking-widest mb-4 border-l-4 border-blue-600 pl-3">
+            <h3 className="text-lg font-bold text-[#fb9418] uppercase tracking-widest mb-4 border-l-4 border-[#fb9418] pl-3">
               Lantai 1
             </h3>
             {/* Placeholder Gambar */}
-            <div className="w-full h-48 sm:h-56 mb-5 rounded-xl overflow-hidden bg-gray-100 shadow-sm">
+            <div className="w-full h-48 sm:h-56 mb-5 rounded-xl overflow-hidden bg-black shadow-sm">
               <img 
                 src={sophiliaImg} 
                 alt="Eksibisi Lantai 1" 
-                className="w-full h-full object-cover hover:scale-105 transition-transform duration-700"
+                className="w-full h-full object-cover hover:scale-105 transition-transform duration-700 opacity-90 hover:opacity-100"
               />
             </div>
             <div className="space-y-3 text-sm sm:text-base leading-relaxed">
@@ -86,15 +85,15 @@ const GalleryInfoModal: React.FC<GalleryInfoModalProps> = ({ isOpen, onClose }) 
 
           {/* Lantai 5 */}
           <section>
-            <h3 className="text-lg font-bold text-blue-800 uppercase tracking-widest mb-4 border-l-4 border-blue-600 pl-3">
+            <h3 className="text-lg font-bold text-[#fb9418] uppercase tracking-widest mb-4 border-l-4 border-[#fb9418] pl-3">
               Lantai 5
             </h3>
             {/* Placeholder Gambar */}
-            <div className="w-full h-48 sm:h-56 mb-5 rounded-xl overflow-hidden bg-gray-100 shadow-sm">
+            <div className="w-full h-48 sm:h-56 mb-5 rounded-xl overflow-hidden bg-black shadow-sm">
               <img 
                 src={sophiliaImg} 
                 alt="Eksibisi Lantai 5" 
-                className="w-full h-full object-cover hover:scale-105 transition-transform duration-700"
+                className="w-full h-full object-cover hover:scale-105 transition-transform duration-700 opacity-90 hover:opacity-100"
               />
             </div>
             <div className="space-y-3 text-sm sm:text-base leading-relaxed">
@@ -102,7 +101,7 @@ const GalleryInfoModal: React.FC<GalleryInfoModalProps> = ({ isOpen, onClose }) 
                 Galeria Sophilia dengan bangga mempersembahkan perjalanan luar biasa menuju masa keemasan <strong>Dinasti Tang</strong>—era ketika Tiongkok mencapai puncak kejayaan sebagai salah satu peradaban paling makmur dan berpengaruh di dunia.
               </p>
               <p>
-                Masuki dunia <em>Tang Sancai</em> (keramik tiga warna), karya seni berusia lebih dari 1.300 tahun yang menggambarkan manusia, hewan, dan berbagai objek kehidupan yang dahulu melintasi jalur perdagangan legendaris Jalur Sutra, menghubungkan Tiongkok hingga Eropa.
+                Masuki dunia <em className="text-black font-medium">Tang Sancai</em> (keramik tiga warna), karya seni berusia lebih dari 1.300 tahun yang menggambarkan manusia, hewan, dan berbagai objek kehidupan yang dahulu melintasi jalur perdagangan legendaris Jalur Sutra, menghubungkan Tiongkok hingga Eropa.
               </p>
               <p>
                 Rasakan jejak pertukaran budaya dan spiritual yang membentuk peradaban dunia, serta hayati warisan budaya Dinasti Tang yang abadi.
@@ -112,15 +111,15 @@ const GalleryInfoModal: React.FC<GalleryInfoModalProps> = ({ isOpen, onClose }) 
 
           {/* Lantai 6 & 7 */}
           <section>
-            <h3 className="text-lg font-bold text-blue-800 uppercase tracking-widest mb-4 border-l-4 border-blue-600 pl-3">
+            <h3 className="text-lg font-bold text-[#fb9418] uppercase tracking-widest mb-4 border-l-4 border-[#fb9418] pl-3">
               Lantai 6 & 7
             </h3>
             {/* Placeholder Gambar */}
-            <div className="w-full h-48 sm:h-56 mb-5 rounded-xl overflow-hidden bg-gray-100 shadow-sm">
+            <div className="w-full h-48 sm:h-56 mb-5 rounded-xl overflow-hidden bg-black shadow-sm">
               <img 
                 src={sophiliaImg} 
                 alt="Eksibisi Lantai 6 dan 7" 
-                className="w-full h-full object-cover hover:scale-105 transition-transform duration-700"
+                className="w-full h-full object-cover hover:scale-105 transition-transform duration-700 opacity-90 hover:opacity-100"
               />
             </div>
             <div className="space-y-3 text-sm sm:text-base leading-relaxed">
@@ -133,7 +132,9 @@ const GalleryInfoModal: React.FC<GalleryInfoModalProps> = ({ isOpen, onClose }) 
               <p>
                 Sementara itu, di <strong>Lantai 7</strong>, tersaji koleksi barang antik Tiongkok yang kaya nilai sejarah dan budaya. Artefak-artefak ini merepresentasikan kehidupan, tradisi, serta filosofi masyarakat Tiongkok kuno, menghadirkan wawasan mendalam tentang warisan peradaban Timur.
               </p>
-              <p className="font-medium text-gray-700 mt-4 bg-blue-50 p-4 rounded-xl border border-blue-100 shadow-sm">
+              
+              {/* Highlight Box dengan aksen Oranye */}
+              <p className="font-bold text-black mt-6 bg-orange-50 p-5 rounded-xl border border-orange-200 shadow-sm">
                 Kombinasi keduanya menciptakan dialog budaya yang harmonis antara Timur dan Barat dalam satu pengalaman yang utuh dan berkesan.
               </p>
             </div>

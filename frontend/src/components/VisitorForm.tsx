@@ -2,15 +2,7 @@
  * VisitorForm.tsx
  * ----------------------------------------------------
  * Main form component for museum visitor data input.
- * * Features:
- * - Retrieves selected floors from the previous page.
- * - Calculates aggregate ticket prices based on selected floors.
- * - Input visitor counts by age category.
- * - Multi-country origin input with dynamic rows.
- * - Submits data to the backend API as an array of items.
- * - Multi-language support via LanguageContext.
- * - FIX: Resolved the backspace "0" bug for numeric inputs.
- * - FEATURE: Added real-time visual indicator for country count validation.
+ * Updated to match Galeria Sophilia Visual Identity.
  */
 
 import React, { useEffect, useMemo, useState } from "react";
@@ -27,7 +19,6 @@ import { useLanguage } from "../contexts/LanguageContext";
    CONSTANTS & HELPERS
 ===================================================== */
 
-/** Pre-computed array of countries for the dropdown */
 const COUNTRIES = Object.freeze(
   getData().map((c) => ({
     code: c.code.toLowerCase(),
@@ -35,9 +26,6 @@ const COUNTRIES = Object.freeze(
   }))
 );
 
-/**
- * Maps a language code to a default country code.
- */
 const getDefaultCountryByLanguage = (language: "id" | "en" | "zh"): string => {
   const languageToCountryMap: Record<string, string> = {
     id: "id",
@@ -73,16 +61,12 @@ interface CounterInputProps {
    SUB-COMPONENTS
 ===================================================== */
 
-/**
- * Component for incrementing/decrementing visitor counts by age.
- */
 const CounterInput: React.FC<CounterInputProps> = ({
   label,
   price,
   value,
   onChange,
 }) => {
-  // Pastikan value di-convert ke number untuk perhitungan UI
   const numericValue = Number(value) || 0;
   const subtotal = numericValue * price;
   const inputId = `counter-${label.replace(/\s+/g, "-").toLowerCase()}`;
@@ -96,12 +80,12 @@ const CounterInput: React.FC<CounterInputProps> = ({
   };
 
   return (
-    <div className="mb-6 p-4 border rounded-lg bg-white shadow-sm">
-      <div className="flex justify-between mb-2">
-        <label htmlFor={inputId} className="font-medium cursor-pointer whitespace-pre-line">
+    <div className="mb-6 p-4 border border-gray-200 rounded-lg bg-[#fcfcfc] shadow-sm">
+      <div className="flex justify-between mb-3">
+        <label htmlFor={inputId} className="font-bold text-black cursor-pointer whitespace-pre-line">
           {label}
         </label>
-        <span className="text-gray-600">{formatCurrency(price)}</span>
+        <span className="text-gray-600 font-medium">{formatCurrency(price)}</span>
       </div>
 
       <div className="flex items-center justify-between">
@@ -109,7 +93,8 @@ const CounterInput: React.FC<CounterInputProps> = ({
           type="button"
           disabled={numericValue <= 0}
           onClick={() => onChange(Math.max(0, numericValue - 1))}
-          className="w-10 h-10 font-bold text-blue-600 bg-blue-100 rounded-full disabled:opacity-50 transition"
+          // Diperbarui: Aksen Oranye
+          className="w-10 h-10 font-bold text-[#fcfcfc] bg-[#fb9418] border border-orange-200 rounded-full hover:bg-orange-500 transition-colors shadow-sm disabled:border-gray-200 disabled:text-gray-400 disabled:bg-gray-50 transition-colors"
           aria-label={`Kurangi ${label}`}
         >
           -
@@ -117,18 +102,21 @@ const CounterInput: React.FC<CounterInputProps> = ({
 
         <input
           id={inputId}
-          type="number"
+          type="text"
+          inputMode="numeric"
           min={0}
           value={value}
           onChange={handleInputChange}
           onFocus={(e) => e.target.select()} 
-          className="w-24 py-2 font-bold text-center border rounded-md focus:ring-2 focus:ring-blue-500 outline-none"
+          // Diperbarui: Focus ring Oranye
+          className="w-24 py-2 font-bold text-center text-black border border-gray-300 rounded-md focus:ring-2 focus:ring-[#fb9418] focus:border-[#fb9418] outline-none transition-shadow"
         />
 
         <button
           type="button"
           onClick={() => onChange(numericValue + 1)}
-          className="w-10 h-10 font-bold text-white bg-blue-600 rounded-full hover:bg-blue-700 transition"
+          // Diperbarui: Aksen Oranye Solid
+          className="w-10 h-10 font-bold text-[#fcfcfc] bg-[#fb9418] rounded-full hover:bg-orange-500 transition-colors shadow-sm"
           aria-label={`Tambah ${label}`}
         >
           +
@@ -136,9 +124,9 @@ const CounterInput: React.FC<CounterInputProps> = ({
       </div>
 
       {numericValue > 0 && (
-        <div className="mt-2 text-sm text-right text-gray-600">
+        <div className="mt-3 text-sm text-right text-gray-600">
           {numericValue} × {formatCurrency(price)} ={" "}
-          <span className="font-medium text-blue-700">
+          <span className="font-bold text-black">
             {formatCurrency(subtotal)}
           </span>
         </div>
@@ -152,15 +140,12 @@ const CounterInput: React.FC<CounterInputProps> = ({
 ===================================================== */
 
 const VisitorForm: React.FC = () => {
-  // --- Hooks ---
   const navigate = useNavigate();
   const location = useLocation();
   const { language, translations } = useLanguage();
 
-  // Retrieve selected floors from the TicketSelectionPage
   const selectedFloors: string[] = location.state?.selectedFloors || [];
 
-  // --- State ---
   const [counts, setCounts] = useState<VisitorCounts>({
     child: 0,
     student: 0,
@@ -171,9 +156,7 @@ const VisitorForm: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // --- Effects ---
   useEffect(() => {
-    // Security check: If users arrive here without selecting a floor, kick them back
     if (selectedFloors.length === 0) {
       navigate('/ticket-selection', { replace: true });
       return;
@@ -184,11 +167,8 @@ const VisitorForm: React.FC = () => {
         { countryCode: getDefaultCountryByLanguage(language), count: 1 },
       ]);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [language, navigate, selectedFloors.length]); 
 
-  // --- Derived Data (Memoized) ---
-  
   const aggregatePrices = useMemo(
     () => calculateAggregatePrices(selectedFloors),
     [selectedFloors]
@@ -200,13 +180,11 @@ const VisitorForm: React.FC = () => {
     adult: Number(counts.adult) || 0,
   }), [counts]);
 
-  // Total pengunjung yang diinput di kategori usia
   const totalVisitors = useMemo(
     () => pureCounts.child + pureCounts.student + pureCounts.adult,
     [pureCounts]
   );
 
-  // Total pengunjung yang diinput di form asal negara
   const totalFromCountries = useMemo(
     () => countryVisitors.reduce((sum, c) => sum + (Number(c.count) || 0), 0),
     [countryVisitors]
@@ -217,7 +195,6 @@ const VisitorForm: React.FC = () => {
     [pureCounts, aggregatePrices]
   );
 
-  // --- Handlers ---
   const updateCount = (key: keyof VisitorCounts, value: number | string) => {
     setCounts((prev) => ({ ...prev, [key]: value }));
   };
@@ -234,18 +211,8 @@ const VisitorForm: React.FC = () => {
       setCountryVisitors((prev) =>
         prev.map((c, i) => {
           if (i !== index) return c;
-
-          if (key === "countryCode") {
-            return { ...c, countryCode: value as string };
-          }
-
-          if (key === "count") {
-            return {
-              ...c,
-              count: value === "" ? "" : Math.max(0, parseInt(value as string) || 0),
-            };
-          }
-
+          if (key === "countryCode") return { ...c, countryCode: value as string };
+          if (key === "count") return { ...c, count: value === "" ? "" : Math.max(0, parseInt(value as string) || 0) };
           return c;
         })
       );
@@ -275,7 +242,6 @@ const VisitorForm: React.FC = () => {
 
     try {
       setIsSubmitting(true);
-
       const items: { floor: string; age_category: string; quantity: number }[] = [];
       
       selectedFloors.forEach(floor => {
@@ -294,9 +260,7 @@ const VisitorForm: React.FC = () => {
 
       const response = await fetch("/api/v1/transactions", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
 
@@ -312,17 +276,10 @@ const VisitorForm: React.FC = () => {
       }
 
       const data = await response.json();
-
-      if (!data || !data.id) {
-        throw new Error("Respon server tidak valid (ID tidak ditemukan).");
-      }
+      if (!data || !data.id) throw new Error("Respon server tidak valid (ID tidak ditemukan).");
 
       navigate(`/queue/${data.id}`, {
-        state: {
-          origins: countryVisitors,
-          totalVisitors,
-          totalPrice,
-        },
+        state: { origins: countryVisitors, totalVisitors, totalPrice },
       });
 
     } catch (err: any) {
@@ -333,15 +290,14 @@ const VisitorForm: React.FC = () => {
     }
   };
 
-  // --- Render ---
   return (
-    <form onSubmit={handleSubmit} className="max-w-md mx-auto">
-      <header className="mb-6">
-        <h2 className="text-xl font-bold mb-1">
+    <form onSubmit={handleSubmit} className="max-w-md mx-auto text-black">
+      <header className="mb-8">
+        <h2 className="text-xl font-bold mb-2 text-black">
           {translations.visitorCount[language]}
         </h2>
-        <p className="text-gray-600">
-          Anda memilih {selectedFloors.length} lantai. Harga yang tertera adalah total biaya per orang untuk akses tersebut.
+        <p className="text-gray-600 text-sm">
+          Anda memilih <span className="font-bold text-black">{selectedFloors.length} lantai</span>. Harga yang tertera adalah total biaya per orang untuk akses tersebut.
         </p>
       </header>
 
@@ -366,25 +322,30 @@ const VisitorForm: React.FC = () => {
       />
 
       {/* Multi-Country Input Section */}
-      <div className="mb-6 p-4 border rounded-lg bg-white shadow-sm">
+      <div className="mb-8 p-5 border border-gray-200 rounded-xl bg-[#fcfcfc] shadow-sm">
         
         {/* HEADER NEGARA & INDIKATOR SINKRONISASI */}
-        <div className="flex justify-between items-center mb-4 border-b pb-2">
-          <label className="block font-medium">
+        <div className="flex justify-between items-center mb-5 border-b border-gray-200 pb-3">
+          <label className="block font-bold text-black">
             {translations.countryOrigin[language]}
           </label>
-          <span className={`text-xs font-bold px-2 py-1 rounded ${totalVisitors !== totalFromCountries ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>
+          <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${
+            totalVisitors !== totalFromCountries 
+              ? 'bg-red-50 text-red-600 border border-red-200' 
+              : 'bg-green-50 text-green-700 border border-green-200'
+          }`}>
             {totalFromCountries} / {totalVisitors} {translations.people[language]}
           </span>
         </div>
 
-        <div className="space-y-3">
+        <div className="space-y-4">
           {countryVisitors.map((country, index) => (
-            <div key={index} className="flex flex-row items-center gap-2 w-full">
+            <div key={index} className="flex flex-row items-center gap-3 w-full">
               <select
                 value={country.countryCode}
                 onChange={(e) => handleUpdateCountry(index, "countryCode", e.target.value)}
-                className="flex-[3] min-w-0 p-3 bg-gray-100 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm md:text-base truncate"
+                // Diperbarui: Focus ring Oranye
+                className="flex-[3] min-w-0 p-3 bg-white border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#fb9418] focus:border-[#fb9418] text-sm md:text-base truncate transition-shadow"
               >
                 {COUNTRIES.map((c) => (
                   <option key={c.code} value={c.code}>
@@ -399,14 +360,15 @@ const VisitorForm: React.FC = () => {
                 value={country.count}
                 onChange={(e) => handleUpdateCountry(index, "count", e.target.value)}
                 onFocus={(e) => e.target.select()}
-                className="flex-1 min-w-0 p-3 text-center border rounded-md focus:ring-2 focus:ring-blue-500 outline-none bg-white font-bold"
+                // Diperbarui: Focus ring Oranye
+                className="flex-1 min-w-0 p-3 text-center border border-gray-300 rounded-md focus:ring-2 focus:ring-[#fb9418] focus:border-[#fb9418] outline-none bg-white font-bold transition-shadow"
               />
 
               {countryVisitors.length > 1 ? (
                 <button
                   type="button"
                   onClick={() => handleRemoveCountry(index)}
-                  className="flex-none w-10 h-10 flex items-center justify-center font-bold text-red-500 hover:bg-red-50 rounded-full transition-colors border border-transparent hover:border-red-100"
+                  className="flex-none w-10 h-10 flex items-center justify-center font-bold text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors border border-transparent"
                   aria-label="Hapus negara"
                 >
                   ✕
@@ -421,23 +383,25 @@ const VisitorForm: React.FC = () => {
         <button
           type="button"
           onClick={handleAddCountry}
-          className="mt-4 font-medium text-blue-600 hover:text-blue-800 transition flex items-center gap-1"
+          // Diperbarui: Teks Oranye
+          className="mt-5 font-bold text-[#fb9418] hover:text-orange-600 transition-colors flex items-center gap-1.5"
         >
-          <span className="text-lg">+</span> {translations.addCountry[language]}
+          <span className="text-xl leading-none">+</span> {translations.addCountry[language]}
         </button>
       </div>
 
       {/* Summary Section */}
-      <div className="mb-4 p-4 rounded-lg bg-blue-50">
-        <div className="flex justify-between mb-2">
-          <span>{translations.totalVisitors[language]}</span>
-          <span className="font-bold">
+      <div className="mb-6 p-5 rounded-xl bg-gray-50 border border-gray-200">
+        <div className="flex justify-between mb-2 text-sm">
+          <span className="text-gray-600 font-medium">{translations.totalVisitors[language]}</span>
+          <span className="font-bold text-black">
             {totalVisitors} {translations.people[language]}
           </span>
         </div>
-        <div className="flex justify-between text-lg">
-          <span>{translations.totalPrice[language]}</span>
-          <span className="font-bold text-blue-700">
+        <div className="flex justify-between items-end mt-4 pt-4 border-t border-gray-200">
+          <span className="text-gray-800 font-bold">{translations.totalPrice[language]}</span>
+          {/* Diperbarui: Highlight Harga Oranye */}
+          <span className="font-black text-2xl text-[#fb9418]">
             {formatCurrency(totalPrice)}
           </span>
         </div>
@@ -445,8 +409,9 @@ const VisitorForm: React.FC = () => {
 
       {/* Error Display */}
       {error && (
-        <div className="mb-4 p-3 text-sm text-red-700 bg-red-50 border border-red-200 rounded-md">
-          {error}
+        <div className="mb-6 p-4 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg flex items-start gap-3">
+           <svg className="w-5 h-5 text-red-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+          <span className="font-medium">{error}</span>
         </div>
       )}
 
@@ -454,15 +419,21 @@ const VisitorForm: React.FC = () => {
       <button
         type="submit"
         disabled={isSubmitting}
-        className={`w-full py-3 font-medium text-white rounded-lg transition-colors duration-200 ${
+        // Diperbarui: Tombol Oranye Solid
+        className={`w-full py-4 font-bold text-[#fcfcfc] rounded-xl transition-all duration-200 shadow-md flex justify-center items-center ${
           isSubmitting
-            ? "bg-gray-400 cursor-not-allowed"
-            : "bg-blue-600 hover:bg-blue-700 shadow-md"
+            ? "bg-gray-400 cursor-not-allowed shadow-none"
+            : "bg-[#fb9418] hover:bg-orange-500 hover:shadow-lg active:scale-[0.98]"
         }`}
       >
-        {isSubmitting
-          ? translations.processing[language]
-          : translations.getQueueButton[language]}
+        {isSubmitting ? (
+          <span className="flex items-center gap-2">
+            <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+            {translations.processing[language]}
+          </span>
+        ) : (
+          translations.getQueueButton[language]
+        )}
       </button>
     </form>
   );

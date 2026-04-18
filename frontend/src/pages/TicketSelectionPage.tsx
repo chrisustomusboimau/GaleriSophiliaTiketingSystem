@@ -1,8 +1,17 @@
+/**
+ * TicketSelectionPage.tsx
+ * ----------------------------------------------------
+ * Halaman pertama untuk pengunjung.
+ * Menampilkan pilihan lantai, mengelola state lantai yang dipilih,
+ * dan meneruskan data tersebut ke halaman VisitorForm.
+ * Diperbarui dengan identitas visual Galeria Sophilia.
+ */
+
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useLanguage } from '../contexts/LanguageContext';
 import FloorCard, { FloorData } from '../components/FloorCard';
-import GalleryInfoModal from '../components/GalleryInfoModal'; // <-- Tambahkan import ini
+import GalleryInfoModal from '../components/GalleryInfoModal';
 
 const FLOORS: FloorData[] = [
   { 
@@ -27,8 +36,6 @@ const TicketSelectionPage: React.FC = () => {
   const navigate = useNavigate();
   
   const [selectedFloors, setSelectedFloors] = useState<string[]>([]);
-  
-  // <-- Tambahkan state untuk mengontrol modal informasi
   const [isInfoOpen, setIsInfoOpen] = useState<boolean>(false); 
 
   const toggleFloor = (floorId: string) => {
@@ -45,66 +52,92 @@ const TicketSelectionPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col relative">
-      <header className="bg-white shadow-sm shrink-0">
-        <div className="max-w-7xl mx-auto py-4 px-4">
-          <h1 className="text-2xl font-bold text-gray-800">Pilih Tiket</h1>
+    <div className="min-h-screen bg-black flex flex-col relative font-sans">
+      
+      {/* HEADER: Galeria Sophilia Branding */}
+      <header className="bg-black py-8 px-4 flex flex-col items-center justify-center shrink-0 border-b border-white/10 z-10">
+        <div className="text-center select-none">
+          <h2 className="text-[#fcfcfc] font-light tracking-[0.4em] text-sm md:text-base uppercase">
+            Galeria
+          </h2>
+          <h1 className="text-[#fb9418] font-bold tracking-wider text-4xl md:text-5xl mt-1 uppercase">
+            Sophilia
+          </h1>
         </div>
       </header>
 
-      <main className="flex-1 max-w-lg w-full mx-auto p-4 flex flex-col justify-center space-y-4">
+      {/* MAIN CONTENT AREA */}
+      <main className="flex-1 flex flex-col items-center p-4 sm:p-8 relative">
         
-        {/* Header Judul & Tombol Info */}
-        <div className="text-center mb-4">
-          <div className="flex items-center justify-center gap-2">
-            <h2 className="text-xl font-bold text-gray-800">Area Pameran</h2>
+        {/* Dekorasi Background Tambahan */}
+        <div className="absolute inset-0 bg-gradient-to-b from-black to-zinc-900 -z-10" />
+
+        {/* Content Container Putih */}
+        <div className="w-full max-w-lg bg-[#fcfcfc] rounded-2xl shadow-2xl p-6 sm:p-8 border border-gray-200">
+          
+          {/* Header Judul & Tombol Info */}
+          <div className="text-center mb-6">
+            <div className="flex items-center justify-center gap-2">
+              <h2 className="text-xl font-bold text-black uppercase tracking-wide">
+                Area Pameran
+              </h2>
+              
+              {/* Tombol 'i' Info (Aksen Oranye) */}
+              <button 
+                onClick={() => setIsInfoOpen(true)}
+                className="w-6 h-6 rounded-full bg-orange-100 text-[#fb9418] flex items-center justify-center hover:bg-[#fb9418] hover:text-[#fcfcfc] transition-colors focus:outline-none focus:ring-2 focus:ring-[#fb9418] focus:ring-offset-1"
+                aria-label="Informasi Lantai"
+                title="Lihat informasi kurasi lantai"
+              >
+                <span className="font-serif italic font-bold text-sm">i</span>
+              </button>
+            </div>
             
-            {/* <-- Tombol 'i' Info ditambahkan di sini */}
-            <button 
-              onClick={() => setIsInfoOpen(true)}
-              className="w-6 h-6 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center hover:bg-blue-600 hover:text-white transition-colors focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1"
-              aria-label="Informasi Lantai"
-              title="Lihat informasi kurasi lantai"
+            <p className="text-gray-500 text-sm mt-2">
+              Silakan pilih satu atau lebih lantai yang ingin Anda kunjungi
+            </p>
+          </div>
+
+          {/* List Komponen Kartu Lantai */}
+          <div className="space-y-4">
+            {FLOORS.map((floor) => (
+              <FloorCard
+                key={floor.id}
+                floor={floor}
+                isSelected={selectedFloors.includes(floor.id)}
+                onToggle={toggleFloor}
+                labels={{
+                  adult: translations.adultLabel[language],
+                  teen: translations.teenLabel[language],
+                  child: translations.childLabel[language],
+                }}
+              />
+            ))}
+          </div>
+
+          {/* Tombol Lanjut (Aksen Oranye) */}
+          <div className="pt-8">
+            <button
+              onClick={handleContinue}
+              disabled={selectedFloors.length === 0}
+              className={`w-full py-4 font-bold text-[#fcfcfc] rounded-xl transition-all duration-200 shadow-md flex justify-center items-center gap-2 ${
+                selectedFloors.length === 0
+                  ? "bg-gray-400 cursor-not-allowed shadow-none"
+                  : "bg-[#fb9418] hover:bg-orange-500 hover:shadow-lg active:scale-95"
+              }`}
             >
-              <span className="font-serif italic font-bold text-sm">i</span>
+              Lanjutkan ({selectedFloors.length} Dipilih)
+              {selectedFloors.length > 0 && (
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                </svg>
+              )}
             </button>
           </div>
-          
-          <p className="text-gray-500 text-sm mt-1">
-            Silakan pilih satu atau lebih lantai yang ingin Anda kunjungi
-          </p>
-        </div>
-
-        {/* List Komponen Kartu Lantai */}
-        <div className="space-y-4">
-          {FLOORS.map((floor) => (
-            <FloorCard
-              key={floor.id}
-              floor={floor}
-              isSelected={selectedFloors.includes(floor.id)}
-              onToggle={toggleFloor}
-              // Oper label yang sudah di-translate dari context
-              labels={{
-                adult: translations.adultLabel[language],
-                teen: translations.teenLabel[language],
-                child: translations.childLabel[language],
-              }}
-            />
-          ))}
-        </div>
-
-        <div className="pt-8 pb-8">
-          <button
-            onClick={handleContinue}
-            disabled={selectedFloors.length === 0}
-            className="w-full py-4 bg-blue-600 text-white font-bold text-lg rounded-lg disabled:bg-gray-400 hover:bg-blue-700 transition-colors shadow-sm"
-          >
-            Lanjutkan ({selectedFloors.length} Dipilih)
-          </button>
         </div>
       </main>
 
-      {/* <-- Render Komponen Modal Info di luar alur DOM utama */}
+      {/* Render Komponen Modal Info */}
       <GalleryInfoModal 
         isOpen={isInfoOpen} 
         onClose={() => setIsInfoOpen(false)} 
