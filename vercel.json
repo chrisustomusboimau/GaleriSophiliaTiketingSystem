@@ -17,6 +17,6 @@
     { "src": "/api/(.*)", "dest": "api/main.py" },
     { "src": "/auth/(.*)", "dest": "api/main.py" },
     { "src": "/users/(.*)", "dest": "api/main.py" },
-    { "src": "/(.*)", "dest": "/$1" }
+    { "src": "^/[^.]*$", "dest": "/index.html" }
   ]
 }
