@@ -46,7 +46,7 @@ class TransactionEntry(Base):
     __tablename__ = "transactions"
 
     id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    queue_number = Column(Integer, nullable=False, unique=True, index=True)
+    queue_number = Column(Integer, nullable=False, index=True)
     total_price = Column(Integer, nullable=False)
     status = Column(String, nullable=False, default="pending")
     

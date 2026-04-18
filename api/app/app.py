@@ -9,7 +9,6 @@ from sqlalchemy.exc import IntegrityError
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-
 from app.schema import (
     UserCreate, UserRead, UserUpdate, 
     TransactionCreate, TransactionResponse, TransactionStatusUpdate,
@@ -93,11 +92,24 @@ async def create_transaction(
                     unit_price=price
                 ))
 
-            # 2. Handle Queue Number
-            result = await session.execute(select(func.max(TransactionEntry.queue_number)))
+            # ==========================================
+            # 2. HANDLE QUEUE NUMBER (RESET HARIAN)
+            # ==========================================
+            now_wib = datetime.now(WIB)
+            start_of_today_wib = datetime(now_wib.year, now_wib.month, now_wib.day, tzinfo=WIB)
+            start_of_tomorrow_wib = start_of_today_wib + timedelta(days=1)
+
+            # Cari nomor antrean tertinggi HANYA pada hari ini berdasarkan zona WIB
+            result = await session.execute(
+                select(func.max(TransactionEntry.queue_number))
+                .where(
+                    TransactionEntry.created_at >= start_of_today_wib,
+                    TransactionEntry.created_at < start_of_tomorrow_wib
+                )
+            )
             max_queue = result.scalar() or 0
 
-            # 3. Create main transaction
+            # 3. Create main transaction (Mulai dari max_queue harian + 1)
             new_transaction = TransactionEntry(
                 queue_number=max_queue + 1,
                 total_price=total_price,
@@ -113,6 +125,9 @@ async def create_transaction(
             return new_transaction
 
         except IntegrityError:
+            # Jika terjadi race condition (2 user menekan submit bersamaan),
+            # transaksi akan dibatalkan, loop diulang, dan sistem akan 
+            # mencari max_queue yang baru secara otomatis.
             await session.rollback()
             continue 
             
@@ -120,7 +135,6 @@ async def create_transaction(
 
 
 # --- API 1: HANYA DATA HARI INI (Zona Waktu WIB) ---
-# Ditempatkan SEBELUM rute dengan {transaction_id}
 @app.get("/api/v1/transactions", response_model=List[TransactionResponse], tags=["transactions"])
 async def list_today_transactions(
     status: Optional[str] = Query(None, description="Filter by payment status (e.g., 'pending')"),
@@ -153,7 +167,6 @@ async def list_today_transactions(
 
 
 # --- API 2: KESELURUHAN DATA (HISTORIS) ---
-# Ditempatkan SEBELUM rute dengan {transaction_id}
 @app.get("/api/v1/transactions/all", response_model=List[TransactionResponse], tags=["transactions"])
 async def list_all_transactions(
     status: Optional[str] = Query(None, description="Filter by payment status (e.g., 'pending')"),
@@ -177,7 +190,6 @@ async def list_all_transactions(
     
 
 # --- API 3: MENCARI BERDASARKAN UUID ---
-# DIPINDAHKAN KE BAWAH agar tidak menyebabkan "Route Shadowing"
 @app.get("/api/v1/transactions/{transaction_id}", response_model=TransactionResponse, tags=["transactions"])
 async def get_transaction_details(
     transaction_id: uuid.UUID,
