@@ -2,8 +2,8 @@
  * Summary.tsx
  * ----------------------------------------------------
  * Komponen untuk menampilkan ringkasan data transaksi.
- * Diperbarui dengan identitas visual Galeria Sophilia (Putih/Hitam/Oranye) 
- * khusus untuk penggunaan Dashboard Admin/Kasir.
+ * Diperbarui dengan identitas visual Galeria Sophilia (Putih/Hitam/Oranye).
+ * Update: Menambahkan fitur Rekap Pengunjung Berdasarkan Interval Waktu 30 Menit.
  */
 
 import React, { useMemo, useState } from 'react';
@@ -13,6 +13,7 @@ export interface TransactionItem {
   floor: string;
   age_category: string;
   quantity: number;
+  unit_price?: number;
 }
 
 export interface TransactionOrigin {
@@ -21,6 +22,12 @@ export interface TransactionOrigin {
 }
 
 export interface Transaction {
+  id?: string;
+  queue_number: number;
+  status: string;
+  payment_method?: string;
+  total_price?: number;
+  created_at?: string; // TAMBAHAN: Diperlukan untuk rekap waktu
   items: TransactionItem[];
   origins?: TransactionOrigin[]; 
 }
@@ -34,17 +41,62 @@ interface SummaryProps {
   transactions: Transaction[];
 }
 
-const Summary: React.FC<SummaryProps> = ({
-  totalVisitors,
-  totalChildren,
-  totalTeens,
-  totalAdults,
-  totalRevenue,
-  transactions,
-}) => {
-  const [isExpanded, setIsExpanded] = useState<boolean>(false);
+// Konfigurasi Harga Dasar untuk Tabel Rekap
+const TICKET_CATEGORIES = [
+  { floor: "Floor 1", age: "adult", label: "Lantai 1 - Dewasa", price: 60000 },
+  { floor: "Floor 1", age: "student", label: "Lantai 1 - Remaja", price: 40000 },
+  { floor: "Floor 1", age: "child", label: "Lantai 1 - Anak", price: 20000 },
+  { floor: "Floor 5", age: "adult", label: "Lantai 5 - Dewasa", price: 40000 },
+  { floor: "Floor 5", age: "student", label: "Lantai 5 - Remaja", price: 20000 },
+  { floor: "Floor 5", age: "child", label: "Lantai 5 - Anak", price: 10000 },
+  { floor: "Floor 6/7", age: "adult", label: "Lantai 6 & 7 - Dewasa", price: 100000 },
+  { floor: "Floor 6/7", age: "student", label: "Lantai 6 & 7 - Remaja", price: 50000 },
+  { floor: "Floor 6/7", age: "child", label: "Lantai 6 & 7 - Anak", price: 25000 },
+];
 
-  // 1. Kalkulasi jumlah pengunjung per lantai
+const Summary: React.FC<SummaryProps> = ({ transactions }) => {
+  const [isExpanded, setIsExpanded] = useState<boolean>(false);
+  
+  // STATE: Untuk Filter Jam Kepadatan Pengunjung
+  const [startTimeStr, setStartTimeStr] = useState<string>('10:00');
+  const [endTimeStr, setEndTimeStr] = useState<string>('16:00');
+
+  const formatCurrency = (amount: number) => {
+    return new Intl.NumberFormat('id-ID', {
+      style: 'currency',
+      currency: 'IDR',
+      maximumFractionDigits: 0,
+    }).format(amount);
+  };
+
+  // =========================================================
+  // KALKULASI DINAMIS (Mengikuti Filter Data Tabel Sepenuhnya)
+  // =========================================================
+  
+  // 1. Kalkulasi Statistik Utama
+  const dynamicStats = useMemo(() => {
+    let visitors = 0, children = 0, teens = 0, adults = 0, revenue = 0;
+    
+    transactions.forEach(tx => {
+      revenue += (tx.total_price || 0);
+      
+      const seenCategories = new Set<string>();
+      tx.items.forEach(item => {
+        const cat = item.age_category.toLowerCase();
+        if (!seenCategories.has(cat)) {
+          if (cat === 'child') children += item.quantity;
+          else if (cat === 'student' || cat === 'teen') teens += item.quantity;
+          else if (cat === 'adult') adults += item.quantity;
+          seenCategories.add(cat);
+        }
+      });
+    });
+
+    visitors = children + teens + adults;
+    return { visitors, children, teens, adults, revenue };
+  }, [transactions]);
+
+  // 2. Kalkulasi jumlah pengunjung per lantai
   const floorStats = useMemo(() => {
     const stats: Record<string, number> = {};
 
@@ -67,7 +119,7 @@ const Summary: React.FC<SummaryProps> = ({
     return Object.entries(stats).sort(); 
   }, [transactions]);
 
-  // 2. Kalkulasi jumlah pengunjung per negara
+  // 3. Kalkulasi jumlah pengunjung per negara
   const countryStats = useMemo(() => {
     const stats: Record<string, number> = {};
 
@@ -83,17 +135,139 @@ const Summary: React.FC<SummaryProps> = ({
     return Object.entries(stats).sort((a, b) => b[1] - a[1]);
   }, [transactions]);
 
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('id-ID', {
-      style: 'currency',
-      currency: 'IDR',
-      maximumFractionDigits: 0,
-    }).format(amount);
-  };
+  // 4. Kalkulasi Tabel Rekapitulasi Pembayaran (QRIS vs Card)
+  const salesSummary = useMemo(() => {
+    const rows = TICKET_CATEGORIES.map(cat => ({
+      ...cat,
+      qrisQty: 0,
+      qrisNominal: 0,
+      cardQty: 0,
+      cardNominal: 0,
+    }));
+
+    const rowMap = new Map(rows.map(r => [`${r.floor}-${r.age}`, r]));
+
+    let totalQrisQty = 0, totalQrisNominal = 0;
+    let totalCardQty = 0, totalCardNominal = 0;
+
+    transactions.forEach(tx => {
+      const isCard = tx.payment_method === 'card';
+
+      tx.items.forEach(item => {
+        const key = `${item.floor}-${item.age_category.toLowerCase()}`;
+        const row = rowMap.get(key);
+        
+        if (row && item.quantity > 0) {
+          const nominal = item.quantity * row.price;
+
+          if (isCard) {
+            row.cardQty += item.quantity;
+            row.cardNominal += nominal;
+            totalCardQty += item.quantity;
+            totalCardNominal += nominal;
+          } else {
+            // Default: QRIS
+            row.qrisQty += item.quantity;
+            row.qrisNominal += nominal;
+            totalQrisQty += item.quantity;
+            totalQrisNominal += nominal;
+          }
+        }
+      });
+    });
+
+    return { 
+      rows, 
+      totals: { totalQrisQty, totalQrisNominal, totalCardQty, totalCardNominal } 
+    };
+  }, [transactions]);
+
+  // =========================================================
+  // 5. KALKULASI INTERVAL WAKTU 30 MENIT
+  // =========================================================
+  const timeIntervalStats = useMemo(() => {
+    // 1. Parsing waktu mulai dan akhir dari string HH:MM
+    const [startH, startM] = startTimeStr.split(':').map(Number);
+    const [endH, endM] = endTimeStr.split(':').map(Number);
+    
+    if (isNaN(startH) || isNaN(endH)) return [];
+
+    let startMins = startH * 60 + startM;
+    let endMins = endH * 60 + endM;
+    
+    // Validasi agar tidak terbalik
+    if (startMins > endMins) {
+      const temp = startMins;
+      startMins = endMins;
+      endMins = temp;
+    }
+
+    // 2. Buat array blok waktu per 30 menit
+    const intervals: {
+      label: string;
+      startMin: number;
+      endMin: number;
+      floor1: number;
+      floor5: number;
+      floor67: number;
+      total: number;
+    }[] = [];
+
+    for (let m = startMins; m < endMins; m += 30) {
+      const blockStartH = Math.floor(m / 60).toString().padStart(2, '0');
+      const blockStartM = (m % 60).toString().padStart(2, '0');
+      
+      const nextM = Math.min(m + 30, endMins);
+      const blockEndH = Math.floor(nextM / 60).toString().padStart(2, '0');
+      const blockEndM = (nextM % 60).toString().padStart(2, '0');
+
+      intervals.push({
+        label: `${blockStartH}:${blockStartM} - ${blockEndH}:${blockEndM}`,
+        startMin: m,
+        endMin: nextM,
+        floor1: 0,
+        floor5: 0,
+        floor67: 0,
+        total: 0
+      });
+    }
+
+    // 3. Distribusikan transaksi ke dalam interval waktu
+    transactions.forEach(tx => {
+      // Pastikan ada tanggal pembuatan
+      if (!tx.created_at) return;
+      
+      const date = new Date(tx.created_at);
+      const txMins = date.getHours() * 60 + date.getMinutes();
+
+      // Cari interval yang cocok
+      const interval = intervals.find(inv => txMins >= inv.startMin && txMins < inv.endMin);
+      if (!interval) return;
+
+      // Hitung orang per lantai di transaksi ini
+      let f1 = 0, f5 = 0, f67 = 0;
+      const seenF1 = new Set(), seenF5 = new Set(), seenF67 = new Set();
+
+      tx.items.forEach(item => {
+        if (item.floor === 'Floor 1' && !seenF1.has(item.age_category)) { f1 += item.quantity; seenF1.add(item.age_category); }
+        else if (item.floor === 'Floor 5' && !seenF5.has(item.age_category)) { f5 += item.quantity; seenF5.add(item.age_category); }
+        else if (item.floor === 'Floor 6/7' && !seenF67.has(item.age_category)) { f67 += item.quantity; seenF67.add(item.age_category); }
+      });
+
+      interval.floor1 += f1;
+      interval.floor5 += f5;
+      interval.floor67 += f67;
+      interval.total += (f1 + f5 + f67);
+    });
+
+    return intervals;
+
+  }, [transactions, startTimeStr, endTimeStr]);
+
 
   return (
     <div className="mb-8">
-      {/* Tombol Toggle Dropdown (Aksen Hitam/Oranye) */}
+      {/* Tombol Toggle Dropdown */}
       <button
         onClick={() => setIsExpanded(!isExpanded)}
         className={`w-full flex items-center justify-between p-5 rounded-2xl shadow-sm border transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-[#fb9418] ${
@@ -116,54 +290,222 @@ const Summary: React.FC<SummaryProps> = ({
         </svg>
       </button>
 
-      {/* Konten Summary (Hanya tampil jika isExpanded == true) */}
+      {/* Konten Summary */}
       <div 
         className={`transition-all duration-500 ease-in-out overflow-hidden ${
-          isExpanded ? 'opacity-100 mt-5 max-h-[2000px]' : 'opacity-0 max-h-0'
+          isExpanded ? 'opacity-100 mt-5 max-h-[5000px]' : 'opacity-0 max-h-0'
         }`}
       >
         <div className="space-y-6">
           
-          {/* Grid Utama Stats (Total, Umur, Revenue) */}
+          {/* Grid Utama Stats */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
             
-            {/* Total Visitors (Highlight Hitam) */}
             <div className="bg-black p-5 rounded-2xl shadow-md border border-gray-800 flex flex-col justify-center items-center text-center">
               <span className="text-[11px] text-gray-400 font-bold uppercase tracking-widest mb-1">Total Orang</span>
-              <span className="text-4xl font-black text-[#fb9418]">{totalVisitors}</span>
-            </div>
-
-            {/* Anak, Remaja, Dewasa (Background Putih) */}
-            <div className="bg-[#fcfcfc] p-5 rounded-2xl shadow-sm border border-gray-200 flex flex-col justify-center text-center">
-              <span className="text-[11px] text-gray-500 font-bold uppercase tracking-widest mb-1">Anak</span>
-              <span className="text-3xl font-black text-black">{totalChildren}</span>
-            </div>
-
-            <div className="bg-[#fcfcfc] p-5 rounded-2xl shadow-sm border border-gray-200 flex flex-col justify-center text-center">
-              <span className="text-[11px] text-gray-500 font-bold uppercase tracking-widest mb-1">Remaja</span>
-              <span className="text-3xl font-black text-black">{totalTeens}</span>
+              <span className="text-4xl font-black text-[#fb9418]">{dynamicStats.visitors}</span>
             </div>
 
             <div className="bg-[#fcfcfc] p-5 rounded-2xl shadow-sm border border-gray-200 flex flex-col justify-center text-center">
               <span className="text-[11px] text-gray-500 font-bold uppercase tracking-widest mb-1">Dewasa</span>
-              <span className="text-3xl font-black text-black">{totalAdults}</span>
+              <span className="text-3xl font-black text-black">{dynamicStats.adults}</span>
             </div>
 
-            {/* Total Revenue (Highlight Oranye) */}
+            <div className="bg-[#fcfcfc] p-5 rounded-2xl shadow-sm border border-gray-200 flex flex-col justify-center text-center">
+              <span className="text-[11px] text-gray-500 font-bold uppercase tracking-widest mb-1">Remaja</span>
+              <span className="text-3xl font-black text-black">{dynamicStats.teens}</span>
+            </div>
+
+            <div className="bg-[#fcfcfc] p-5 rounded-2xl shadow-sm border border-gray-200 flex flex-col justify-center text-center">
+              <span className="text-[11px] text-gray-500 font-bold uppercase tracking-widest mb-1">Anak</span>
+              <span className="text-3xl font-black text-black">{dynamicStats.children}</span>
+            </div>
+
             <div className="bg-orange-50 p-5 rounded-2xl shadow-sm border border-[#fb9418]/30 flex flex-col justify-center items-center text-center">
-              <span className="text-[11px] text-gray-600 font-bold uppercase tracking-widest mb-1">Pendapatan</span>
-              <span className="text-2xl font-black text-[#fb9418]">{formatCurrency(totalRevenue)}</span>
+              <span className="text-[11px] text-gray-600 font-bold uppercase tracking-widest mb-1">Total Tagihan</span>
+              <span className="text-2xl font-black text-[#fb9418]">{formatCurrency(dynamicStats.revenue)}</span>
             </div>
 
           </div>
 
-          {/* Baris Bawah: Summary Per Lantai & Summary Per Negara */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* TABEL REKAPITULASI PENJUALAN TIKET (QRIS VS CARD) */}
+          <div className="bg-[#fcfcfc] rounded-2xl shadow-sm border border-gray-200 overflow-hidden mt-6">
+            <div className="p-5 border-b border-gray-200 bg-white flex justify-between items-center">
+              <h4 className="text-sm font-extrabold text-black uppercase tracking-wider">
+                Rekapitulasi Penjualan Harian
+              </h4>
+              <span className="text-[10px] sm:text-xs font-bold text-gray-500 bg-gray-100 px-2.5 py-1 rounded-md border border-gray-200">
+                Sesuai Filter Tabel
+              </span>
+            </div>
             
-            {/* Bagian Summary Per Lantai */}
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse min-w-[800px]">
+                <thead>
+                  <tr className="bg-black text-[#fcfcfc] text-[10px] sm:text-xs font-bold uppercase tracking-widest border-b border-zinc-800">
+                    <th className="p-3 align-middle" rowSpan={2}>Jenis Tiket</th>
+                    <th className="p-3 align-middle border-r border-zinc-800 text-center" rowSpan={2}>Harga</th>
+                    <th className="p-3 text-center border-r border-zinc-800" colSpan={2}>QRIS</th>
+                    <th className="p-3 text-center border-r border-zinc-800" colSpan={2}>CARD / EDC</th>
+                    <th className="p-3 text-center" colSpan={2}>GRAND TOTAL (GT)</th>
+                  </tr>
+                  <tr className="bg-zinc-900 text-gray-300 text-[10px] font-bold uppercase tracking-widest border-b-2 border-[#fb9418]">
+                    <th className="p-2 text-center">Qty</th>
+                    <th className="p-2 text-center border-r border-zinc-700">Rp</th>
+                    <th className="p-2 text-center">Qty</th>
+                    <th className="p-2 text-center border-r border-zinc-700">Rp</th>
+                    <th className="p-2 text-center text-[#fb9418]">Qty</th>
+                    <th className="p-2 text-center text-[#fb9418]">Rp</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 text-xs sm:text-sm bg-white">
+                  {salesSummary.rows.map((row, idx) => {
+                    const rowGtQty = row.qrisQty + row.cardQty;
+                    const rowGtNominal = row.qrisNominal + row.cardNominal;
+                    
+                    return (
+                      <tr key={idx} className="hover:bg-orange-50/40 transition-colors">
+                        <td className="p-3 font-bold text-gray-800 whitespace-nowrap">{row.label}</td>
+                        <td className="p-3 text-center font-mono text-gray-500 border-r border-gray-100 whitespace-nowrap">
+                          {formatCurrency(row.price)}
+                        </td>
+                        
+                        {/* QRIS */}
+                        <td className={`p-3 text-center font-bold ${row.qrisQty > 0 ? 'text-black' : 'text-gray-300'}`}>
+                          {row.qrisQty}
+                        </td>
+                        <td className={`p-3 text-right font-mono border-r border-gray-100 ${row.qrisNominal > 0 ? 'text-green-700' : 'text-gray-300'}`}>
+                          {row.qrisNominal > 0 ? formatCurrency(row.qrisNominal) : '-'}
+                        </td>
+
+                        {/* CARD / EDC */}
+                        <td className={`p-3 text-center font-bold ${row.cardQty > 0 ? 'text-black' : 'text-gray-300'}`}>
+                          {row.cardQty}
+                        </td>
+                        <td className={`p-3 text-right font-mono border-r border-gray-100 ${row.cardNominal > 0 ? 'text-gray-800' : 'text-gray-300'}`}>
+                          {row.cardNominal > 0 ? formatCurrency(row.cardNominal) : '-'}
+                        </td>
+
+                        {/* GRAND TOTAL ROW */}
+                        <td className={`p-3 text-center font-black ${rowGtQty > 0 ? 'text-black bg-orange-50/50' : 'text-gray-300'}`}>
+                          {rowGtQty}
+                        </td>
+                        <td className={`p-3 text-right font-bold font-mono ${rowGtNominal > 0 ? 'text-[#fb9418] bg-orange-50/50' : 'text-gray-300'}`}>
+                          {rowGtNominal > 0 ? formatCurrency(rowGtNominal) : '-'}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                {/* FOOTER TOTAL */}
+                <tfoot className="bg-gray-50 border-t-2 border-gray-300 text-xs sm:text-sm font-black">
+                  <tr>
+                    <td className="p-3 text-right uppercase tracking-wider text-black" colSpan={2}>
+                      Total Keseluruhan:
+                    </td>
+                    <td className="p-3 text-center text-black">
+                      {salesSummary.totals.totalQrisQty}
+                    </td>
+                    <td className="p-3 text-right text-green-700 font-mono border-r border-gray-200">
+                      {formatCurrency(salesSummary.totals.totalQrisNominal)}
+                    </td>
+                    <td className="p-3 text-center text-black">
+                      {salesSummary.totals.totalCardQty}
+                    </td>
+                    <td className="p-3 text-right text-gray-800 font-mono border-r border-gray-200">
+                      {formatCurrency(salesSummary.totals.totalCardNominal)}
+                    </td>
+                    <td className="p-3 text-center text-black bg-orange-100/50">
+                      {salesSummary.totals.totalQrisQty + salesSummary.totals.totalCardQty}
+                    </td>
+                    <td className="p-3 text-right text-[#fb9418] text-base font-mono bg-orange-100/50">
+                      {formatCurrency(salesSummary.totals.totalQrisNominal + salesSummary.totals.totalCardNominal)}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </div>
+
+          {/* =========================================================
+              BARU: TABEL KEPADATAN PENGUNJUNG (INTERVAL 30 MENIT)
+              ========================================================= */}
+          <div className="bg-[#fcfcfc] rounded-2xl shadow-sm border border-gray-200 overflow-hidden mt-6">
+            
+            {/* Header & Controls */}
+            <div className="p-5 border-b border-gray-200 bg-white flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+              <h4 className="text-sm font-extrabold text-black uppercase tracking-wider">
+                Kepadatan Pengunjung (Per 30 Menit)
+              </h4>
+              
+              {/* Input Jam */}
+              <div className="flex items-center gap-2 text-sm font-bold bg-gray-50 p-2 rounded-lg border border-gray-200">
+                <input 
+                  type="time" 
+                  value={startTimeStr} 
+                  onChange={(e) => setStartTimeStr(e.target.value)}
+                  className="bg-white border border-gray-300 rounded px-2 py-1 outline-none focus:border-[#fb9418]"
+                />
+                <span className="text-gray-400">-</span>
+                <input 
+                  type="time" 
+                  value={endTimeStr} 
+                  onChange={(e) => setEndTimeStr(e.target.value)}
+                  className="bg-white border border-gray-300 rounded px-2 py-1 outline-none focus:border-[#fb9418]"
+                />
+              </div>
+            </div>
+
+            {/* Tabel Interval */}
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-gray-100 text-gray-600 text-xs font-bold uppercase tracking-widest border-b-2 border-gray-200">
+                    <th className="p-3 w-1/4">Rentang Waktu</th>
+                    <th className="p-3 text-center border-l border-gray-200 w-1/6">Lantai 1</th>
+                    <th className="p-3 text-center border-l border-gray-200 w-1/6">Lantai 5</th>
+                    <th className="p-3 text-center border-l border-gray-200 w-1/6">Lantai 6/7</th>
+                    <th className="p-3 text-center border-l border-gray-300 text-black w-1/4">Total Pengunjung</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 text-sm bg-white font-medium text-gray-700">
+                  {timeIntervalStats.length > 0 ? (
+                    timeIntervalStats.map((interval, idx) => (
+                      <tr key={idx} className="hover:bg-orange-50/50 transition-colors">
+                        <td className="p-3 font-bold text-gray-800">{interval.label}</td>
+                        <td className={`p-3 text-center border-l border-gray-100 ${interval.floor1 > 0 ? 'text-black font-bold' : 'text-gray-300'}`}>
+                          {interval.floor1}
+                        </td>
+                        <td className={`p-3 text-center border-l border-gray-100 ${interval.floor5 > 0 ? 'text-black font-bold' : 'text-gray-300'}`}>
+                          {interval.floor5}
+                        </td>
+                        <td className={`p-3 text-center border-l border-gray-100 ${interval.floor67 > 0 ? 'text-black font-bold' : 'text-gray-300'}`}>
+                          {interval.floor67}
+                        </td>
+                        <td className={`p-3 text-center border-l border-gray-200 font-black ${interval.total > 0 ? 'text-[#fb9418]' : 'text-gray-300'}`}>
+                          {interval.total}
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={5} className="p-6 text-center text-gray-400 italic">
+                        Rentang waktu tidak valid atau kosong.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Baris Bawah: Summary Per Lantai & Summary Per Negara */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
+            
+            {/* Bagian Summary Per Lantai (Total Keseluruhan) */}
             <div className="bg-[#fcfcfc] p-6 rounded-2xl shadow-sm border border-gray-200">
               <h4 className="text-sm font-extrabold text-black uppercase tracking-wider mb-5 border-b-2 border-gray-100 pb-3">
-                Kunjungan Per Lantai
+                Kunjungan Per Lantai (Total)
               </h4>
               
               <div className="flex flex-col gap-3">
@@ -191,7 +533,6 @@ const Summary: React.FC<SummaryProps> = ({
                 Distribusi Negara
               </h4>
               
-              {/* Diubah jadi grid agar seragam dan rapi (mirip struk data) */}
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                 {countryStats.length > 0 ? (
                   countryStats.map(([country, count]) => (

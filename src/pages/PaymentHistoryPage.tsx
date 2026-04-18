@@ -26,7 +26,7 @@ const PaymentHistoryPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
 
   // Filter Status — dikirim ke server sebagai query param
-  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState<string>("confirmed");
   // Filter Metode Pembayaran — diterapkan client-side di atas data yang sudah ada
   // "all" | "qris" | "card"  (nilai "card" di DB = tampilan "EDC" di UI)
   const [paymentFilter, setPaymentFilter] = useState<string>("all");
