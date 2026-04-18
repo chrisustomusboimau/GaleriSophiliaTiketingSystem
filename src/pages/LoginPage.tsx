@@ -37,7 +37,7 @@ export default function LoginPage() {
     formData.append('password', password);
 
     try {
-      const response = await fetch('http://localhost:8000/auth/jwt/login', {
+      const response = await fetch('/auth/jwt/login', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
