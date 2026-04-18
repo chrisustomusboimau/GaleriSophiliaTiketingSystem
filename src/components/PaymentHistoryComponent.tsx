@@ -3,7 +3,7 @@
  * ----------------------------------------------------
  * Reusable table component to display a list of transactions.
  * Diperbarui dengan warna Galeria Sophilia (Hitam/Oranye) dan dukungan confirmed_at.
- * Update: Menambahkan kolom Jenis Pembayaran (QRIS/Kartu) yang visual.
+ * Update: Menerapkan Tema Warna Lantai yang konsisten dengan AdminDashboard.
  */
 
 import React from "react";
@@ -32,7 +32,7 @@ export interface Transaction {
   confirmed_at: string | null; 
   total_price: number;
   status: "pending" | "paid" | "cancelled" | "confirmed"; 
-  payment_method: string; // <-- DITAMBAHKAN: Field jenis pembayaran
+  payment_method: string;
   items: TransactionItem[]; 
   origins?: TransactionOrigin[]; 
 }
@@ -42,6 +42,30 @@ interface PaymentHistoryComponentProps {
   isLoading: boolean;
   onEditClick: (transaction: Transaction) => void; 
 }
+
+/* =====================================================
+   HELPERS (THEMING)
+===================================================== */
+
+// Fungsi untuk menentukan warna latar dan teks spesifik tiap lantai
+// 100% KONSISTEN dengan AdminDashboard.tsx
+const getFloorColorTheme = (floorName: string) => {
+  const name = floorName.toLowerCase();
+  
+  if (name.includes("1")) {
+    return "bg-blue-100 text-blue-800 border-blue-200";
+  }
+  if (name.includes("5")) {
+    return "bg-emerald-100 text-emerald-800 border-emerald-200";
+  }
+  if (name.includes("6") || name.includes("7")) {
+    return "bg-purple-100 text-purple-800 border-purple-200";
+  }
+  
+  // Default jika lantai tidak dikenali
+  return "bg-gray-100 text-gray-800 border-gray-200";
+};
+
 
 /* =====================================================
    MAIN COMPONENT
@@ -100,9 +124,8 @@ const PaymentHistoryComponent: React.FC<PaymentHistoryComponentProps> = ({
               <th className="p-4 whitespace-nowrap">Kategori Usia</th> 
               <th className="p-4 whitespace-nowrap">Asal Negara</th>
               <th className="p-4 whitespace-nowrap">Lantai</th>    
-              {/* TAMBAHAN KOLOM PEMBAYARAN */}    
               <th className="p-4 whitespace-nowrap">Pembayaran</th>
-              <th className="p-4 whitespace-nowrap">Total</th>
+              <th className="p-4 whitespace-nowrap">Total Tagihan</th>
               <th className="p-4 text-center whitespace-nowrap">Status</th>
               <th className="p-4 rounded-tr-lg text-center whitespace-nowrap">Aksi</th>
             </tr>
@@ -115,6 +138,9 @@ const PaymentHistoryComponent: React.FC<PaymentHistoryComponentProps> = ({
                 const cat = item.age_category.toLowerCase();
                 if (!acc[cat]) {
                   acc[cat] = { quantity: item.quantity, floors: new Set<string>() };
+                } else {
+                  // Tambahkan quantity jika kategori yang sama muncul lagi (karena beda lantai)
+                  acc[cat].quantity += item.quantity;
                 }
                 acc[cat].floors.add(item.floor);
                 return acc;
@@ -140,16 +166,16 @@ const PaymentHistoryComponent: React.FC<PaymentHistoryComponentProps> = ({
                     <div className="space-y-2">
                       <div>
                         <span className="block text-[10px] font-bold uppercase tracking-wider text-gray-400">Dibuat</span>
-                        <span className="font-medium">{formatDateTime(tx.created_at)}</span>
+                        <span className="font-medium whitespace-nowrap">{formatDateTime(tx.created_at)}</span>
                       </div>
                       
                       {/* Logika Tampilan Waktu Konfirmasi */}
                       <div>
                         <span className="block text-[10px] font-bold uppercase tracking-wider text-gray-400">Dikonfirmasi</span>
                         {tx.confirmed_at ? (
-                           <span className="font-bold text-green-700">{formatDateTime(tx.confirmed_at)}</span>
+                           <span className="font-bold text-green-700 whitespace-nowrap">{formatDateTime(tx.confirmed_at)}</span>
                         ) : (
-                          <span className="text-[11px] font-bold text-yellow-600 bg-yellow-50 border border-yellow-200 px-2 py-0.5 rounded uppercase">
+                          <span className="text-[11px] font-bold text-yellow-600 bg-yellow-50 border border-yellow-200 px-2 py-0.5 rounded uppercase whitespace-nowrap">
                             Belum Lunas
                           </span>
                         )}
@@ -198,35 +224,38 @@ const PaymentHistoryComponent: React.FC<PaymentHistoryComponentProps> = ({
                     </div>
                   </td>
 
-                  {/* KOLOM: LANTAI */}
+                  {/* KOLOM: LANTAI (DENGAN TEMA WARNA) */}
                   <td className="p-4 align-top">
-                    <div className="flex flex-wrap gap-1.5">
+                    <div className="flex flex-col gap-1.5">
                       {allUniqueFloors.length > 0 ? (
-                        allUniqueFloors.map((floor, idx) => (
-                          <span 
-                            key={idx} 
-                            className="text-[11px] font-bold bg-gray-100 text-gray-700 border border-gray-200 px-2 py-1 rounded-md uppercase tracking-wider"
-                          >
-                            {floor}
-                          </span>
-                        ))
+                        allUniqueFloors.map((floor, idx) => {
+                          const themeClass = getFloorColorTheme(floor);
+                          return (
+                            <span 
+                              key={idx} 
+                              className={`text-[11px] font-bold border px-2 py-1 rounded-md uppercase tracking-wider whitespace-nowrap text-center ${themeClass}`}
+                            >
+                              {floor}
+                            </span>
+                          );
+                        })
                       ) : (
                         <span className="text-gray-400 italic">-</span>
                       )}
                     </div>
                   </td>
 
-                  {/* KOLOM BARU: JENIS PEMBAYARAN */}
+                  {/* KOLOM: JENIS PEMBAYARAN */}
                   <td className="p-4 align-top">
-                    <div className="">
+                    <div className="mt-0.5">
                       {tx.payment_method === "card" ? (
-                        <span className="inline-flex items-center gap-1.5 text-[10px] font-bold px-2.5 py-1.5 bg-gray-800 text-white border border-gray-700 rounded-md uppercase tracking-wider shadow-sm">
-                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"></path></svg>
+                        <span className="inline-flex items-center justify-center w-full gap-1.5 text-[10px] font-bold px-2 py-1.5 bg-gray-800 text-white border border-gray-700 rounded-md uppercase tracking-wider shadow-sm">
+                          <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"></path></svg>
                           KARTU
                         </span>
                       ) : (
-                        <span className="inline-flex items-center gap-1.5 text-[10px] font-bold px-2.5 py-1.5 bg-green-50 text-green-700 border border-green-200 rounded-md uppercase tracking-wider shadow-sm">
-                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
+                        <span className="inline-flex items-center justify-center w-full gap-1.5 text-[10px] font-bold px-2 py-1.5 bg-green-50 text-green-700 border border-green-200 rounded-md uppercase tracking-wider shadow-sm">
+                          <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
                           QRIS
                         </span>
                       )}
@@ -235,7 +264,8 @@ const PaymentHistoryComponent: React.FC<PaymentHistoryComponentProps> = ({
                   
                   {/* KOLOM: TOTAL */}
                   <td className="p-4 text-base font-black text-black align-top whitespace-nowrap">
-                    {formatCurrency(tx.total_price)}
+                    <span className="text-xs text-gray-500 font-bold mr-1">IDR</span>
+                    {formatCurrency(tx.total_price).replace('Rp', '').trim()}
                   </td>
                   
                   {/* KOLOM: STATUS */}
@@ -257,8 +287,7 @@ const PaymentHistoryComponent: React.FC<PaymentHistoryComponentProps> = ({
                   <td className="p-4 text-center align-top">
                     <button
                       onClick={() => onEditClick(tx)}
-                      // Menggunakan aksen oranye saat hover
-                      className="mt-0.5 text-xs font-bold text-gray-500 hover:text-[#fcfcfc] hover:bg-black px-3 py-1.5 rounded-lg border border-gray-300 hover:border-black transition-all focus:outline-none focus:ring-2 focus:ring-black"
+                      className="mt-0.5 text-xs font-bold text-gray-500 hover:text-[#fcfcfc] hover:bg-black px-3 py-1.5 rounded-lg border border-gray-300 hover:border-black transition-all focus:outline-none focus:ring-2 focus:ring-black w-full"
                     >
                       Edit
                     </button>

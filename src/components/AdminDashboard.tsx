@@ -2,8 +2,8 @@
  * AdminDashboard.tsx
  * ----------------------------------------------------
  * Cashier-facing panel to manage and confirm ticket payments.
- * Update: Menambahkan Popup Toast (Notifikasi melayang) untuk konfirmasi sukses.
- * Update: Menampilkan Metode Pembayaran (QRIS/Card) dengan jelas di kartu pengunjung.
+ * Update: Menambahkan warna tema spesifik untuk setiap Lantai
+ * agar kasir dapat membedakan tiket dengan sangat cepat.
  */
 
 import React, { useEffect, useState, useCallback, useMemo } from "react";
@@ -31,7 +31,6 @@ export interface Visitor {
   confirmed_at: string | null;
   total_price: number;
   status: "pending" | "paid" | "cancelled" | "confirmed";
-  // TAMBAHAN: Field payment_method
   payment_method: string; 
   items: TransactionItem[];
 }
@@ -44,11 +43,32 @@ interface VisitorCardProps {
 }
 
 /* =====================================================
+   HELPERS (THEMING)
+===================================================== */
+
+// Fungsi untuk menentukan warna latar dan teks spesifik tiap lantai
+const getFloorColorTheme = (floorName: string) => {
+  const name = floorName.toLowerCase();
+  
+  if (name.includes("1")) {
+    return "bg-blue-100 text-blue-800 border-blue-200";
+  }
+  if (name.includes("5")) {
+    return "bg-emerald-100 text-emerald-800 border-emerald-200";
+  }
+  if (name.includes("6") || name.includes("7")) {
+    return "bg-purple-100 text-purple-800 border-purple-200";
+  }
+  
+  // Default jika lantai tidak dikenali
+  return "bg-gray-100 text-gray-800 border-gray-200";
+};
+
+/* =====================================================
    SUB-COMPONENTS
 ===================================================== */
 
 /** * Popup Toast Sederhana 
- * Muncul di tengah bawah layar dengan tema Sophilia (Hitam/Oranye)
  */
 const Toast: React.FC<{ message: string; type: 'success' | 'error' }> = ({ message, type }) => (
   <div className="fixed bottom-10 left-1/2 -translate-x-1/2 z-[100] animate-in fade-in slide-in-from-bottom-5 duration-300">
@@ -143,30 +163,35 @@ const VisitorCard: React.FC<VisitorCardProps> = ({
         <div className="flex-1 space-y-4 mb-4">
           <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-2">Rincian Tiket</p>
           
-          {Object.entries(groupedByFloor).map(([floorName, items]) => (
-            <div key={floorName} className="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm">
-              <div className={`px-3 py-1.5 text-xs font-bold border-b uppercase tracking-wide bg-gray-100 text-black`}>
-                {floorName}
-              </div>
-              <div className="p-2 space-y-1.5">
-                {items.map((item, idx) => (
-                  <div key={idx} className="flex justify-between items-center text-[13px]">
-                    <span className="text-black font-medium capitalize">
-                      {item.age_category === 'child' ? 'Anak' : item.age_category === 'student' ? 'Remaja' : 'Dewasa'}
-                    </span>
-                    <div className="text-right">
-                      <span className="text-gray-500 text-[11px] block leading-none">
-                        {item.quantity} x {formatCurrency(item.unit_price)}
+          {Object.entries(groupedByFloor).map(([floorName, items]) => {
+            // Terapkan fungsi warna di sini
+            const themeClass = getFloorColorTheme(floorName);
+            
+            return (
+              <div key={floorName} className="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm">
+                <div className={`px-3 py-2 text-xs font-bold border-b uppercase tracking-wide ${themeClass}`}>
+                  {floorName}
+                </div>
+                <div className="p-2 space-y-1.5">
+                  {items.map((item, idx) => (
+                    <div key={idx} className="flex justify-between items-center text-[13px]">
+                      <span className="text-black font-medium capitalize">
+                        {item.age_category === 'child' ? 'Anak' : item.age_category === 'student' ? 'Remaja' : 'Dewasa'}
                       </span>
-                      <span className="font-bold text-black">
-                        {formatCurrency(item.quantity * item.unit_price)}
-                      </span>
+                      <div className="text-right">
+                        <span className="text-gray-500 text-[11px] block leading-none">
+                          {item.quantity} x {formatCurrency(item.unit_price)}
+                        </span>
+                        <span className="font-bold text-black">
+                          {formatCurrency(item.quantity * item.unit_price)}
+                        </span>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
 
           {visitor.items.length === 0 && (
             <p className="text-gray-400 italic text-center py-4 text-sm bg-gray-50 rounded-lg border border-gray-200">Tidak ada tiket.</p>
@@ -178,7 +203,6 @@ const VisitorCard: React.FC<VisitorCardProps> = ({
             <div>
               <span className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-1">Total Tagihan</span>
               
-              {/* TAMBAHAN: Menampilkan Badge Metode Pembayaran */}
               <span className={`inline-flex items-center gap-1.5 text-[10px] font-bold px-2 py-1 rounded uppercase tracking-wider border ${
                 visitor.payment_method === 'card' 
                   ? 'bg-gray-800 text-white border-gray-700' 
@@ -324,7 +348,6 @@ const AdminDashboard: React.FC = () => {
 
   const handleSaveEdit = async (id: string, updatedData: any) => {
     try {
-      // Pastikan backend endpoints menerima properties ini
       if (updatedData.items || updatedData.origins || updatedData.payment_method) {
         const res = await fetch(`/api/v1/transactions/${id}/edit`, {
           method: "PATCH",

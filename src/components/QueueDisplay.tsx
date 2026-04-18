@@ -170,6 +170,7 @@ const QueueDisplay: React.FC<QueueDisplayProps> = ({ visitor }) => {
                 Data tiket tidak tersedia.
               </p>
             )}
+            
 
             {/* Final Grand Total */}
             <div className="flex justify-between items-end pt-5 border-t-2 border-black mt-8">
