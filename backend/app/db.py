@@ -3,7 +3,6 @@ import uuid
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-
 # Updated to use standard Uuid (cross-compatible with SQLite and PostgreSQL)
 from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, Uuid
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
@@ -18,14 +17,12 @@ WIB = ZoneInfo("Asia/Jakarta")
 class Base(DeclarativeBase):
     pass
 
-
 class User(SQLAlchemyBaseUserTableUUID, Base):
     """
     Admin user model. 
     Public visitors do not have accounts, so transactions do not require a user_id.
     """
     pass
-
 
 class TransactionEntry(Base):
     __tablename__ = "transactions"
@@ -34,7 +31,12 @@ class TransactionEntry(Base):
     queue_number = Column(Integer, nullable=False, unique=True, index=True)
     total_price = Column(Integer, nullable=False)
     status = Column(String, nullable=False, default="pending")
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(WIB))
+    
+    # 1. IMMUTABLE CREATED AT: Wajib ada, diisi otomatis saat data pertama kali dibuat
+    created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(WIB))
+    
+    # 2. NULLABLE CONFIRMED AT: Opsional, awalnya Null, diisi otomatis oleh API saat status confirmed
+    confirmed_at = Column(DateTime(timezone=True), nullable=True, default=None)
 
     # Relationships
     items = relationship("TransactionItem", back_populates="transaction", cascade="all, delete-orphan", lazy="selectin")

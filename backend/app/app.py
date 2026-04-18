@@ -10,8 +10,6 @@ from sqlalchemy.exc import IntegrityError
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-# --- CORRECTED IMPORTS ---
-# Removed TransactionItem from schema, added to db
 from app.schema import (
     UserCreate, UserRead, UserUpdate, 
     TransactionCreate, TransactionResponse, TransactionStatusUpdate,
@@ -99,7 +97,7 @@ async def create_transaction(
             result = await session.execute(select(func.max(TransactionEntry.queue_number)))
             max_queue = result.scalar() or 0
 
-            # 3. Create main transaction
+            # 3. Create main transaction (created_at otomatis diurus db, confirmed_at tetap Null)
             new_transaction = TransactionEntry(
                 queue_number=max_queue + 1,
                 total_price=total_price,
@@ -126,7 +124,6 @@ async def get_transaction_details(
 ):
     """
     PUBLIC: Fetches a specific transaction ticket using its UUID.
-    Used by the visitor to see their QR code and queue details.
     """
     try:
         result = await session.execute(
@@ -144,6 +141,7 @@ async def get_transaction_details(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Internal server error {e}")
 
+
 # --- API 1: HANYA DATA HARI INI (Zona Waktu WIB) ---
 @app.get("/api/v1/transactions", response_model=List[TransactionResponse], tags=["transactions"])
 async def list_today_transactions(
@@ -153,21 +151,14 @@ async def list_today_transactions(
 ):
     """
     ADMIN: Lists transactions FOR TODAY ONLY (WIB Timezone). 
-    Used by the cashier dashboard for real-time monitoring.
     """
     try:
-        # 1. Dapatkan waktu saat ini secara akurat di zona WIB
         now_wib = datetime.now(WIB)
-        
-        # 2. Tentukan batas awal hari ini di WIB (Tepat jam 00:00:00)
         start_of_today_wib = datetime(now_wib.year, now_wib.month, now_wib.day, tzinfo=WIB)
-        
-        # 3. Tentukan batas awal besok di WIB (Tepat jam 00:00:00 besoknya)
         start_of_tomorrow_wib = start_of_today_wib + timedelta(days=1)
 
         query = select(TransactionEntry).order_by(TransactionEntry.created_at.asc())
         
-        # 4. Filter menggunakan Range Time (Lebih aman dari timezone bug & lebih cepat untuk DB Indexing)
         query = query.where(
             TransactionEntry.created_at >= start_of_today_wib,
             TransactionEntry.created_at < start_of_tomorrow_wib
@@ -192,12 +183,10 @@ async def list_all_transactions(
 ):
     """
     ADMIN: Lists ALL historical transactions. 
-    Can be filtered by status.
     """
     try:
         query = select(TransactionEntry).order_by(TransactionEntry.created_at.asc())
         
-        # Filter berdasarkan status (jika ada)
         if status:
             query = query.where(TransactionEntry.status == status)
 
@@ -207,6 +196,7 @@ async def list_all_transactions(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch all transactions: {e}")
     
+
 @app.patch("/api/v1/transactions/{transaction_id}/status", tags=["transactions"])
 async def update_transaction_status(
     transaction_id: uuid.UUID,
@@ -215,7 +205,8 @@ async def update_transaction_status(
     user: User = Depends(current_active_user) # ADMIN ONLY
 ):
     """
-    ADMIN: Updates the payment status of a ticket (e.g., to 'paid').
+    ADMIN: Updates the payment status of a ticket.
+    If status is set to 'confirmed' or 'paid', automatically sets confirmed_at.
     """
     try:
         result = await session.execute(
@@ -227,6 +218,11 @@ async def update_transaction_status(
             raise HTTPException(status_code=404, detail="Ticket not found")
 
         entry.status = payload.status
+        
+        # LOGIC CONFIRMED_AT: Inject timezone-aware timestamp upon confirmation
+        if payload.status in ["confirmed", "paid"]:
+            entry.confirmed_at = datetime.now(WIB)
+
         await session.commit()
 
         return {"success": True, "message": f"Status updated to {payload.status}"}
@@ -242,12 +238,13 @@ async def update_transaction_status(
 @app.patch("/api/v1/transactions/{transaction_id}/edit", response_model=TransactionResponse, tags=["transactions"])
 async def edit_transaction_data(
     transaction_id: uuid.UUID,
-    payload: TransactionUpdateData, # Use the new update schema
+    payload: TransactionUpdateData, 
     session: AsyncSession = Depends(get_async_session),
     user: User = Depends(current_active_user)
 ):
     """
-    ADMIN: Completely updates items and recalculates price, and optionally updates status.
+    ADMIN: Completely updates items and recalculates price, updates origins, and optionally updates status.
+    Will auto-inject confirmed_at if the status update triggers it.
     """
     result = await session.execute(select(TransactionEntry).where(TransactionEntry.id == transaction_id))
     entry = result.scalars().first()
@@ -255,13 +252,12 @@ async def edit_transaction_data(
     if not entry:
         raise HTTPException(status_code=404, detail="Ticket not found")
 
-    # 1. Update Items & Recalculate Price (If items were provided)
+    # 1. Update Items & Recalculate Price
     if payload.items is not None:
         entry.items = [] # Clear old items
         
         total_price = 0
         for item in payload.items:
-            # Enforce server-side pricing for security
             price = PRICES_MAP[item.floor][item.age_category]
             total_price += price * item.quantity
             entry.items.append(TransactionItem(
@@ -271,9 +267,20 @@ async def edit_transaction_data(
 
         entry.total_price = total_price
 
-    # 2. Update Status (If status was provided)
+    # 2. Update Origins (BARU)
+    if getattr(payload, "origins", None) is not None:
+        entry.origins = [] # Clear old origins
+        for origin in payload.origins:
+            entry.origins.append(TransactionOriginEntry(
+                country_code=origin.country_code,
+                count=origin.count
+            ))
+
+    # 3. Update Status & Confirmed At
     if payload.status is not None:
         entry.status = payload.status
+        if payload.status in ["confirmed", "paid"]:
+            entry.confirmed_at = datetime.now(WIB)
 
     try:
         await session.commit()

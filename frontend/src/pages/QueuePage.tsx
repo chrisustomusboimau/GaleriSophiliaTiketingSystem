@@ -2,7 +2,7 @@
  * QueuePage.tsx
  * ----------------------------------------------------
  * Page component that displays the generated queue ticket for a visitor.
- * Diperbarui dengan identitas visual Galeria Sophilia.
+ * Diperbarui dengan identitas visual Galeria Sophilia dan dukungan confirmed_at.
  */
 
 import React, { useEffect, useState, useCallback } from 'react';
@@ -18,15 +18,21 @@ export interface TransactionOrigin {
   count: number;
 }
 
+export interface TransactionItem {
+  floor: string;
+  age_category: string;
+  quantity: number;
+  unit_price: number;
+}
+
 export interface Visitor {
   id: string;
   queue_number: number;
-  under_8_count: number;
-  under_22_count: number;
-  adult_count: number;
   total_price: number;
   status: string;
   created_at: string; 
+  confirmed_at: string | null; // <-- Tipe data baru untuk timestamp konfirmasi
+  items: TransactionItem[];    // <-- Disesuaikan dengan skema API array items
   origins: TransactionOrigin[]; 
 }
 
@@ -124,7 +130,8 @@ const QueuePage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-[#fcfcfc] flex flex-col font-sans">
+    // bg-black digunakan di sini agar overscroll menampilkan warna hitam
+    <div className="min-h-screen bg-black flex flex-col font-sans">
       
       {/* HEADER: Galeria Sophilia Branding */}
       <header className="bg-black py-6 px-4 flex items-center justify-center border-b border-white/10 shrink-0 relative z-10">
@@ -151,7 +158,7 @@ const QueuePage: React.FC = () => {
       </header>
 
       {/* MAIN CONTENT AREA */}
-      <main className="flex-1 flex flex-col p-4 md:p-8 items-center justify-center relative">
+      <main className="bg-[#fcfcfc] flex-1 flex flex-col p-4 md:p-8 items-center justify-center relative">
         {/* Latar belakang gradient hitam ke abu-abu gelap */}
         <div className="absolute inset-0 bg-gradient-to-b from-black to-zinc-900 -z-10" />
         {renderMainContent()}

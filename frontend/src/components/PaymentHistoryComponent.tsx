@@ -2,9 +2,7 @@
  * PaymentHistoryComponent.tsx
  * ----------------------------------------------------
  * Reusable table component to display a list of transactions.
- * Designed to match the styling of the AdminDashboard cards.
- * Updated to support dynamic item arrays, showing unique people
- * counts per age category, their origin countries, and selected floors.
+ * Diperbarui dengan warna Galeria Sophilia (Hitam/Oranye) dan dukungan confirmed_at.
  */
 
 import React from "react";
@@ -21,7 +19,6 @@ export interface TransactionItem {
   unit_price: number;
 }
 
-// Tambahkan interface untuk Asal Negara
 export interface TransactionOrigin {
   country_code: string;
   count: number;
@@ -31,10 +28,11 @@ export interface Transaction {
   id: string;
   queue_number: number;
   created_at: string;
+  confirmed_at: string | null; // <-- DITAMBAHKAN
   total_price: number;
-  status: "pending" | "paid" | "cancelled";
+  status: "pending" | "paid" | "cancelled" | "confirmed"; // Diselaraskan dengan API
   items: TransactionItem[]; 
-  origins?: TransactionOrigin[]; // Tambahkan properti origins
+  origins?: TransactionOrigin[]; 
 }
 
 interface PaymentHistoryComponentProps {
@@ -74,148 +72,172 @@ const PaymentHistoryComponent: React.FC<PaymentHistoryComponentProps> = ({
 
   if (isLoading && transactions.length === 0) {
     return (
-      <div className="bg-gray-50 border border-dashed border-gray-300 rounded-lg p-12 text-center">
-        <p className="text-gray-500 text-lg">Mengambil data riwayat transaksi...</p>
+      <div className="bg-white border border-dashed border-gray-300 rounded-2xl p-12 text-center shadow-sm">
+        <p className="text-gray-500 font-medium">Mengambil data riwayat transaksi...</p>
       </div>
     );
   }
 
   if (transactions.length === 0) {
     return (
-      <div className="bg-gray-50 border border-dashed border-gray-300 rounded-lg p-12 text-center">
-        <p className="text-gray-500 text-lg">Tidak ada transaksi yang ditemukan.</p>
+      <div className="bg-white border border-dashed border-gray-300 rounded-2xl p-12 text-center shadow-sm">
+        <p className="text-gray-500 font-medium">Tidak ada transaksi yang ditemukan.</p>
       </div>
     );
   }
 
   return (
-    <div className="bg-white rounded-lg shadow-md overflow-hidden border border-gray-200">
+    <div className="bg-white rounded-2xl shadow-md overflow-hidden border border-gray-200">
       <div className="overflow-x-auto">
         <table className="w-full text-left border-collapse">
           <thead>
-            <tr className="bg-blue-600 text-white text-sm font-medium uppercase tracking-wider">
-              <th className="p-4 rounded-tl-lg">No. Antrian</th>
-              <th className="p-4">Tanggal & Waktu</th>
-              <th className="p-4">Kategori Usia</th> 
-              <th className="p-4">Asal Negara</th>   {/* KOLOM BARU: ASAL NEGARA */}
-              <th className="p-4">Lantai</th>        
-              <th className="p-4">Total</th>
-              <th className="p-4 text-center">Status</th>
-              <th className="p-4 rounded-tr-lg text-center">Aksi</th>
+            {/* Tema Galeria Sophilia pada Header Tabel */}
+            <tr className="bg-black text-[#fcfcfc] text-xs font-bold uppercase tracking-widest border-b-4 border-[#fb9418]">
+              <th className="p-4 rounded-tl-lg whitespace-nowrap">No. Antrian</th>
+              <th className="p-4 whitespace-nowrap">Waktu Transaksi</th>
+              <th className="p-4 whitespace-nowrap">Kategori Usia</th> 
+              <th className="p-4 whitespace-nowrap">Asal Negara</th>
+              <th className="p-4 whitespace-nowrap">Lantai</th>        
+              <th className="p-4 whitespace-nowrap">Total</th>
+              <th className="p-4 text-center whitespace-nowrap">Status</th>
+              <th className="p-4 rounded-tr-lg text-center whitespace-nowrap">Aksi</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-200">
+          <tbody className="divide-y divide-gray-100 text-sm">
             {transactions.map((tx) => {
               
-              // GROUPING LOGIC: Extract unique people count & their selected floors
+              // GROUPING LOGIC
               const groupedByCategory = tx.items.reduce((acc, item) => {
                 const cat = item.age_category.toLowerCase();
                 if (!acc[cat]) {
                   acc[cat] = { quantity: item.quantity, floors: new Set<string>() };
                 }
-                // Menggunakan Set agar nama lantai tidak duplikat jika terhitung berulang
                 acc[cat].floors.add(item.floor);
                 return acc;
               }, {} as Record<string, { quantity: number; floors: Set<string> }>);
 
-              // Buat array gabungan semua lantai unik untuk transaksi ini
               const allUniqueFloors = Array.from(
                 new Set(tx.items.map((item) => item.floor))
-              ).sort(); // Sortir agar urut (misal: Floor 1, Floor 5)
+              ).sort(); 
 
               return (
-                <tr key={tx.id} className="hover:bg-gray-50 transition-colors">
-                  <td className="p-4 font-bold text-gray-900 text-lg align-top">
-                    #{tx.queue_number}
-                    <div className="text-xs font-normal text-gray-400 font-mono mt-1">
+                <tr key={tx.id} className="hover:bg-orange-50/50 transition-colors">
+                  
+                  {/* KOLOM: ANTRIAN */}
+                  <td className="p-4 align-top">
+                    <div className="font-extrabold text-black text-lg">#{tx.queue_number}</div>
+                    <div className="text-[10px] font-medium text-gray-400 font-mono mt-1 uppercase tracking-wider">
                       {tx.id.substring(0, 8)}...
                     </div>
                   </td>
                   
-                  <td className="p-4 text-sm text-gray-700 align-top">
-                    {formatDateTime(tx.created_at)}
+                  {/* KOLOM: WAKTU TRANSAKSI (CREATED & CONFIRMED) */}
+                  <td className="p-4 text-gray-700 align-top">
+                    <div className="space-y-2">
+                      <div>
+                        <span className="block text-[10px] font-bold uppercase tracking-wider text-gray-400">Dibuat</span>
+                        <span className="font-medium">{formatDateTime(tx.created_at)}</span>
+                      </div>
+                      
+                      {/* Logika Tampilan Waktu Konfirmasi */}
+                      <div>
+                        <span className="block text-[10px] font-bold uppercase tracking-wider text-gray-400">Dikonfirmasi</span>
+                        {tx.confirmed_at ? (
+                           <span className="font-bold text-green-700">{formatDateTime(tx.confirmed_at)}</span>
+                        ) : (
+                          <span className="text-[11px] font-bold text-yellow-600 bg-yellow-50 border border-yellow-200 px-2 py-0.5 rounded uppercase">
+                            Belum Lunas
+                          </span>
+                        )}
+                      </div>
+                    </div>
                   </td>
                   
-                  {/* KOLOM 1: KATEGORI USIA & JUMLAH ORANG */}
+                  {/* KOLOM: KATEGORI USIA */}
                   <td className="p-4 align-top">
                     <div className="space-y-1.5">
                       {Object.keys(groupedByCategory).length > 0 ? (
                         Object.entries(groupedByCategory).map(([cat, data]) => (
-                          <div key={cat} className="flex items-center text-sm">
+                          <div key={cat} className="flex items-center">
                             <span className="font-medium text-gray-700 w-16">
                               {getCategoryLabel(cat)}
                             </span>
-                            <span className="font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded ml-2">
+                            {/* Menggunakan aksen oranye */}
+                            <span className="font-bold text-[#fb9418] bg-orange-50 border border-orange-100 px-2 py-0.5 rounded ml-2">
                               {data.quantity}
                             </span>
                           </div>
                         ))
                       ) : (
-                        <span className="text-sm text-gray-400 italic">Tidak ada</span>
+                        <span className="text-gray-400 italic">Tidak ada</span>
                       )}
                     </div>
                   </td>
 
-                  {/* KOLOM BARU: ASAL NEGARA */}
+                  {/* KOLOM: ASAL NEGARA */}
                   <td className="p-4 align-top">
                     <div className="space-y-1.5">
                       {tx.origins && tx.origins.length > 0 ? (
                         tx.origins.map((origin, idx) => (
-                          <div key={idx} className="flex items-center text-sm">
+                          <div key={idx} className="flex items-center">
                             <span className="font-medium text-gray-700 w-10 uppercase">
                               {origin.country_code}
                             </span>
-                            <span className="font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded ml-2">
+                            <span className="font-bold text-emerald-700 bg-emerald-50 border border-emerald-100 px-2 py-0.5 rounded ml-2">
                               {origin.count}
                             </span>
                           </div>
                         ))
                       ) : (
-                        <span className="text-sm text-gray-400 italic">-</span>
+                        <span className="text-gray-400 italic">-</span>
                       )}
                     </div>
                   </td>
 
-                  {/* KOLOM 3: LANTAI YANG DIPILIH */}
+                  {/* KOLOM: LANTAI */}
                   <td className="p-4 align-top">
                     <div className="flex flex-wrap gap-1.5">
                       {allUniqueFloors.length > 0 ? (
                         allUniqueFloors.map((floor, idx) => (
                           <span 
                             key={idx} 
-                            className="text-[12px] font-medium bg-slate-100 text-slate-700 border border-slate-200 px-2.5 py-1 rounded-md"
+                            className="text-[11px] font-bold bg-gray-100 text-gray-700 border border-gray-200 px-2 py-1 rounded-md uppercase tracking-wider"
                           >
                             {floor}
                           </span>
                         ))
                       ) : (
-                        <span className="text-sm text-gray-400 italic">-</span>
+                        <span className="text-gray-400 italic">-</span>
                       )}
                     </div>
                   </td>
                   
-                  <td className="p-4 text-base font-bold text-blue-700 align-top">
+                  {/* KOLOM: TOTAL */}
+                  <td className="p-4 text-base font-black text-black align-top">
                     {formatCurrency(tx.total_price)}
                   </td>
                   
+                  {/* KOLOM: STATUS */}
                   <td className="p-4 text-center align-top">
                     <span
-                      className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-bold shadow-sm ${
-                        tx.status === "paid"
+                      className={`inline-flex items-center px-3 py-1 rounded-md text-[11px] font-extrabold shadow-sm uppercase tracking-wider ${
+                        tx.status === "paid" || tx.status === "confirmed"
                           ? "bg-green-100 text-green-700 border border-green-200"
                           : tx.status === "pending"
                           ? "bg-yellow-100 text-yellow-700 border border-yellow-200"
                           : "bg-red-100 text-red-700 border border-red-200"
                       }`}
                     >
-                      {tx.status === "paid" ? "LUNAS" : tx.status === "pending" ? "PENDING" : "BATAL"}
+                      {tx.status === "paid" || tx.status === "confirmed" ? "LUNAS" : tx.status === "pending" ? "PENDING" : "BATAL"}
                     </span>
                   </td>
                   
+                  {/* KOLOM: AKSI */}
                   <td className="p-4 text-center align-top">
                     <button
                       onClick={() => onEditClick(tx)}
-                      className="text-sm font-medium text-blue-600 hover:text-blue-800 hover:underline px-2 py-1 rounded transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      // Menggunakan aksen oranye saat hover
+                      className="text-xs font-bold text-gray-500 hover:text-[#fcfcfc] hover:bg-black px-3 py-1.5 rounded-lg border border-gray-300 hover:border-black transition-all focus:outline-none focus:ring-2 focus:ring-black"
                     >
                       Edit
                     </button>

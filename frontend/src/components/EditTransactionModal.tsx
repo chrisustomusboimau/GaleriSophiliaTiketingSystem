@@ -3,8 +3,8 @@
  * ----------------------------------------------------
  * Komponen modal (popup) untuk mengedit, mengubah status,
  * dan menghapus transaksi tiket pengunjung.
- * Mode Edit: Menggunakan pilihan Lantai, Jumlah Orang global,
- * dan sekarang dilengkapi dengan pengeditan Asal Negara (Origins).
+ * Diperbarui dengan identitas visual Galeria Sophilia untuk Admin.
+ * FIX: Perbaikan permanen input manual pada kolom "Asal Negara".
  */
 
 import React, { useState, useEffect, useMemo } from "react";
@@ -30,10 +30,10 @@ export interface TransactionOrigin {
 export interface TransactionData {
   id: string;
   queue_number: number;
-  status: "pending" | "paid" | "cancelled" | string;
+  status: "pending" | "paid" | "cancelled" | "confirmed" | string;
   total_price: number;
   items: TransactionItem[];
-  origins?: TransactionOrigin[]; // Ditambahkan untuk menampung data asal
+  origins?: TransactionOrigin[]; 
 }
 
 interface EditTransactionModalProps {
@@ -77,9 +77,8 @@ const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
     adult: 0, student: 0, child: 0 
   });
   
-  // State untuk Asal Negara
   const [countryVisitors, setCountryVisitors] = useState<CountryVisitorState[]>([
-    { countryCode: "id", count: 1 } // Default fallback
+    { countryCode: "id", count: 1 } 
   ]);
 
   const [editedStatus, setEditedStatus] = useState<string>("pending");
@@ -90,11 +89,9 @@ const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
   // --- Initialization ---
   useEffect(() => {
     if (transaction && isOpen) {
-      // 1. Ekstrak Lantai
       const initialFloors = Array.from(new Set(transaction.items.map(item => item.floor)));
       setSelectedFloors(initialFloors);
 
-      // 2. Ekstrak Kategori Usia
       let ad = 0, st = 0, ch = 0;
       transaction.items.forEach(item => {
         const cat = item.age_category.toLowerCase();
@@ -104,7 +101,6 @@ const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
       });
       setCounts({ adult: ad, student: st, child: ch });
 
-      // 3. Ekstrak Asal Negara (Origins)
       if (transaction.origins && transaction.origins.length > 0) {
         setCountryVisitors(
           transaction.origins.map(o => ({
@@ -113,18 +109,16 @@ const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
           }))
         );
       } else {
-        // Jika karena alasan tertentu origins kosong, set default ke ID dengan jumlah total tiket
         const totalInit = ad + st + ch;
         setCountryVisitors([{ countryCode: "id", count: totalInit > 0 ? totalInit : 1 }]);
       }
 
-      // 4. Set Status
       setEditedStatus(transaction.status);
       setError(null);
     }
   }, [transaction, isOpen]);
 
-  // --- Derived Data (Kalkulasi Harga & Total Orang) ---
+  // --- Derived Data ---
   const pureCounts = useMemo(() => ({
     adult: Number(counts.adult) || 0,
     student: Number(counts.student) || 0,
@@ -140,12 +134,16 @@ const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
     return pureCounts.adult + pureCounts.student + pureCounts.child;
   }, [pureCounts]);
 
+  // KALKULASI AMAN: Memastikan string diproses dengan benar menjadi angka untuk dijumlahkan
   const totalFromCountries = useMemo(() => {
-    return countryVisitors.reduce((sum, c) => sum + (Number(c.count) || 0), 0);
+    return countryVisitors.reduce((sum, c) => {
+      const val = parseInt(c.count as string, 10);
+      return sum + (isNaN(val) ? 0 : Math.max(0, val));
+    }, 0);
   }, [countryVisitors]);
 
 
-  // --- Input Handlers: Lantai & Usia ---
+  // --- Input Handlers ---
   const handleFloorToggle = (floor: string) => {
     setSelectedFloors(prev => 
       prev.includes(floor) ? prev.filter(f => f !== floor) : [...prev, floor]              
@@ -167,18 +165,17 @@ const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
     }));
   };
 
-  // --- Input Handlers: Negara ---
+  // --- Input Handlers: Negara (PERBAIKAN UTAMA) ---
   const handleAddCountry = () => {
-    setCountryVisitors((prev) => [...prev, { countryCode: "id", count: 1 }]);
+    setCountryVisitors((prev) => [...prev, { countryCode: "id", count: "" }]); // Set empty agar langsung bisa diketik
   };
 
-  const handleUpdateCountry = (index: number, key: keyof CountryVisitorState, value: string | number) => {
+  const handleUpdateCountry = (index: number, key: keyof CountryVisitorState, value: string) => {
     setCountryVisitors((prev) =>
       prev.map((c, i) => {
         if (i !== index) return c;
-        if (key === "countryCode") return { ...c, countryCode: value as string };
-        if (key === "count") return { ...c, count: value === "" ? "" : Math.max(0, parseInt(value as string) || 0) };
-        return c;
+        // Simpan persis apa yang diketik user (tanpa parseInt) agar input box tidak macet saat diketik
+        return { ...c, [key]: value };
       })
     );
   };
@@ -189,52 +186,45 @@ const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
 
 
   // --- Action Handlers ---
-  const handleSave = async () => {
-    if (!transaction) return;
-
-    if (selectedFloors.length === 0 && editedStatus !== "cancelled") {
-      setError("Silakan pilih setidaknya 1 lantai, atau ubah status menjadi Cancelled.");
-      return;
-    }
-
-    if (totalPeople === 0 && editedStatus !== "cancelled") {
-      setError("Jumlah pengunjung tidak boleh 0. Hapus transaksi atau ubah status ke Cancelled.");
-      return;
-    }
-
-    // Validasi sinkronisasi data negara vs usia
-    if (totalPeople !== totalFromCountries && editedStatus !== "cancelled") {
-      setError(`Jumlah total usia pengunjung (${totalPeople}) tidak sama dengan total pengunjung dari daftar asal negara (${totalFromCountries}).`);
-      return;
-    }
-
-    // 1. Persiapkan payload items
-    const payloadItems: TransactionItem[] = [];
-    selectedFloors.forEach(floor => {
-      if (pureCounts.adult > 0) payloadItems.push({ floor, age_category: 'adult', quantity: pureCounts.adult, unit_price: 0 });
-      if (pureCounts.student > 0) payloadItems.push({ floor, age_category: 'student', quantity: pureCounts.student, unit_price: 0 });
-      if (pureCounts.child > 0) payloadItems.push({ floor, age_category: 'child', quantity: pureCounts.child, unit_price: 0 });
-    });
-
-    // 2. Persiapkan payload origins
-    const payloadOrigins: TransactionOrigin[] = countryVisitors.map((c) => ({
-      country_code: c.countryCode,
-      count: Number(c.count) || 0,
-    }));
-
+const handleSaveEdit = async (id: string, updatedData: any) => {
     try {
-      setIsSaving(true);
-      setError(null);
-      await onSave(transaction.id, {
-        items: payloadItems, 
-        origins: payloadOrigins, // Kirimkan data origins yang baru
-        status: editedStatus,
-      });
-      onClose();
-    } catch (err: any) {
-      setError(err.message || "Gagal menyimpan perubahan.");
-    } finally {
-      setIsSaving(false);
+      // 1. Kirim items DAN origins secara bersamaan
+      if (updatedData.items || updatedData.origins) {
+        const responseEdit = await fetch(`/api/v1/transactions/${id}/edit`, {
+          method: "PATCH",
+          headers: getAuthHeaders(),
+          body: JSON.stringify({ 
+            items: updatedData.items,
+            origins: updatedData.origins // <--- INI BAGIAN YANG DITAMBAHKAN
+          }),
+        });
+
+        if (!responseEdit.ok) {
+          if (responseEdit.status === 401) return handleUnauthorized();
+          throw new Error("Gagal menyimpan rincian tiket atau asal negara.");
+        }
+      }
+
+      // 2. Kirim update status (jika ada)
+      if (updatedData.status) {
+        const responseStatus = await fetch(`/api/v1/transactions/${id}/status`, {
+          method: "PATCH",
+          headers: getAuthHeaders(),
+          body: JSON.stringify({ status: updatedData.status }),
+        });
+
+        if (!responseStatus.ok) {
+          if (responseStatus.status === 401) return handleUnauthorized();
+          throw new Error("Gagal menyimpan status tiket.");
+        }
+      }
+
+      // Refresh data di tabel/dashboard
+      await loadVisitors(); // Catatan: Ubah menjadi loadTransactions() jika ini berada di PaymentHistoryPage
+      
+    } catch (error) {
+      console.error(error);
+      throw error; 
     }
   };
 
@@ -260,22 +250,22 @@ const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
   if (!isOpen || !transaction) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 animate-in fade-in duration-200">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[95vh]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 animate-in fade-in duration-200">
+      <div className="bg-[#fcfcfc] rounded-xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[95vh] border border-gray-200">
         
-        {/* HEADER */}
-        <header className="bg-slate-50 border-b p-5 flex justify-between items-center shrink-0">
+        {/* HEADER: Tema Hitam - Oranye */}
+        <header className="bg-black border-b-4 border-[#fb9418] p-5 flex justify-between items-center shrink-0">
           <div>
-            <h3 className="text-xl font-bold text-gray-800">Edit Transaksi</h3>
-            <p className="text-sm text-gray-500">Antrian: <span className="font-bold text-blue-700">#{transaction.queue_number}</span></p>
+            <h3 className="text-lg font-bold text-[#fcfcfc] uppercase tracking-wider">Edit Transaksi</h3>
+            <p className="text-[11px] text-gray-400 font-mono mt-1">Antrian: <span className="font-bold text-[#fb9418] text-sm">#{transaction.queue_number}</span></p>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 font-bold text-xl px-2">✕</button>
+          <button onClick={onClose} className="text-gray-400 hover:text-white font-bold text-2xl px-2 transition-colors">✕</button>
         </header>
 
         {/* BODY */}
-        <div className="p-5 overflow-y-auto flex-1">
+        <div className="p-6 overflow-y-auto flex-1 custom-scrollbar">
           {error && (
-            <div className="mb-5 p-3 bg-red-50 text-red-700 text-sm border-l-4 border-red-500 rounded-r shadow-sm flex items-start gap-2">
+            <div className="mb-6 p-3 bg-red-50 text-red-700 text-sm border-l-4 border-red-500 rounded-r shadow-sm flex items-start gap-2">
               <span className="font-bold mt-0.5">!</span>
               <span>{error}</span>
             </div>
@@ -283,31 +273,31 @@ const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
 
           {/* 1. STATUS DROPDOWN */}
           <div className="mb-6">
-            <label className="block text-sm font-bold text-gray-700 mb-2">Status Pembayaran</label>
+            <label className="block text-sm font-extrabold text-black uppercase tracking-wide mb-2">Status Pembayaran</label>
             <select
               value={editedStatus}
               onChange={(e) => setEditedStatus(e.target.value)}
-              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white font-medium"
+              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#fb9418] focus:border-[#fb9418] outline-none bg-white font-bold text-gray-800 shadow-sm cursor-pointer"
             >
               <option value="pending">🟡 Menunggu (Pending)</option>
-              <option value="paid">🟢 Lunas (Paid)</option>
+              <option value="confirmed">🟢 Dikonfirmasi (Confirmed)</option>
               <option value="cancelled">🔴 Batal (Cancelled)</option>
             </select>
           </div>
 
-          <hr className="mb-6 border-dashed border-gray-200" />
+          <hr className="mb-6 border-gray-200" />
 
           {/* 2. PILIHAN LANTAI */}
           <div className="mb-6">
-            <label className="block text-sm font-bold text-gray-700 mb-3">Ubah Pilihan Lantai</label>
+            <label className="block text-sm font-extrabold text-black uppercase tracking-wide mb-3">Ubah Pilihan Lantai</label>
             <div className="grid grid-cols-2 gap-3">
               {AVAILABLE_FLOORS.map((floor) => (
                 <label 
                   key={floor} 
-                  className={`flex items-center p-3 border rounded-lg cursor-pointer transition-colors ${
+                  className={`flex items-center p-3 border rounded-lg cursor-pointer transition-colors shadow-sm ${
                     selectedFloors.includes(floor) 
-                      ? 'bg-blue-50 border-blue-500 ring-1 ring-blue-500' 
-                      : 'bg-white border-gray-200 hover:bg-gray-50'
+                      ? 'bg-orange-50 border-[#fb9418] ring-1 ring-[#fb9418]' 
+                      : 'bg-white border-gray-300 hover:border-[#fb9418] hover:bg-orange-50/30'
                   }`}
                 >
                   <input
@@ -315,9 +305,9 @@ const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
                     checked={selectedFloors.includes(floor)}
                     onChange={() => handleFloorToggle(floor)}
                     disabled={isSaving}
-                    className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                    className="w-4 h-4 text-[#fb9418] border-gray-300 rounded focus:ring-[#fb9418]"
                   />
-                  <span className="ml-3 text-sm font-medium text-gray-700">{floor}</span>
+                  <span className="ml-3 text-sm font-bold text-black">{floor}</span>
                 </label>
               ))}
             </div>
@@ -325,36 +315,36 @@ const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
 
           {/* 3. JUMLAH PENGUNJUNG USIA */}
           <div className="mb-6">
-            <label className="block text-sm font-bold text-gray-700 mb-3">Ubah Jumlah Kategori Usia</label>
+            <label className="block text-sm font-extrabold text-black uppercase tracking-wide mb-3">Kategori Usia</label>
             <div className="space-y-3">
               
               {/* Dewasa */}
-              <div className="flex justify-between items-center bg-slate-50 p-3 rounded-lg border border-slate-200">
-                <label className="text-sm font-medium text-gray-700">Dewasa (22+ thn)</label>
+              <div className="flex justify-between items-center bg-white p-3 rounded-lg border border-gray-200 shadow-sm">
+                <label className="text-sm font-bold text-gray-700">Dewasa (22+ thn)</label>
                 <div className="flex items-center bg-white border border-gray-300 rounded-md overflow-hidden shadow-sm">
-                  <button type="button" onClick={() => adjustCount('adult', -1)} disabled={isSaving || (Number(counts.adult) <= 0)} className="w-10 h-10 flex items-center justify-center font-bold text-gray-600 hover:bg-gray-100 disabled:opacity-50">-</button>
-                  <input type="number" name="adult" min="0" value={counts.adult} onChange={handleCountChange} onFocus={(e) => e.target.select()} disabled={isSaving} className="w-12 h-10 text-center font-bold border-x border-gray-300 outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
-                  <button type="button" onClick={() => adjustCount('adult', 1)} disabled={isSaving} className="w-10 h-10 flex items-center justify-center font-bold text-blue-600 hover:bg-blue-50">+</button>
+                  <button type="button" onClick={() => adjustCount('adult', -1)} disabled={isSaving || (Number(counts.adult) <= 0)} className="w-10 h-10 flex items-center justify-center font-bold text-gray-600 hover:bg-gray-100 disabled:opacity-50 transition-colors">-</button>
+                  <input type="number" name="adult" min="0" value={counts.adult} onChange={handleCountChange} onFocus={(e) => e.target.select()} disabled={isSaving} className="w-12 h-10 text-center font-bold text-black border-x border-gray-300 outline-none focus:ring-2 focus:ring-inset focus:ring-[#fb9418] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
+                  <button type="button" onClick={() => adjustCount('adult', 1)} disabled={isSaving} className="w-10 h-10 flex items-center justify-center font-bold text-[#fb9418] hover:bg-orange-50 transition-colors">+</button>
                 </div>
               </div>
 
               {/* Remaja */}
-              <div className="flex justify-between items-center bg-slate-50 p-3 rounded-lg border border-slate-200">
-                <label className="text-sm font-medium text-gray-700">Remaja ({'<'} 22 thn)</label>
+              <div className="flex justify-between items-center bg-white p-3 rounded-lg border border-gray-200 shadow-sm">
+                <label className="text-sm font-bold text-gray-700">Remaja ({'<'} 22 thn)</label>
                 <div className="flex items-center bg-white border border-gray-300 rounded-md overflow-hidden shadow-sm">
-                  <button type="button" onClick={() => adjustCount('student', -1)} disabled={isSaving || (Number(counts.student) <= 0)} className="w-10 h-10 flex items-center justify-center font-bold text-gray-600 hover:bg-gray-100 disabled:opacity-50">-</button>
-                  <input type="number" name="student" min="0" value={counts.student} onChange={handleCountChange} onFocus={(e) => e.target.select()} disabled={isSaving} className="w-12 h-10 text-center font-bold border-x border-gray-300 outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
-                  <button type="button" onClick={() => adjustCount('student', 1)} disabled={isSaving} className="w-10 h-10 flex items-center justify-center font-bold text-blue-600 hover:bg-blue-50">+</button>
+                  <button type="button" onClick={() => adjustCount('student', -1)} disabled={isSaving || (Number(counts.student) <= 0)} className="w-10 h-10 flex items-center justify-center font-bold text-gray-600 hover:bg-gray-100 disabled:opacity-50 transition-colors">-</button>
+                  <input type="number" name="student" min="0" value={counts.student} onChange={handleCountChange} onFocus={(e) => e.target.select()} disabled={isSaving} className="w-12 h-10 text-center font-bold text-black border-x border-gray-300 outline-none focus:ring-2 focus:ring-inset focus:ring-[#fb9418] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
+                  <button type="button" onClick={() => adjustCount('student', 1)} disabled={isSaving} className="w-10 h-10 flex items-center justify-center font-bold text-[#fb9418] hover:bg-orange-50 transition-colors">+</button>
                 </div>
               </div>
 
               {/* Anak */}
-              <div className="flex justify-between items-center bg-slate-50 p-3 rounded-lg border border-slate-200">
-                <label className="text-sm font-medium text-gray-700">Anak ({'<'} 8 thn)</label>
+              <div className="flex justify-between items-center bg-white p-3 rounded-lg border border-gray-200 shadow-sm">
+                <label className="text-sm font-bold text-gray-700">Anak ({'<'} 8 thn)</label>
                 <div className="flex items-center bg-white border border-gray-300 rounded-md overflow-hidden shadow-sm">
-                  <button type="button" onClick={() => adjustCount('child', -1)} disabled={isSaving || (Number(counts.child) <= 0)} className="w-10 h-10 flex items-center justify-center font-bold text-gray-600 hover:bg-gray-100 disabled:opacity-50">-</button>
-                  <input type="number" name="child" min="0" value={counts.child} onChange={handleCountChange} onFocus={(e) => e.target.select()} disabled={isSaving} className="w-12 h-10 text-center font-bold border-x border-gray-300 outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
-                  <button type="button" onClick={() => adjustCount('child', 1)} disabled={isSaving} className="w-10 h-10 flex items-center justify-center font-bold text-blue-600 hover:bg-blue-50">+</button>
+                  <button type="button" onClick={() => adjustCount('child', -1)} disabled={isSaving || (Number(counts.child) <= 0)} className="w-10 h-10 flex items-center justify-center font-bold text-gray-600 hover:bg-gray-100 disabled:opacity-50 transition-colors">-</button>
+                  <input type="number" name="child" min="0" value={counts.child} onChange={handleCountChange} onFocus={(e) => e.target.select()} disabled={isSaving} className="w-12 h-10 text-center font-bold text-black border-x border-gray-300 outline-none focus:ring-2 focus:ring-inset focus:ring-[#fb9418] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
+                  <button type="button" onClick={() => adjustCount('child', 1)} disabled={isSaving} className="w-10 h-10 flex items-center justify-center font-bold text-[#fb9418] hover:bg-orange-50 transition-colors">+</button>
                 </div>
               </div>
 
@@ -364,20 +354,24 @@ const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
           {/* 4. ASAL NEGARA */}
           <div>
             <div className="flex justify-between items-center mb-3">
-              <label className="block text-sm font-bold text-gray-700">Ubah Asal Negara</label>
-              <span className={`text-xs font-bold px-2 py-1 rounded ${totalPeople !== totalFromCountries ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>
+              <label className="block text-sm font-extrabold text-black uppercase tracking-wide">Asal Negara</label>
+              <span className={`text-xs font-bold px-2 py-1 rounded-full border ${
+                  totalPeople !== totalFromCountries 
+                    ? 'bg-red-50 text-red-600 border-red-200' 
+                    : 'bg-green-50 text-green-700 border-green-200'
+              }`}>
                 {totalFromCountries} / {totalPeople} Orang
               </span>
             </div>
             
-            <div className="space-y-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
+            <div className="space-y-3 p-4 bg-white rounded-lg border border-gray-200 shadow-sm">
               {countryVisitors.map((country, index) => (
                 <div key={index} className="flex flex-row items-center gap-2 w-full">
                   <select
                     value={country.countryCode}
                     onChange={(e) => handleUpdateCountry(index, "countryCode", e.target.value)}
                     disabled={isSaving}
-                    className="flex-[3] min-w-0 p-2 bg-white border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm truncate"
+                    className="flex-[3] min-w-0 p-2 bg-gray-50 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#fb9418] focus:border-[#fb9418] text-sm text-black truncate transition-shadow cursor-pointer"
                   >
                     {COUNTRIES.map((c) => (
                       <option key={c.code} value={c.code}>{c.name}</option>
@@ -386,12 +380,13 @@ const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
 
                   <input
                     type="number"
-                    min={1}
+                    min={0}
                     value={country.count}
                     onChange={(e) => handleUpdateCountry(index, "count", e.target.value)}
                     onFocus={(e) => e.target.select()}
                     disabled={isSaving}
-                    className="flex-1 min-w-0 p-2 text-center font-bold bg-white border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 outline-none"
+                    placeholder="0"
+                    className="flex-1 min-w-0 p-2 text-center font-bold text-black bg-white border border-gray-300 rounded-md focus:ring-2 focus:ring-[#fb9418] focus:border-[#fb9418] outline-none transition-shadow"
                   />
 
                   {countryVisitors.length > 1 ? (
@@ -399,7 +394,7 @@ const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
                       type="button"
                       onClick={() => handleRemoveCountry(index)}
                       disabled={isSaving}
-                      className="flex-none w-8 h-8 flex items-center justify-center font-bold text-red-500 hover:bg-red-50 rounded-full transition-colors"
+                      className="flex-none w-8 h-8 flex items-center justify-center font-bold text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors"
                     >✕</button>
                   ) : (
                     <div className="w-8 flex-none" />
@@ -411,9 +406,9 @@ const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
                 type="button"
                 onClick={handleAddCountry}
                 disabled={isSaving}
-                className="mt-2 text-sm font-bold text-blue-600 hover:text-blue-800 transition flex items-center gap-1"
+                className="mt-3 text-sm font-bold text-[#fb9418] hover:text-orange-600 transition-colors flex items-center gap-1"
               >
-                <span className="text-lg">+</span> Tambah Negara
+                <span className="text-lg leading-none">+</span> Tambah Negara
               </button>
             </div>
           </div>
@@ -422,25 +417,26 @@ const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
 
         {/* FOOTER & TOTALS */}
         <div className="bg-white border-t p-5 shrink-0 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
-          <div className="flex justify-between items-center mb-4 p-3 bg-blue-50 rounded-lg">
+          <div className="flex justify-between items-center mb-5 p-4 bg-orange-50 border border-orange-100 rounded-xl">
             <div>
-              <span className="text-gray-600 text-sm font-medium block">Total Tagihan:</span>
-              <span className="text-xs text-gray-500">(Dihitung ulang otomatis)</span>
+              <span className="text-black text-sm font-bold uppercase tracking-wider block">Total Tagihan Baru</span>
+              <span className="text-[10px] text-gray-500 font-mono">(Dihitung otomatis)</span>
             </div>
-            <span className={`text-2xl font-black ${newTotalPrice !== transaction.total_price ? 'text-blue-700' : 'text-gray-800'}`}>
+            <span className={`text-3xl font-black ${newTotalPrice !== transaction.total_price ? 'text-[#fb9418]' : 'text-black'}`}>
               {formatCurrency(newTotalPrice)}
             </span>
           </div>
 
-          <div className="flex gap-3 mt-4">
-            <button onClick={handleDelete} disabled={isSaving || isDeleting} className="px-4 py-2 bg-red-50 border border-red-200 text-red-600 hover:bg-red-100 font-bold rounded-lg transition-colors disabled:opacity-50">
-              {isDeleting ? "Hapus..." : "Hapus"}
+          <div className="flex gap-3">
+            <button onClick={handleDelete} disabled={isSaving || isDeleting} className="px-4 py-3 bg-white border border-red-200 text-red-600 hover:bg-red-50 font-bold rounded-lg transition-colors disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-red-200">
+              {isDeleting ? "Menghapus..." : "Hapus Tiket"}
             </button>
             <div className="flex-1 flex gap-3 justify-end">
-              <button onClick={onClose} disabled={isSaving || isDeleting} className="px-4 py-2 border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 font-bold rounded-lg transition-colors">
+              <button onClick={onClose} disabled={isSaving || isDeleting} className="px-5 py-3 border border-gray-300 bg-white text-gray-700 hover:bg-gray-100 hover:text-black font-bold rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-gray-200">
                 Batal
               </button>
-              <button onClick={handleSave} disabled={isSaving || isDeleting} className="px-6 py-2 bg-blue-600 text-white hover:bg-blue-700 font-bold rounded-lg shadow-md transition-all active:scale-95 disabled:opacity-50 flex items-center gap-2">
+              {/* Tombol Utama Oranye */}
+              <button onClick={handleSave} disabled={isSaving || isDeleting} className="px-6 py-3 bg-[#fb9418] text-[#fcfcfc] hover:bg-orange-500 font-bold rounded-lg shadow-md transition-all active:scale-95 disabled:opacity-50 flex items-center gap-2 focus:outline-none focus:ring-2 focus:ring-orange-400 focus:ring-offset-1">
                 {isSaving ? "Menyimpan..." : "Simpan Perubahan"}
               </button>
             </div>

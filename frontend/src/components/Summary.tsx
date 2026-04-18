@@ -1,3 +1,11 @@
+/**
+ * Summary.tsx
+ * ----------------------------------------------------
+ * Komponen untuk menampilkan ringkasan data transaksi.
+ * Diperbarui dengan identitas visual Galeria Sophilia (Putih/Hitam/Oranye) 
+ * khusus untuk penggunaan Dashboard Admin/Kasir.
+ */
+
 import React, { useMemo, useState } from 'react';
 
 // --- INTERFACES ---
@@ -14,7 +22,7 @@ export interface TransactionOrigin {
 
 export interface Transaction {
   items: TransactionItem[];
-  origins?: TransactionOrigin[]; // Ditambahkan untuk kalkulasi negara
+  origins?: TransactionOrigin[]; 
 }
 
 interface SummaryProps {
@@ -34,7 +42,6 @@ const Summary: React.FC<SummaryProps> = ({
   totalRevenue,
   transactions,
 }) => {
-  // State untuk kontrol dropdown (buka/tutup summary)
   const [isExpanded, setIsExpanded] = useState<boolean>(false);
 
   // 1. Kalkulasi jumlah pengunjung per lantai
@@ -67,14 +74,12 @@ const Summary: React.FC<SummaryProps> = ({
     transactions.forEach((tx) => {
       if (tx.origins) {
         tx.origins.forEach(origin => {
-          // Ubah kode negara jadi huruf besar agar rapi di UI (misal: "id" -> "ID")
           const code = origin.country_code.toUpperCase();
           stats[code] = (stats[code] || 0) + origin.count;
         });
       }
     });
 
-    // Urutkan dari jumlah pengunjung terbanyak ke terdikit
     return Object.entries(stats).sort((a, b) => b[1] - a[1]);
   }, [transactions]);
 
@@ -87,110 +92,119 @@ const Summary: React.FC<SummaryProps> = ({
   };
 
   return (
-    <div className="mb-6">
-      {/* Tombol Toggle Dropdown */}
+    <div className="mb-8">
+      {/* Tombol Toggle Dropdown (Aksen Hitam/Oranye) */}
       <button
         onClick={() => setIsExpanded(!isExpanded)}
-        className="w-full flex items-center justify-between bg-white p-4 rounded-xl shadow-sm border border-gray-100 hover:bg-gray-50 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500"
+        className={`w-full flex items-center justify-between p-5 rounded-2xl shadow-sm border transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-[#fb9418] ${
+          isExpanded 
+            ? 'bg-black text-[#fcfcfc] border-black' 
+            : 'bg-[#fcfcfc] text-black border-gray-200 hover:border-[#fb9418]'
+        }`}
       >
-        <span className="font-bold text-gray-800 text-lg">Ringkasan Data</span>
+        <span className="font-extrabold text-lg uppercase tracking-wider">Ringkasan Data Kasir</span>
         <svg
-          className={`w-6 h-6 text-gray-500 transform transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`}
+          className={`w-6 h-6 transform transition-transform duration-300 ${
+            isExpanded ? 'rotate-180 text-[#fb9418]' : 'text-gray-400'
+          }`}
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"
           xmlns="http://www.w3.org/2000/svg"
         >
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" />
         </svg>
       </button>
 
       {/* Konten Summary (Hanya tampil jika isExpanded == true) */}
       <div 
-        className={`transition-all duration-300 ease-in-out overflow-hidden ${
-          isExpanded ? 'opacity-100 mt-4 max-h-[2000px]' : 'opacity-0 max-h-0'
+        className={`transition-all duration-500 ease-in-out overflow-hidden ${
+          isExpanded ? 'opacity-100 mt-5 max-h-[2000px]' : 'opacity-0 max-h-0'
         }`}
       >
         <div className="space-y-6">
           
           {/* Grid Utama Stats (Total, Umur, Revenue) */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-            <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col">
-              <span className="text-sm text-gray-500 font-medium mb-1">Total Visitors</span>
-              <span className="text-3xl font-bold text-gray-800">{totalVisitors}</span>
+            
+            {/* Total Visitors (Highlight Hitam) */}
+            <div className="bg-black p-5 rounded-2xl shadow-md border border-gray-800 flex flex-col justify-center items-center text-center">
+              <span className="text-[11px] text-gray-400 font-bold uppercase tracking-widest mb-1">Total Orang</span>
+              <span className="text-4xl font-black text-[#fb9418]">{totalVisitors}</span>
             </div>
 
-            <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col">
-              <span className="text-sm text-gray-500 font-medium mb-1">Children</span>
-              <span className="text-3xl font-bold text-blue-600">{totalChildren}</span>
+            {/* Anak, Remaja, Dewasa (Background Putih) */}
+            <div className="bg-[#fcfcfc] p-5 rounded-2xl shadow-sm border border-gray-200 flex flex-col justify-center text-center">
+              <span className="text-[11px] text-gray-500 font-bold uppercase tracking-widest mb-1">Anak</span>
+              <span className="text-3xl font-black text-black">{totalChildren}</span>
             </div>
 
-            <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col">
-              <span className="text-sm text-gray-500 font-medium mb-1">Teens</span>
-              <span className="text-3xl font-bold text-indigo-600">{totalTeens}</span>
+            <div className="bg-[#fcfcfc] p-5 rounded-2xl shadow-sm border border-gray-200 flex flex-col justify-center text-center">
+              <span className="text-[11px] text-gray-500 font-bold uppercase tracking-widest mb-1">Remaja</span>
+              <span className="text-3xl font-black text-black">{totalTeens}</span>
             </div>
 
-            <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col">
-              <span className="text-sm text-gray-500 font-medium mb-1">Adults</span>
-              <span className="text-3xl font-bold text-purple-600">{totalAdults}</span>
+            <div className="bg-[#fcfcfc] p-5 rounded-2xl shadow-sm border border-gray-200 flex flex-col justify-center text-center">
+              <span className="text-[11px] text-gray-500 font-bold uppercase tracking-widest mb-1">Dewasa</span>
+              <span className="text-3xl font-black text-black">{totalAdults}</span>
             </div>
 
-            <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col">
-              <span className="text-sm text-gray-500 font-medium mb-1">Total Revenue</span>
-              <span className="text-2xl font-bold text-emerald-600">{formatCurrency(totalRevenue)}</span>
+            {/* Total Revenue (Highlight Oranye) */}
+            <div className="bg-orange-50 p-5 rounded-2xl shadow-sm border border-[#fb9418]/30 flex flex-col justify-center items-center text-center">
+              <span className="text-[11px] text-gray-600 font-bold uppercase tracking-widest mb-1">Pendapatan</span>
+              <span className="text-2xl font-black text-[#fb9418]">{formatCurrency(totalRevenue)}</span>
             </div>
+
           </div>
 
           {/* Baris Bawah: Summary Per Lantai & Summary Per Negara */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             
             {/* Bagian Summary Per Lantai */}
-<div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-              <h4 className="text-sm font-bold text-center text-gray-400 uppercase tracking-wider mb-6">
-                Pengunjung Per Lantai
+            <div className="bg-[#fcfcfc] p-6 rounded-2xl shadow-sm border border-gray-200">
+              <h4 className="text-sm font-extrabold text-black uppercase tracking-wider mb-5 border-b-2 border-gray-100 pb-3">
+                Kunjungan Per Lantai
               </h4>
               
-              {/* UBAH: Menggunakan flex-col agar tersusun vertikal ke bawah */}
               <div className="flex flex-col gap-3">
                 {floorStats.length > 0 ? (
                   floorStats.map(([floor, count]) => (
                     <div 
                       key={floor} 
-                      // UBAH: Menghapus flex-1 dan min-w, tambahkan w-full
-                      className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-100 w-full"
+                      className="flex items-center justify-between p-4 bg-white rounded-xl border border-gray-200 shadow-sm w-full"
                     >
-                      <span className="text-base font-semibold text-gray-600">{floor}</span>
-                      <span className="text-lg font-black text-blue-700">
-                        {count} <small className="text-[10px] font-normal text-gray-400">Orang</small>
+                      <span className="text-sm font-bold text-gray-700 uppercase">{floor}</span>
+                      <span className="text-xl font-black text-black">
+                        {count} <small className="text-[10px] font-bold text-[#fb9418] uppercase tracking-widest ml-1">Orang</small>
                       </span>
                     </div>
                   ))
                 ) : (
-                  <p className="text-gray-400 italic text-sm text-center">Belum ada data lantai.</p>
+                  <p className="text-gray-400 italic text-sm text-center py-4 bg-gray-50 rounded-lg">Belum ada data lantai.</p>
                 )}
               </div>
             </div>
 
             {/* Bagian Summary Per Negara */}
-            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-              <h4 className="text-sm font-bold text-center text-gray-400 uppercase tracking-wider mb-6">
-                Pengunjung Per Negara
+            <div className="bg-[#fcfcfc] p-6 rounded-2xl shadow-sm border border-gray-200">
+              <h4 className="text-sm font-extrabold text-black uppercase tracking-wider mb-5 border-b-2 border-gray-100 pb-3">
+                Distribusi Negara
               </h4>
-              <div className="flex flex-wrap justify-center gap-4">
+              
+              {/* Diubah jadi grid agar seragam dan rapi (mirip struk data) */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                 {countryStats.length > 0 ? (
                   countryStats.map(([country, count]) => (
                     <div 
                       key={country} 
-                      className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-100 min-w-[100px] sm:min-w-[140px] flex-1"
+                      className="flex flex-col items-center justify-center p-4 bg-white rounded-xl border border-gray-200 shadow-sm"
                     >
-                      <span className="text-base font-bold text-gray-700 mr-2">{country}</span>
-                      <span className="text-lg font-black text-emerald-600">
-                        {count} <small className="text-[10px] font-normal text-gray-400">Orang</small>
-                      </span>
+                      <span className="text-2xl font-black text-black leading-none mb-1">{count}</span>
+                      <span className="text-xs font-bold text-[#fb9418] uppercase tracking-widest">{country}</span>
                     </div>
                   ))
                 ) : (
-                  <p className="text-gray-400 italic text-sm">Belum ada data negara.</p>
+                  <p className="text-gray-400 italic text-sm col-span-full text-center py-4 bg-gray-50 rounded-lg">Belum ada data negara.</p>
                 )}
               </div>
             </div>

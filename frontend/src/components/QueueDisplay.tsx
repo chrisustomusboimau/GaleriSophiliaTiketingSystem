@@ -159,7 +159,36 @@ const QueueDisplay: React.FC<QueueDisplayProps> = ({ visitor }) => {
               </span>
             </div>
 
-          </div>
+          {/* </div> */}
+            {/* Status & Timestamp Section (BARU) */}
+            {/* <div className="mt-6 pt-5 border-t border-gray-200 space-y-3"> */}
+              
+              {/* Waktu Pembuatan (Selalu Ada) */}
+              {/* <div className="flex justify-between items-center text-xs sm:text-sm">
+                <span className="text-gray-500 font-medium tracking-wide">Dibuat pada:</span>
+                <span className="text-gray-800 font-mono">
+                  {new Date(visitor.created_at).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })} WIB
+                </span>
+              </div> */}
+
+              {/* Logika Confirmed At vs Pending */}
+              {/* {visitor.confirmed_at ? (
+                <div className="flex justify-between items-center text-xs sm:text-sm">
+                  <span className="text-gray-500 font-medium tracking-wide">Lunas/Dikonfirmasi:</span>
+                  <span className="text-green-600 font-bold font-mono">
+                    {new Date(visitor.confirmed_at).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })} WIB
+                  </span>
+                </div>
+              ) : (
+                <div className="flex justify-between items-center text-xs sm:text-sm">
+                  <span className="text-gray-500 font-medium tracking-wide">Status Tiket:</span>
+                  <span className="text-[#fb9418] font-bold uppercase tracking-widest bg-orange-50 px-2 py-0.5 rounded border border-orange-200">
+                    Menunggu Pembayaran
+                  </span>
+                </div>
+              )} */}
+
+            </div>
         </section>
 
         {/* Instructions / Warning (Diselaraskan dengan aksen Oranye) */}

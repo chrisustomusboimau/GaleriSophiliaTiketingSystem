@@ -2,8 +2,8 @@
  * PaymentHistoryPage.tsx
  * ----------------------------------------------------
  * Main page integrating the PaymentHistoryComponent.
- * Handles API calls, 401 redirects, state management, the Edit/Delete Modal,
- * Export to Excel functionality, and Data Summary.
+ * Diperbarui dengan identitas visual Galeria Sophilia (Putih/Hitam/Oranye).
+ * FIX: Logika pemanggilan API dikembalikan untuk menghindari error 422 UUID.
  */
 
 import React, { useEffect, useState, useCallback, useMemo } from "react";
@@ -22,7 +22,7 @@ const PaymentHistoryPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isExporting, setIsExporting] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<string>("paid");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
 
   // --- Modal State ---
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -54,7 +54,8 @@ const PaymentHistoryPage: React.FC = () => {
       setIsLoading(true);
       setError(null);
 
-      let url = "/api/v1/transactions";
+      // DIKEMBALIKAN KE LOGIKA SEBELUMNYA AGAR TIDAK ERROR 422
+      let url = "/api/v1/transactions"; 
       if (statusFilter !== "all") {
         url += `?status=${statusFilter}`;
       }
@@ -98,11 +99,8 @@ const PaymentHistoryPage: React.FC = () => {
         });
 
         if (!responseEdit.ok) {
-          if (responseEdit.status === 401) {
-            handleUnauthorized();
-            return;
-          }
-          throw new Error("Gagal menyimpan jumlah tiket.");
+          if (responseEdit.status === 401) return handleUnauthorized();
+          throw new Error("Gagal menyimpan rincian tiket.");
         }
       }
 
@@ -114,10 +112,7 @@ const PaymentHistoryPage: React.FC = () => {
         });
 
         if (!responseStatus.ok) {
-          if (responseStatus.status === 401) {
-            handleUnauthorized();
-            return;
-          }
+          if (responseStatus.status === 401) return handleUnauthorized();
           throw new Error("Gagal menyimpan status tiket.");
         }
       }
@@ -136,10 +131,7 @@ const PaymentHistoryPage: React.FC = () => {
     });
 
     if (!response.ok) {
-      if (response.status === 401) {
-        handleUnauthorized();
-        throw new Error("Unauthorized");
-      }
+      if (response.status === 401) return handleUnauthorized();
       throw new Error("Gagal menghapus data.");
     }
 
@@ -147,7 +139,7 @@ const PaymentHistoryPage: React.FC = () => {
   };
 
   // ==========================================
-  // DERIVED SUMMARY DATA (UNIQUE PEOPLE COUNT)
+  // DERIVED SUMMARY DATA
   // ==========================================
   const summaryStats = useMemo(() => {
     let totalChildren = 0;
@@ -156,7 +148,9 @@ const PaymentHistoryPage: React.FC = () => {
     let totalRevenue = 0;
 
     transactions.forEach((tx) => {
-      totalRevenue += tx.total_price || 0; 
+      if (tx.status === "paid" || tx.status === "confirmed") {
+          totalRevenue += tx.total_price || 0; 
+      }
       
       const seenCategories = new Set<string>();
 
@@ -195,12 +189,12 @@ const PaymentHistoryPage: React.FC = () => {
         { header: "No. Antrian", key: "queue_number", width: 15 },
         { header: "ID Transaksi", key: "id", width: 40 },
         { header: "Tanggal", key: "date", width: 20 },
-        { header: "Waktu", key: "time", width: 15 },
+        { header: "Waktu Konfirmasi", key: "time", width: 25 },
         { header: "Lantai yang Dipilih", key: "floors", width: 30 },
         { header: "Anak (Orang)", key: "child", width: 15 },
         { header: "Remaja (Orang)", key: "student", width: 18 },
         { header: "Dewasa (Orang)", key: "adult", width: 18 },
-        { header: "Total Pembayaran", key: "total_price", width: 25 },
+        { header: "Total Tagihan", key: "total_price", width: 25 },
         { header: "Status", key: "status", width: 15 },
       ];
 
@@ -211,12 +205,13 @@ const PaymentHistoryPage: React.FC = () => {
         cell.fill = {
           type: "pattern",
           pattern: "solid",
-          fgColor: { argb: "FF2563EB" },
+          fgColor: { argb: "FF000000" }, 
         };
       });
 
       const statusMap: Record<string, string> = { 
         paid: "LUNAS", 
+        confirmed: "LUNAS",
         pending: "PENDING", 
         cancelled: "BATAL" 
       };
@@ -224,7 +219,14 @@ const PaymentHistoryPage: React.FC = () => {
       transactions.forEach((tx) => {
         const dateObj = new Date(tx.created_at);
         const dateStr = `${dateObj.getDate().toString().padStart(2, "0")}/${(dateObj.getMonth() + 1).toString().padStart(2, "0")}/${dateObj.getFullYear()}`;
-        const timeStr = `${dateObj.getHours().toString().padStart(2, "0")}:${dateObj.getMinutes().toString().padStart(2, "0")}`;
+        
+        let timeStr = "-";
+        if (tx.confirmed_at) {
+          const confDate = new Date(tx.confirmed_at);
+          timeStr = `${confDate.getHours().toString().padStart(2, "0")}:${confDate.getMinutes().toString().padStart(2, "0")} WIB`;
+        } else {
+            timeStr = "Menunggu";
+        }
 
         const uniqueCounts = { adult: 0, student: 0, child: 0 };
         const seenCategories = new Set<string>();
@@ -261,7 +263,7 @@ const PaymentHistoryPage: React.FC = () => {
       const dateSuffix = `${now.getFullYear()}${(now.getMonth() + 1).toString().padStart(2, '0')}${now.getDate().toString().padStart(2, '0')}_${now.getHours().toString().padStart(2, '0')}${now.getMinutes().toString().padStart(2, '0')}`;
       const buffer = await workbook.xlsx.writeBuffer();
       const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-      saveAs(blob, `Report_Transaksi_${dateSuffix}.xlsx`);
+      saveAs(blob, `Data_Kasir_Sophilia_${dateSuffix}.xlsx`);
 
     } catch (err) {
       console.error("Failed to export to Excel:", err);
@@ -271,30 +273,42 @@ const PaymentHistoryPage: React.FC = () => {
     }
   };
 
-  // --- Effects ---
   useEffect(() => {
     loadTransactions();
   }, [loadTransactions]);
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col">
-      {/* Header ... */}
-      <header className="bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto py-4 px-4 flex justify-between items-center">
-          <h1 className="text-2xl font-bold text-gray-800">Museum Ticketing</h1>
-          <div className="flex items-center gap-3">
-            <div className="text-sm font-medium bg-blue-100 text-blue-800 px-3 py-1 rounded-full hidden sm:block">
+    <div className="min-h-screen bg-[#fcfcfc] flex flex-col font-sans text-black">
+      
+      {/* HEADER: Identitas Visual Galeria Sophilia */}
+      <header className="bg-black border-b-[4px] border-[#fb9418] sticky top-0 z-40 shadow-md shrink-0">
+        <div className="max-w-7xl mx-auto py-4 px-4 sm:px-6 flex justify-between items-center">
+          
+          <div className="flex flex-col select-none cursor-pointer" onClick={() => navigate('/admin')}>
+            <h2 className="text-[#fcfcfc] font-light tracking-[0.3em] text-[10px] sm:text-xs uppercase ml-0.5">
+              Galeria
+            </h2>
+            <h1 className="text-[#fb9418] font-bold tracking-wider text-xl sm:text-2xl uppercase leading-none mt-0.5">
+              Sophilia
+            </h1>
+          </div>
+
+          <div className="flex items-center gap-2 sm:gap-4">
+            <div className="hidden md:block text-xs font-bold tracking-widest uppercase bg-[#1a1a1a] text-[#fb9418] border border-zinc-800 px-3 py-1.5 rounded-lg shadow-inner">
               Riwayat Transaksi
             </div>
+            
             <button
               onClick={() => navigate("/admin")} 
-              className="text-sm font-medium px-3 py-1 rounded border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors"
+              className="text-xs sm:text-sm font-bold px-3 sm:px-4 py-2 rounded-lg border border-zinc-700 text-gray-300 hover:text-[#fb9418] hover:border-[#fb9418] hover:bg-[#fb9418]/10 transition-all active:scale-95"
             >
-              Kembali ke Dashboard
+              <span className="hidden sm:inline">Kembali ke Antrian</span>
+              <span className="sm:hidden">Antrian</span>
             </button>
+            
             <button
               onClick={handleLogout}
-              className="text-sm font-medium px-3 py-1 rounded-full border border-red-200 text-red-600 hover:bg-red-50 transition-colors"
+              className="text-xs sm:text-sm font-bold px-3 sm:px-4 py-2 rounded-lg bg-red-600/10 border border-red-500/30 text-red-500 hover:bg-red-600 hover:text-[#fcfcfc] transition-all active:scale-95"
             >
               Logout
             </button>
@@ -302,23 +316,23 @@ const PaymentHistoryPage: React.FC = () => {
         </div>
       </header>
 
-      <main className="flex-1 p-4">
-        <div className="max-w-6xl mx-auto space-y-6">
-          {/* Controls Header ... */}
-          <header className="flex flex-col sm:flex-row sm:justify-between sm:items-end border-b border-gray-200 pb-4 gap-4 mt-4">
+      <main className="flex-1 p-4 sm:p-6 lg:p-8">
+        <div className="max-w-7xl mx-auto space-y-8">
+          
+          <header className="flex flex-col sm:flex-row sm:justify-between sm:items-end border-b-2 border-gray-200 pb-5 gap-4 mt-2">
             <div>
-              <h2 className="text-2xl font-bold text-gray-800">Riwayat Pembayaran</h2>
-              <p className="text-gray-600">Pantau seluruh transaksi yang telah masuk.</p>
+              <h2 className="text-2xl font-bold text-black uppercase tracking-wider">Data Transaksi</h2>
+              <p className="text-gray-500 text-sm mt-1">Pantau seluruh riwayat transaksi pengunjung.</p>
             </div>
 
             <div className="flex items-center gap-3 flex-wrap">
               <select
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value)}
-                className="border-gray-300 rounded-md shadow-sm text-sm focus:ring-blue-500 focus:border-blue-500 py-2 px-3 border outline-none bg-white"
+                className="bg-white border-gray-300 rounded-lg shadow-sm text-sm font-bold text-black focus:ring-[#fb9418] focus:border-[#fb9418] py-2 px-3 border outline-none cursor-pointer"
               >
                 <option value="all">Semua Status</option>
-                <option value="paid">Lunas (Paid)</option>
+                <option value="confirmed">Lunas / Dikonfirmasi</option>
                 <option value="pending">Menunggu (Pending)</option>
                 <option value="cancelled">Batal (Cancelled)</option>
               </select>
@@ -326,22 +340,21 @@ const PaymentHistoryPage: React.FC = () => {
               <button
                 onClick={loadTransactions}
                 disabled={isLoading}
-                className="text-sm font-medium px-4 py-2 bg-white border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 transition-colors shadow-sm"
+                className="text-sm font-bold px-4 py-2 bg-white border border-gray-300 rounded-lg text-black hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-200 disabled:opacity-50 transition-colors shadow-sm"
               >
-                {isLoading ? "Memuat..." : "Segarkan"}
+                {isLoading ? "Memuat..." : "Refresh"}
               </button>
 
               <button
                 onClick={handleExportExcel}
                 disabled={isExporting || transactions.length === 0}
-                className="text-sm font-medium px-4 py-2 bg-green-600 border border-green-600 rounded-md text-white hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm flex items-center gap-2"
+                className="text-sm font-bold px-4 py-2 bg-[#1a1a1a] border border-gray-800 rounded-lg text-white hover:bg-black focus:outline-none focus:ring-2 focus:ring-gray-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm flex items-center gap-2"
               >
-                {isExporting ? <span>Mengekspor...</span> : <span>Export Excel</span>}
+                {isExporting ? <span>Mengekspor...</span> : <span>Unduh Excel</span>}
               </button>
             </div>
           </header>
 
-          {/* SUMMARY DENGAN PROP TRANSACTIONS */}
           <Summary 
             totalVisitors={summaryStats.totalVisitors}
             totalChildren={summaryStats.totalChildren}
@@ -352,8 +365,9 @@ const PaymentHistoryPage: React.FC = () => {
           />
 
           {error && (
-            <div className="p-4 bg-red-50 border-l-4 border-red-500 text-red-700 rounded-md shadow-sm">
-              <p>{error}</p>
+            <div className="p-4 bg-red-50 border border-red-200 text-red-700 rounded-xl shadow-sm flex items-center gap-3">
+              <svg className="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+              <span className="font-medium">{error}</span>
             </div>
           )}
 
