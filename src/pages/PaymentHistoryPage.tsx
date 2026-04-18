@@ -4,8 +4,8 @@
  * Main page integrating the PaymentHistoryComponent.
  * Diperbarui dengan identitas visual Galeria Sophilia (Putih/Hitam/Oranye).
  * FIX: Menambahkan kolom Metode Pembayaran & menghapus "WIB" dari Excel.
- * UPDATE: Menambahkan filter Metode Pembayaran (QRIS / EDC) yang dapat
- *         dikombinasikan dengan filter Status yang sudah ada.
+ * UPDATE: Menambahkan filter Metode Pembayaran (QRIS / EDC) dan
+ * Filter Tanggal Historis yang sinkron dengan komponen Summary.
  */
 
 import React, { useEffect, useState, useCallback, useMemo } from "react";
@@ -19,17 +19,30 @@ import Summary from "../components/Summary";
 const PaymentHistoryPage: React.FC = () => {
   const navigate = useNavigate();
 
+  // Helper untuk mendapatkan tanggal hari ini dalam format YYYY-MM-DD
+  const getTodayString = () => {
+    const today = new Date();
+    const yyyy = today.getFullYear();
+    const mm = String(today.getMonth() + 1).padStart(2, "0");
+    const dd = String(today.getDate()).padStart(2, "0");
+    return `${yyyy}-${mm}-${dd}`;
+  };
+
   // --- State ---
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isExporting, setIsExporting] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Filter Status — dikirim ke server sebagai query param
+  // --- Filter States ---
+  // Filter Status (dikirim ke server sebagai query param)
   const [statusFilter, setStatusFilter] = useState<string>("confirmed");
-  // Filter Metode Pembayaran — diterapkan client-side di atas data yang sudah ada
-  // "all" | "qris" | "card"  (nilai "card" di DB = tampilan "EDC" di UI)
+  
+  // Filter Metode Pembayaran (diterapkan client-side)
   const [paymentFilter, setPaymentFilter] = useState<string>("all");
+  
+  // Filter Tanggal (diterapkan client-side, default ke hari ini)
+  const [dateFilter, setDateFilter] = useState<string>(getTodayString());
 
   // --- Modal State ---
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -56,14 +69,15 @@ const PaymentHistoryPage: React.FC = () => {
   };
 
   // --- Data Fetching ---
-  // Hanya statusFilter yang dikirim ke server (menghindari error 422).
-  // paymentFilter diterapkan client-side lewat filteredTransactions di bawah.
   const loadTransactions = useCallback(async () => {
     try {
       setIsLoading(true);
       setError(null);
 
-      let url = "/api/v1/transactions";
+      // UBAHAN PENTING:
+      // Kita mengambil '/api/v1/transactions/all' agar mendapatkan seluruh
+      // data historis, sehingga fitur filter tanggal client-side bisa bekerja untuk hari-hari lampau.
+      let url = "/api/v1/transactions/all";
       if (statusFilter !== "all") {
         url += `?status=${statusFilter}`;
       }
@@ -91,13 +105,33 @@ const PaymentHistoryPage: React.FC = () => {
     }
   }, [statusFilter, handleUnauthorized]);
 
-  // --- Filter Client-Side: Metode Pembayaran ---
-  // Ini adalah satu-satunya sumber data yang dipakai oleh tabel, summary, dan export.
-  // Dengan cara ini kedua filter selalu sinkron tanpa konflik logika.
+  // --- Filter Client-Side Utama (Metode Pembayaran & Tanggal) ---
+  // Inilah satu-satunya sumber data (Single Source of Truth) yang dipakai
+  // oleh tabel, summary, dan export ke excel agar 100% konsisten.
   const filteredTransactions = useMemo(() => {
-    if (paymentFilter === "all") return transactions;
-    return transactions.filter((tx) => tx.payment_method === paymentFilter);
-  }, [transactions, paymentFilter]);
+    return transactions.filter((tx) => {
+      // 1. Cek Filter Metode Pembayaran
+      if (paymentFilter !== "all" && tx.payment_method !== paymentFilter) {
+        return false;
+      }
+
+      // 2. Cek Filter Tanggal
+      if (dateFilter) {
+        if (!tx.created_at) return false;
+        const txDate = new Date(tx.created_at);
+        const yyyy = txDate.getFullYear();
+        const mm = String(txDate.getMonth() + 1).padStart(2, "0");
+        const dd = String(txDate.getDate()).padStart(2, "0");
+        const formattedTxDate = `${yyyy}-${mm}-${dd}`;
+
+        if (formattedTxDate !== dateFilter) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+  }, [transactions, paymentFilter, dateFilter]);
 
   // --- Edit & Delete Handlers ---
   const handleEditClick = (tx: Transaction) => {
@@ -160,8 +194,6 @@ const PaymentHistoryPage: React.FC = () => {
 
   // ==========================================
   // DERIVED SUMMARY DATA
-  // Menggunakan filteredTransactions agar angka summary
-  // selalu sesuai dengan data yang sedang ditampilkan.
   // ==========================================
   const summaryStats = useMemo(() => {
     let totalChildren = 0;
@@ -198,8 +230,6 @@ const PaymentHistoryPage: React.FC = () => {
 
   // ==========================================
   // EXPORT TO EXCEL LOGIC
-  // Mengekspor filteredTransactions agar hasil file Excel
-  // mencerminkan filter yang aktif saat tombol ditekan.
   // ==========================================
   const handleExportExcel = async () => {
     if (filteredTransactions.length === 0) return;
@@ -242,7 +272,7 @@ const PaymentHistoryPage: React.FC = () => {
       };
 
       filteredTransactions.forEach((tx) => {
-        const dateObj = new Date(tx.created_at);
+        const dateObj = new Date(tx.created_at || "");
         const dateStr = `${dateObj.getDate().toString().padStart(2, "0")}/${(
           dateObj.getMonth() + 1
         )
@@ -277,7 +307,6 @@ const PaymentHistoryPage: React.FC = () => {
           .sort()
           .join(", ");
 
-        // "card" di DB ditampilkan sebagai "EDC" di file Excel
         let pmStr = "-";
         if (tx.payment_method === "card") pmStr = "EDC";
         else if (tx.payment_method === "qris") pmStr = "QRIS";
@@ -324,16 +353,32 @@ const PaymentHistoryPage: React.FC = () => {
     loadTransactions();
   }, [loadTransactions]);
 
-  // Label ringkasan filter aktif untuk badge
+  // --- Label Indikator Ringkasan Filter Aktif ---
   const activeFilterLabel = useMemo(() => {
     const parts: string[] = [];
-    if (statusFilter !== "all")
+    
+    // Label Tanggal
+    if (dateFilter) {
+      const [yyyy, mm, dd] = dateFilter.split("-");
+      parts.push(`Tanggal: ${dd}/${mm}/${yyyy}`);
+    } else {
+      parts.push("Semua Waktu");
+    }
+
+    // Label Status
+    if (statusFilter !== "all") {
       parts.push(
         statusFilter === "confirmed" ? "Lunas" : statusFilter === "pending" ? "Pending" : "Batal"
       );
-    if (paymentFilter !== "all") parts.push(paymentFilter === "qris" ? "QRIS" : "EDC");
+    }
+
+    // Label Metode
+    if (paymentFilter !== "all") {
+      parts.push(paymentFilter === "qris" ? "QRIS" : "EDC");
+    }
+
     return parts.length > 0 ? parts.join(" · ") : null;
-  }, [statusFilter, paymentFilter]);
+  }, [statusFilter, paymentFilter, dateFilter]);
 
   return (
     <div className="min-h-screen bg-[#fcfcfc] flex flex-col font-sans text-black">
@@ -392,11 +437,25 @@ const PaymentHistoryPage: React.FC = () => {
 
             <div className="flex items-center gap-3 flex-wrap">
 
+              {/* ── FILTER TANGGAL (client-side) ── */}
+              <div className="flex items-center bg-white border border-gray-300 rounded-lg shadow-sm px-3 py-2 focus-within:ring-2 focus-within:ring-[#fb9418] focus-within:border-[#fb9418] cursor-pointer">
+                <svg className="w-4 h-4 text-gray-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                </svg>
+                <input
+                  type="date"
+                  value={dateFilter}
+                  onChange={(e) => setDateFilter(e.target.value)}
+                  className="text-sm font-bold text-black outline-none bg-transparent cursor-pointer"
+                  title="Filter Berdasarkan Tanggal"
+                />
+              </div>
+
               {/* ── FILTER STATUS (server-side) ── */}
               <select
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value)}
-                className="bg-white border-gray-300 rounded-lg shadow-sm text-sm font-bold text-black focus:ring-[#fb9418] focus:border-[#fb9418] py-2 px-3 border outline-none cursor-pointer"
+                className="bg-white border-gray-300 rounded-lg shadow-sm text-sm font-bold text-black focus:ring-[#fb9418] focus:border-[#fb9418] py-2 px-3 border outline-none cursor-pointer h-[38px]"
               >
                 <option value="all">Semua Status</option>
                 <option value="confirmed">Lunas / Dikonfirmasi</option>
@@ -405,7 +464,7 @@ const PaymentHistoryPage: React.FC = () => {
               </select>
 
               {/* ── FILTER METODE PEMBAYARAN (client-side) ── */}
-              <div className="flex border border-gray-300 rounded-lg overflow-hidden shadow-sm bg-white text-sm font-bold">
+              <div className="flex border border-gray-300 rounded-lg overflow-hidden shadow-sm bg-white text-sm font-bold h-[38px]">
                 {(
                   [
                     { value: "all",  label: "Semua" },
@@ -416,7 +475,7 @@ const PaymentHistoryPage: React.FC = () => {
                   <button
                     key={value}
                     onClick={() => setPaymentFilter(value)}
-                    className={`px-4 py-2 transition-colors focus:outline-none ${
+                    className={`px-4 py-1 transition-colors focus:outline-none ${
                       paymentFilter === value
                         ? value === "card"
                           ? "bg-black text-white"
@@ -432,7 +491,7 @@ const PaymentHistoryPage: React.FC = () => {
               <button
                 onClick={loadTransactions}
                 disabled={isLoading}
-                className="text-sm font-bold px-4 py-2 bg-white border border-gray-300 rounded-lg text-black hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-200 disabled:opacity-50 transition-colors shadow-sm"
+                className="text-sm font-bold px-4 py-2 bg-white border border-gray-300 rounded-lg text-black hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-200 disabled:opacity-50 transition-colors shadow-sm h-[38px]"
               >
                 {isLoading ? "Memuat..." : "Refresh"}
               </button>
@@ -440,7 +499,7 @@ const PaymentHistoryPage: React.FC = () => {
               <button
                 onClick={handleExportExcel}
                 disabled={isExporting || filteredTransactions.length === 0}
-                className="text-sm font-bold px-4 py-2 bg-[#1a1a1a] border border-gray-800 rounded-lg text-white hover:bg-black focus:outline-none focus:ring-2 focus:ring-gray-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm flex items-center gap-2"
+                className="text-sm font-bold px-4 py-2 bg-[#1a1a1a] border border-gray-800 rounded-lg text-white hover:bg-black focus:outline-none focus:ring-2 focus:ring-gray-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm flex items-center gap-2 h-[38px]"
               >
                 {isExporting ? <span>Mengekspor...</span> : <span>Unduh Excel</span>}
               </button>
@@ -449,7 +508,7 @@ const PaymentHistoryPage: React.FC = () => {
 
           {/* Badge filter aktif + tombol reset */}
           {activeFilterLabel && (
-            <div className="flex items-center gap-2 -mt-4">
+            <div className="flex flex-wrap items-center gap-2 -mt-4">
               <span className="text-xs text-gray-500 font-medium">Filter aktif:</span>
               <span className="inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1 rounded-full bg-orange-50 text-[#fb9418] border border-orange-200">
                 {activeFilterLabel}
@@ -458,14 +517,19 @@ const PaymentHistoryPage: React.FC = () => {
                 </span>
               </span>
               <button
-                onClick={() => { setStatusFilter("all"); setPaymentFilter("all"); }}
-                className="text-xs text-gray-400 hover:text-red-500 font-bold transition-colors underline underline-offset-2"
+                onClick={() => { 
+                  setStatusFilter("all"); 
+                  setPaymentFilter("all"); 
+                  setDateFilter(""); // Dikosongkan agar menampilkan semua riwayat
+                }}
+                className="text-xs text-gray-400 hover:text-red-500 font-bold transition-colors underline underline-offset-2 ml-2"
               >
-                Reset
+                Reset Semua Filter
               </button>
             </div>
           )}
 
+          {/* Summary komponen hanya menerima data yang sudah difilter */}
           <Summary
             totalVisitors={summaryStats.totalVisitors}
             totalChildren={summaryStats.totalChildren}
@@ -494,7 +558,7 @@ const PaymentHistoryPage: React.FC = () => {
             </div>
           )}
 
-          {/* Tabel selalu menerima filteredTransactions */}
+          {/* Tabel Detail */}
           <PaymentHistoryComponent
             transactions={filteredTransactions}
             isLoading={isLoading}

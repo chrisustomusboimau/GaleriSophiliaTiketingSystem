@@ -2,7 +2,6 @@ from fastapi import FastAPI, HTTPException, Depends, Query
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
 from contextlib import asynccontextmanager
-# TAMBAHAN PENTING: import 'delete' dari sqlalchemy
 from sqlalchemy import select, func, delete 
 import uuid
 from typing import List, Optional
@@ -50,7 +49,7 @@ app.add_middleware(
 )
 
 # ==========================================
-# AUTHENTICATION ROUTERS (SUDAH DIPERBAIKI)
+# AUTHENTICATION ROUTERS
 # ==========================================
 app.include_router(fastapi_users.get_auth_router(auth_backend), prefix="/api/v1/auth/jwt", tags=["auth"])
 app.include_router(fastapi_users.get_register_router(UserRead, UserCreate), prefix="/api/v1/auth", tags=["auth"])
@@ -103,7 +102,6 @@ async def create_transaction(
                 queue_number=max_queue + 1,
                 total_price=total_price,
                 status="pending",
-                # TAMBAHAN: Ekstrak value dari Enum (mengubah Enum ke string biasa)
                 payment_method=payload.payment_method.value, 
                 items=transaction_items,
                 origins=[TransactionOriginEntry(**o.dict()) for o in payload.origins]
@@ -120,32 +118,9 @@ async def create_transaction(
             
     raise HTTPException(status_code=409, detail="Queue conflict, please retry")
 
-@app.get("/api/v1/transactions/{transaction_id}", response_model=TransactionResponse, tags=["transactions"])
-async def get_transaction_details(
-    transaction_id: uuid.UUID,
-    session: AsyncSession = Depends(get_async_session)
-):
-    """
-    PUBLIC: Fetches a specific transaction ticket using its UUID.
-    """
-    try:
-        result = await session.execute(
-            select(TransactionEntry).where(TransactionEntry.id == transaction_id)
-        )
-        entry = result.scalars().first()
-
-        if not entry:
-            raise HTTPException(status_code=404, detail="Ticket not found")
-
-        return entry
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Internal server error {e}")
-
 
 # --- API 1: HANYA DATA HARI INI (Zona Waktu WIB) ---
+# Ditempatkan SEBELUM rute dengan {transaction_id}
 @app.get("/api/v1/transactions", response_model=List[TransactionResponse], tags=["transactions"])
 async def list_today_transactions(
     status: Optional[str] = Query(None, description="Filter by payment status (e.g., 'pending')"),
@@ -178,6 +153,7 @@ async def list_today_transactions(
 
 
 # --- API 2: KESELURUHAN DATA (HISTORIS) ---
+# Ditempatkan SEBELUM rute dengan {transaction_id}
 @app.get("/api/v1/transactions/all", response_model=List[TransactionResponse], tags=["transactions"])
 async def list_all_transactions(
     status: Optional[str] = Query(None, description="Filter by payment status (e.g., 'pending')"),
@@ -199,6 +175,33 @@ async def list_all_transactions(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch all transactions: {e}")
     
+
+# --- API 3: MENCARI BERDASARKAN UUID ---
+# DIPINDAHKAN KE BAWAH agar tidak menyebabkan "Route Shadowing"
+@app.get("/api/v1/transactions/{transaction_id}", response_model=TransactionResponse, tags=["transactions"])
+async def get_transaction_details(
+    transaction_id: uuid.UUID,
+    session: AsyncSession = Depends(get_async_session)
+):
+    """
+    PUBLIC: Fetches a specific transaction ticket using its UUID.
+    """
+    try:
+        result = await session.execute(
+            select(TransactionEntry).where(TransactionEntry.id == transaction_id)
+        )
+        entry = result.scalars().first()
+
+        if not entry:
+            raise HTTPException(status_code=404, detail="Ticket not found")
+
+        return entry
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Internal server error {e}")
+
 
 @app.patch("/api/v1/transactions/{transaction_id}/status", tags=["transactions"])
 async def update_transaction_status(

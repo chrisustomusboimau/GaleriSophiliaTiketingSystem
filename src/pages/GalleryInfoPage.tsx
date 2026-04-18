@@ -4,13 +4,39 @@
  * Halaman informasi eksibisi yang muncul sebelum pemilihan lantai.
  * Desain: Header terpisah di atas latar hitam (menyamai TicketSelectionPage),
  * dengan konten di dalam kanvas putih (content container).
+ * Update: Menambahkan Auto-Redirect jika pengguna sudah memiliki antrian aktif.
  */
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 const GalleryInfoPage: React.FC = () => {
   const navigate = useNavigate();
+
+  // ==========================================
+  // LOGIKA AUTO-REDIRECT TIKET AKTIF
+  // ==========================================
+  useEffect(() => {
+    const cachedQueue = localStorage.getItem("sophilia_active_queue");
+    if (cachedQueue) {
+      try {
+        const parsed = JSON.parse(cachedQueue);
+        const now = Date.now();
+        const tenMinutes = 10 * 60 * 1000; // 10 menit dalam milidetik
+
+        if (now - parsed.timestamp < tenMinutes) {
+          // Tiket masih aktif, langsung redirect ke halaman antrian
+          navigate(`/queue/${parsed.id}`, { state: parsed.state, replace: true });
+        } else {
+          // Sudah lewat 10 menit, hapus kunci dari memory agar bisa buat baru
+          localStorage.removeItem("sophilia_active_queue");
+        }
+      } catch (e) {
+        // Jika format data rusak, bersihkan
+        localStorage.removeItem("sophilia_active_queue");
+      }
+    }
+  }, [navigate]);
 
   return (
     <div className="min-h-screen bg-black flex flex-col relative font-sans selection:bg-orange-200">

@@ -3,8 +3,8 @@
  * ----------------------------------------------------
  * Main form component for museum visitor data input.
  * Updated to match Galeria Sophilia Visual Identity.
- * Update: Urutan kategori usia (Dewasa -> Remaja -> Anak) 
- * & default jumlah pengunjung negara menjadi 0.
+ * Update: Menambahkan sistem Anti-Spam / Cool-down 10 Menit 
+ * menggunakan localStorage.
  */
 
 import React, { useEffect, useMemo, useState } from "react";
@@ -163,6 +163,34 @@ const VisitorForm: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // ==========================================
+  // LOGIKA ANTI-SPAM (COOL-DOWN 10 MENIT)
+  // ==========================================
+  useEffect(() => {
+    const cachedQueue = localStorage.getItem("sophilia_active_queue");
+    if (cachedQueue) {
+      try {
+        const parsed = JSON.parse(cachedQueue);
+        const now = Date.now();
+        const tenMinutes = 10 * 60 * 1000; // 10 menit dalam milidetik
+
+        if (now - parsed.timestamp < tenMinutes) {
+          // Masih dalam masa cool-down 10 menit.
+          // Redirect pengguna kembali ke halaman tiket mereka.
+          navigate(`/queue/${parsed.id}`, { state: parsed.state, replace: true });
+        } else {
+          // Sudah lewat 10 menit, hapus kunci dari memory
+          localStorage.removeItem("sophilia_active_queue");
+        }
+      } catch (e) {
+        localStorage.removeItem("sophilia_active_queue");
+      }
+    }
+  }, [navigate]);
+
+  // ==========================================
+  // INITIALIZATION LOGIC
+  // ==========================================
   useEffect(() => {
     if (selectedFloors.length === 0) {
       navigate('/ticket-selection', { replace: true });
@@ -171,7 +199,6 @@ const VisitorForm: React.FC = () => {
 
     if (countryVisitors.length === 0) {
       setCountryVisitors([
-        // UBAHAN: Nilai default count diubah dari 1 menjadi 0
         { countryCode: getDefaultCountryByLanguage(language), count: 0 },
       ]);
     }
@@ -208,7 +235,6 @@ const VisitorForm: React.FC = () => {
   };
 
   const handleAddCountry = () => {
-    // UBAHAN: Saat tambah negara, default inputnya adalah 0
     setCountryVisitors((prev) => [...prev, { countryCode: "id", count: 0 }]);
   };
 
@@ -288,9 +314,19 @@ const VisitorForm: React.FC = () => {
       const data = await response.json();
       if (!data || !data.id) throw new Error("Respon server tidak valid (ID tidak ditemukan).");
 
-      navigate(`/queue/${data.id}`, {
-        state: { origins: countryVisitors, totalVisitors, totalPrice, paymentMethod },
-      });
+      // Menyiapkan state response untuk di-passing ke queue page
+      const responseState = { origins: countryVisitors, totalVisitors, totalPrice, paymentMethod };
+
+      // ==========================================
+      // SIMPAN KUNCI ANTI-SPAM KE LOCAL STORAGE
+      // ==========================================
+      localStorage.setItem("sophilia_active_queue", JSON.stringify({
+        id: data.id,
+        timestamp: Date.now(),
+        state: responseState
+      }));
+
+      navigate(`/queue/${data.id}`, { state: responseState });
 
     } catch (err: any) {
       console.error("Submission error:", err);
@@ -314,7 +350,7 @@ const VisitorForm: React.FC = () => {
         </p>
       </header>
 
-      {/* Age Category Inputs - URUTAN BARU: Dewasa -> Remaja -> Anak */}
+      {/* Age Category Inputs */}
       <CounterInput
         label={translations.adultLabel[language]}
         price={aggregatePrices.adult}
@@ -336,7 +372,6 @@ const VisitorForm: React.FC = () => {
 
       {/* Multi-Country Input Section */}
       <div className="mb-8 p-5 border border-gray-200 rounded-xl bg-[#fcfcfc] shadow-sm">
-        {/* HEADER NEGARA & INDIKATOR SINKRONISASI */}
         <div className="flex justify-between items-center mb-5 border-b border-gray-200 pb-3">
           <label className="block font-bold text-black">
             {translations.countryOrigin[language]}
@@ -373,7 +408,7 @@ const VisitorForm: React.FC = () => {
 
               <input
                 type="number"
-                min={0} // Memastikan nilai bisa dimulai dari 0
+                min={0}
                 value={country.count}
                 onChange={(e) => handleUpdateCountry(index, "count", e.target.value)}
                 onFocus={(e) => e.target.select()}
