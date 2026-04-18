@@ -50,6 +50,9 @@ class TransactionEntry(Base):
     total_price = Column(Integer, nullable=False)
     status = Column(String, nullable=False, default="pending")
     
+    # --- TAMBAHAN BARU: Payment Method (Default: qris) ---
+    payment_method = Column(String, nullable=False, default="qris")
+    
     # 1. IMMUTABLE CREATED AT: Wajib ada, diisi otomatis saat data pertama kali dibuat
     created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(WIB))
     

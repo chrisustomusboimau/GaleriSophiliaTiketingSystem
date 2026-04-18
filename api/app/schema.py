@@ -5,6 +5,13 @@ from typing import List, Optional
 import uuid
 from datetime import datetime
 from fastapi_users import schemas
+from enum import Enum # <-- TAMBAHAN: Import Enum
+
+# --- ENUMS ---
+# TAMBAHAN: Definisi metode pembayaran yang diizinkan
+class PaymentMethodEnum(str, Enum):
+    qris = "qris"
+    card = "card"
 
 # --- ORIGIN SCHEMA ---
 class OriginBase(BaseModel):
@@ -24,6 +31,8 @@ class TicketItemResponse(TicketItemBase):
 class TransactionCreate(BaseModel):
     items: List[TicketItemBase]
     origins: List[OriginBase] = []
+    # TAMBAHAN: Field payment method dengan nilai default 'qris'
+    payment_method: PaymentMethodEnum = PaymentMethodEnum.qris
 
 class TransactionResponse(BaseModel):
     id: uuid.UUID
@@ -33,6 +42,10 @@ class TransactionResponse(BaseModel):
     created_at: datetime
     # Tambahkan confirmed_at agar selalu diekspos oleh API
     confirmed_at: Optional[datetime] = None
+    
+    # TAMBAHAN: Field payment method untuk response
+    payment_method: PaymentMethodEnum
+    
     items: List[TicketItemResponse]
     origins: List[OriginBase]
 
@@ -56,6 +69,9 @@ class TransactionUpdateData(BaseModel):
     items: Optional[List[TransactionItemSchema]] = None
     origins: Optional[List[OriginBase]] = None  # <--- INI SANGAT PENTING AGAR API EDIT BEKERJA
     status: Optional[str] = None
+    
+    # TAMBAHAN: Mengizinkan admin mengubah metode pembayaran
+    payment_method: Optional[PaymentMethodEnum] = None
 
 class TransactionStatusUpdate(BaseModel):
     status: str = Field(..., pattern="^(pending|paid|confirmed|cancelled)$")

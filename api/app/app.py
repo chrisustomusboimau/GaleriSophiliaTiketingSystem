@@ -100,11 +100,13 @@ async def create_transaction(
             result = await session.execute(select(func.max(TransactionEntry.queue_number)))
             max_queue = result.scalar() or 0
 
-            # 3. Create main transaction (created_at otomatis diurus db, confirmed_at tetap Null)
+            # 3. Create main transaction
             new_transaction = TransactionEntry(
                 queue_number=max_queue + 1,
                 total_price=total_price,
                 status="pending",
+                # TAMBAHAN: Ekstrak value dari Enum (mengubah Enum ke string biasa)
+                payment_method=payload.payment_method.value, 
                 items=transaction_items,
                 origins=[TransactionOriginEntry(**o.dict()) for o in payload.origins]
             )
@@ -276,7 +278,7 @@ async def edit_transaction_data(
         session.add_all(new_items)
         entry.total_price = total_price
 
-    # 2. Update Origins (DIPERBAIKI)
+    # 2. Update Origins 
     if getattr(payload, "origins", None) is not None:
         # Hapus data origin lama secara eksplisit dari database
         await session.execute(delete(TransactionOriginEntry).where(TransactionOriginEntry.transaction_id == transaction_id))
@@ -291,11 +293,15 @@ async def edit_transaction_data(
             
         session.add_all(new_origins)
 
-    # 3. Update Status & Confirmed At
+    # 3. Update Status, Confirmed At, & Payment Method
     if payload.status is not None:
         entry.status = payload.status
         if payload.status in ["confirmed", "paid"]:
             entry.confirmed_at = datetime.now(WIB)
+            
+    # TAMBAHAN: Update payment_method jika admin mengubahnya
+    if payload.payment_method is not None:
+        entry.payment_method = payload.payment_method.value
 
     try:
         await session.commit()
