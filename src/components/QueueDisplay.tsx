@@ -3,6 +3,7 @@
  * ----------------------------------------------------
  * Component to display the generated queue ticket.
  * Diperbarui dengan identitas visual Galeria Sophilia.
+ * Update: Menambahkan Informasi & Panduan Metode Pembayaran yang jelas.
  */
 
 import React, { useMemo } from 'react';
@@ -25,6 +26,7 @@ export interface QueueDisplayVisitor {
   queue_number: number;
   total_price: number;
   created_at: string;
+  payment_method?: string; // TAMBAHAN: Field payment_method
   items: TransactionItem[];
 }
 
@@ -69,6 +71,24 @@ const QueueDisplay: React.FC<QueueDisplayProps> = ({ visitor }) => {
     }, {} as Record<string, { items: TransactionItem[], quantity: number, subtotal: number }>);
   }, [visitor.items]);
 
+  // Label pelokalan untuk panduan pembayaran
+  const paymentInstructionLabel = language === "id" ? "Pilihan Pembayaran Anda" : language === "zh" ? "您的付款方式" : "Your Payment Method";
+  
+  const qrisDesc = language === "id" 
+    ? "Tunjukkan nomor antrian ke kasir dan pindai QR Code yang tersedia di meja resepsionis menggunakan aplikasi M-Banking atau E-Wallet Anda." 
+    : language === "zh" 
+    ? "请向收银员出示此屏幕，并使用您的手机银行或电子钱包扫描接待台上的二维码。" 
+    : "Show this screen to the cashier and scan the QR Code available at the reception desk using your M-Banking or E-Wallet app.";
+
+  const cardDesc = language === "id"
+    ? "Tunjukkan nomor antrian ke kasir dan persiapkan kartu Debit/Kredit fisik Anda untuk proses pembayaran menggunakan mesin EDC kami."
+    : language === "zh"
+    ? "请向收银员出示此屏幕，并准备好您的实体借记卡/信用卡，以便使用我们的 EDC 机器进行付款。"
+    : "Show this screen to the cashier and prepare your physical Debit/Credit card for payment using our EDC machine.";
+
+  // Default fallback ke QRIS jika tidak ada data
+  const isCard = visitor.payment_method === 'card';
+
   return (
     <div className="w-full max-w-md mx-auto bg-[#fcfcfc] rounded-2xl shadow-2xl border border-gray-200 overflow-hidden">
       
@@ -93,7 +113,7 @@ const QueueDisplay: React.FC<QueueDisplayProps> = ({ visitor }) => {
       <div className="p-6 md:p-8 bg-[#fcfcfc]">
         
         {/* Ticket Details Section */}
-        <section className="mb-8">
+        <section className="mb-6">
           <h3 className="text-sm md:text-base font-bold text-black mb-5 border-b border-gray-200 pb-3 uppercase tracking-widest">
             Rincian Tiket
           </h3>
@@ -159,47 +179,53 @@ const QueueDisplay: React.FC<QueueDisplayProps> = ({ visitor }) => {
               </span>
             </div>
 
-          {/* </div> */}
-            {/* Status & Timestamp Section (BARU) */}
-            {/* <div className="mt-6 pt-5 border-t border-gray-200 space-y-3"> */}
-              
-              {/* Waktu Pembuatan (Selalu Ada) */}
-              {/* <div className="flex justify-between items-center text-xs sm:text-sm">
-                <span className="text-gray-500 font-medium tracking-wide">Dibuat pada:</span>
-                <span className="text-gray-800 font-mono">
-                  {new Date(visitor.created_at).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })} WIB
-                </span>
-              </div> */}
-
-              {/* Logika Confirmed At vs Pending */}
-              {/* {visitor.confirmed_at ? (
-                <div className="flex justify-between items-center text-xs sm:text-sm">
-                  <span className="text-gray-500 font-medium tracking-wide">Lunas/Dikonfirmasi:</span>
-                  <span className="text-green-600 font-bold font-mono">
-                    {new Date(visitor.confirmed_at).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })} WIB
-                  </span>
-                </div>
-              ) : (
-                <div className="flex justify-between items-center text-xs sm:text-sm">
-                  <span className="text-gray-500 font-medium tracking-wide">Status Tiket:</span>
-                  <span className="text-[#fb9418] font-bold uppercase tracking-widest bg-orange-50 px-2 py-0.5 rounded border border-orange-200">
-                    Menunggu Pembayaran
-                  </span>
-                </div>
-              )} */}
-
-            </div>
+          </div>
         </section>
 
+        {/* =====================================
+            INFORMASI METODE PEMBAYARAN (BARU)
+            ===================================== */}
+        <div className="mt-8 mb-6">
+          <h4 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-3">
+            {paymentInstructionLabel}
+          </h4>
+          
+          <div className={`p-4 border-2 rounded-xl flex items-start gap-4 ${
+            isCard ? "border-gray-800 bg-gray-50" : "border-green-600 bg-green-50"
+          }`}>
+            
+            {/* Ikon Visual (Kartu atau QRIS) */}
+            <div className={`shrink-0 mt-0.5 p-2 rounded-lg ${
+              isCard ? "bg-gray-800 text-white" : "bg-green-600 text-white"
+            }`}>
+              {isCard ? (
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"></path></svg>
+              ) : (
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
+              )}
+            </div>
+
+            {/* Teks Instruksi */}
+            <div>
+              <p className="font-extrabold text-black uppercase tracking-wider mb-1">
+                {isCard ? (language === "id" ? "KARTU KREDIT/DEBIT" : "CREDIT/DEBIT CARD") : "QRIS"}
+              </p>
+              <p className="text-sm text-gray-700 leading-relaxed font-medium">
+                {isCard ? cardDesc : qrisDesc}
+              </p>
+            </div>
+          </div>
+        </div>
+
         {/* Instructions / Warning (Diselaraskan dengan aksen Oranye) */}
-        <div className="bg-orange-50 border border-orange-200 rounded-xl p-5 flex gap-4 items-start shadow-sm mt-8">
+        {/* <div className="bg-orange-50 border border-orange-200 rounded-xl p-5 flex gap-4 items-start shadow-sm">
           <svg className="w-6 h-6 text-[#fb9418] shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
           <p className="text-sm text-black leading-relaxed font-medium">
             {translations.queueInstruction[language]}
           </p>
-        </div>
+        </div> */}
 
       </div>
     </div>

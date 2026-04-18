@@ -3,6 +3,8 @@
  * ----------------------------------------------------
  * Main form component for museum visitor data input.
  * Updated to match Galeria Sophilia Visual Identity.
+ * Update: Urutan kategori usia (Dewasa -> Remaja -> Anak) 
+ * & default jumlah pengunjung negara menjadi 0.
  */
 
 import React, { useEffect, useMemo, useState } from "react";
@@ -156,7 +158,6 @@ const VisitorForm: React.FC = () => {
   });
 
   const [countryVisitors, setCountryVisitors] = useState<CountryVisitor[]>([]);
-  // TAMBAHAN: State untuk metode pembayaran
   const [paymentMethod, setPaymentMethod] = useState<string>("qris");
   
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -170,7 +171,8 @@ const VisitorForm: React.FC = () => {
 
     if (countryVisitors.length === 0) {
       setCountryVisitors([
-        { countryCode: getDefaultCountryByLanguage(language), count: 1 },
+        // UBAHAN: Nilai default count diubah dari 1 menjadi 0
+        { countryCode: getDefaultCountryByLanguage(language), count: 0 },
       ]);
     }
   }, [language, navigate, selectedFloors.length]);
@@ -206,7 +208,8 @@ const VisitorForm: React.FC = () => {
   };
 
   const handleAddCountry = () => {
-    setCountryVisitors((prev) => [...prev, { countryCode: "id", count: 1 }]);
+    // UBAHAN: Saat tambah negara, default inputnya adalah 0
+    setCountryVisitors((prev) => [...prev, { countryCode: "id", count: 0 }]);
   };
 
   const handleUpdateCountry = (
@@ -256,7 +259,6 @@ const VisitorForm: React.FC = () => {
         if (pureCounts.child > 0) items.push({ floor, age_category: 'child', quantity: pureCounts.child });
       });
 
-      // TAMBAHAN: Masukkan payment_method ke dalam payload
       const payload = {
         items,
         origins: countryVisitors.map((c) => ({
@@ -298,7 +300,6 @@ const VisitorForm: React.FC = () => {
     }
   };
 
-  // Label pelokalan sederhana untuk Metode Pembayaran
   const paymentMethodLabel = language === "id" ? "Metode Pembayaran" : language === "zh" ? "支付方式" : "Payment Method";
   const cardLabel = language === "id" ? "Kartu Kredit/Debit" : language === "zh" ? "信用卡/借记卡" : "Credit/Debit Card";
 
@@ -313,12 +314,12 @@ const VisitorForm: React.FC = () => {
         </p>
       </header>
 
-      {/* Age Category Inputs */}
+      {/* Age Category Inputs - URUTAN BARU: Dewasa -> Remaja -> Anak */}
       <CounterInput
-        label={translations.childLabel[language]}
-        price={aggregatePrices.child}
-        value={counts.child}
-        onChange={(v) => updateCount("child", v)}
+        label={translations.adultLabel[language]}
+        price={aggregatePrices.adult}
+        value={counts.adult}
+        onChange={(v) => updateCount("adult", v)}
       />
       <CounterInput
         label={translations.teenLabel[language]}
@@ -327,10 +328,10 @@ const VisitorForm: React.FC = () => {
         onChange={(v) => updateCount("student", v)}
       />
       <CounterInput
-        label={translations.adultLabel[language]}
-        price={aggregatePrices.adult}
-        value={counts.adult}
-        onChange={(v) => updateCount("adult", v)}
+        label={translations.childLabel[language]}
+        price={aggregatePrices.child}
+        value={counts.child}
+        onChange={(v) => updateCount("child", v)}
       />
 
       {/* Multi-Country Input Section */}
@@ -372,7 +373,7 @@ const VisitorForm: React.FC = () => {
 
               <input
                 type="number"
-                min={1}
+                min={0} // Memastikan nilai bisa dimulai dari 0
                 value={country.count}
                 onChange={(e) => handleUpdateCountry(index, "count", e.target.value)}
                 onFocus={(e) => e.target.select()}
@@ -410,7 +411,7 @@ const VisitorForm: React.FC = () => {
         </button>
       </div>
 
-      {/* TAMBAHAN: Payment Method Selection */}
+      {/* Payment Method Selection */}
       <div className="mb-6 p-5 border border-gray-200 rounded-xl bg-[#fcfcfc] shadow-sm">
         <label className="block font-bold text-black mb-4">
           {paymentMethodLabel}

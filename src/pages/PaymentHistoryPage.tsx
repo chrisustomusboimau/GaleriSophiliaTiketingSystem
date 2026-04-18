@@ -3,7 +3,7 @@
  * ----------------------------------------------------
  * Main page integrating the PaymentHistoryComponent.
  * Diperbarui dengan identitas visual Galeria Sophilia (Putih/Hitam/Oranye).
- * FIX: Logika pemanggilan API dikembalikan untuk menghindari error 422 UUID.
+ * FIX: Menambahkan kolom Metode Pembayaran & menghapus "WIB" dari Excel.
  */
 
 import React, { useEffect, useState, useCallback, useMemo } from "react";
@@ -185,15 +185,17 @@ const PaymentHistoryPage: React.FC = () => {
       const workbook = new ExcelJS.Workbook();
       const worksheet = workbook.addWorksheet("Riwayat Transaksi");
 
+      // TAMBAHAN: Kolom Metode Pembayaran
       worksheet.columns = [
         { header: "No. Antrian", key: "queue_number", width: 15 },
         { header: "ID Transaksi", key: "id", width: 40 },
         { header: "Tanggal", key: "date", width: 20 },
-        { header: "Waktu Konfirmasi", key: "time", width: 25 },
+        { header: "Waktu Konfirmasi", key: "time", width: 20 }, // Lebar dikurangi sedikit
         { header: "Lantai yang Dipilih", key: "floors", width: 30 },
         { header: "Anak (Orang)", key: "child", width: 15 },
         { header: "Remaja (Orang)", key: "student", width: 18 },
         { header: "Dewasa (Orang)", key: "adult", width: 18 },
+        { header: "Metode Pembayaran", key: "payment_method", width: 20 }, // <-- KOLOM BARU
         { header: "Total Tagihan", key: "total_price", width: 25 },
         { header: "Status", key: "status", width: 15 },
       ];
@@ -223,7 +225,8 @@ const PaymentHistoryPage: React.FC = () => {
         let timeStr = "-";
         if (tx.confirmed_at) {
           const confDate = new Date(tx.confirmed_at);
-          timeStr = `${confDate.getHours().toString().padStart(2, "0")}:${confDate.getMinutes().toString().padStart(2, "0")} WIB`;
+          // HAPUS: " WIB" dihapus sesuai permintaan
+          timeStr = `${confDate.getHours().toString().padStart(2, "0")}:${confDate.getMinutes().toString().padStart(2, "0")}`;
         } else {
             timeStr = "Menunggu";
         }
@@ -243,6 +246,12 @@ const PaymentHistoryPage: React.FC = () => {
 
         const uniqueFloors = Array.from(new Set(tx.items.map(i => i.floor))).sort().join(", ");
 
+        // TAMBAHAN: Logika Metode Pembayaran
+        let pmStr = "-";
+        if (tx.payment_method === "card") pmStr = "KARTU";
+        else if (tx.payment_method === "qris") pmStr = "QRIS";
+        else if (tx.payment_method) pmStr = tx.payment_method.toUpperCase();
+
         const row = worksheet.addRow({
           queue_number: tx.queue_number,
           id: tx.id,
@@ -252,6 +261,7 @@ const PaymentHistoryPage: React.FC = () => {
           child: uniqueCounts.child,
           student: uniqueCounts.student,
           adult: uniqueCounts.adult,
+          payment_method: pmStr, // <-- DATA BARU
           total_price: tx.total_price,
           status: statusMap[tx.status] || tx.status,
         });

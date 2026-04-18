@@ -9,6 +9,7 @@ import AdminPage from "./pages/AdminPage";
 import LoginPage from "./pages/LoginPage";
 import PaymentHistoryPage from "./pages/PaymentHistoryPage"; 
 import ProtectedRoute from "./components/ProtectedRoute";
+import GalleryInfoPage from './pages/GalleryInfoPage';
 
 /**
  * Root application component.
@@ -34,6 +35,7 @@ export function App() {
           <Routes>
             {/* Public routes */}
             <Route path="/" element={<ScanPage />} />
+            <Route path="/info" element={<GalleryInfoPage />} />
             <Route path="/ticket-selection" element={<TicketSelectionPage />} /> {/* <-- ADDED */}
             <Route path="/visitor-form" element={<VisitorFormPage />} />         {/* <-- UPDATED */}
             <Route path="/queue/:id" element={<QueuePage />} />

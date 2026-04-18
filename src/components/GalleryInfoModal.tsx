@@ -1,8 +1,11 @@
-import React, { useEffect, useState } from 'react';
+/**
+ * GalleryInfoModal.tsx
+ * ----------------------------------------------------
+ * Modal informasi eksibisi untuk pengunjung.
+ * Diperbarui dengan informasi ringkas tanpa gambar.
+ */
 
-// Import gambar placeholder
-// Sesuaikan path '../assets/Sophilia.jpg' dengan struktur folder Anda.
-import sophiliaImg from '../assets/Sophilia.jpg';
+import React, { useEffect, useState } from 'react';
 
 interface GalleryInfoModalProps {
   isOpen: boolean;
@@ -41,7 +44,7 @@ const GalleryInfoModal: React.FC<GalleryInfoModalProps> = ({ isOpen, onClose }) 
         {/* Header Lengket (Sticky) */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 shrink-0 bg-[#fcfcfc]/90 backdrop-blur">
           <h2 className="text-xl sm:text-2xl font-bold text-black tracking-wide uppercase">
-            Panduan Eksibisi Galeri
+            GALERIA SOPHILIA
           </h2>
           <button 
             onClick={onClose}
@@ -55,90 +58,67 @@ const GalleryInfoModal: React.FC<GalleryInfoModalProps> = ({ isOpen, onClose }) 
         </div>
 
         {/* Konten Scrollable */}
-        <div className="p-6 overflow-y-auto space-y-10 text-gray-700 custom-scrollbar">
+        <div className="p-6 overflow-y-auto space-y-8 text-gray-700 custom-scrollbar text-center">
           
-          {/* Lantai 1 */}
-          <section>
-            <h3 className="text-lg font-bold text-[#fb9418] uppercase tracking-widest mb-4 border-l-4 border-[#fb9418] pl-3">
-              Lantai 1
-            </h3>
-            {/* Placeholder Gambar */}
-            <div className="w-full h-48 sm:h-56 mb-5 rounded-xl overflow-hidden bg-black shadow-sm">
-              <img 
-                src={sophiliaImg} 
-                alt="Eksibisi Lantai 1" 
-                className="w-full h-full object-cover hover:scale-105 transition-transform duration-700 opacity-90 hover:opacity-100"
-              />
-            </div>
-            <div className="space-y-3 text-sm sm:text-base leading-relaxed">
-              <p>
-                Menampilkan koleksi kurasi istimewa berupa patung marmer dan perunggu—koleksi paling lengkap dan pertama di Indonesia.
-              </p>
-              <p>
-                Setiap karya menghadirkan kesempatan langka untuk menyaksikan mahakarya yang terinspirasi dari museum-museum terbesar di dunia, menghadirkan pengalaman seni yang megah dan berkelas.
-              </p>
-              <p className="italic font-medium text-gray-500">
-                Dengan hangat kami mengundang Anda untuk menikmati perjalanan seni ini.
-              </p>
-            </div>
-          </section>
+          {/* Bagian Pembuka */}
+          <div className="space-y-2 text-sm sm:text-base leading-relaxed">
+            <p className="font-bold text-black text-lg">
+              Galeria Sophilia dibuka selama 3 jam.
+            </p>
+            <p>Temukan pengalaman budaya inspiratif:</p>
+            <p className="text-gray-500 italic text-sm">
+              Silakan lihat informasi detail pada banner kami.
+            </p>
+          </div>
 
-          {/* Lantai 5 */}
-          <section>
-            <h3 className="text-lg font-bold text-[#fb9418] uppercase tracking-widest mb-4 border-l-4 border-[#fb9418] pl-3">
-              Lantai 5
-            </h3>
-            {/* Placeholder Gambar */}
-            <div className="w-full h-48 sm:h-56 mb-5 rounded-xl overflow-hidden bg-black shadow-sm">
-              <img 
-                src={sophiliaImg} 
-                alt="Eksibisi Lantai 5" 
-                className="w-full h-full object-cover hover:scale-105 transition-transform duration-700 opacity-90 hover:opacity-100"
-              />
-            </div>
-            <div className="space-y-3 text-sm sm:text-base leading-relaxed">
-              <p>
-                Galeria Sophilia dengan bangga mempersembahkan perjalanan luar biasa menuju masa keemasan <strong>Dinasti Tang</strong>—era ketika Tiongkok mencapai puncak kejayaan sebagai salah satu peradaban paling makmur dan berpengaruh di dunia.
+          {/* Daftar Lantai */}
+          <div className="space-y-4">
+            
+            {/* Lantai 1 */}
+            <section className="bg-white border border-gray-200 p-5 rounded-xl shadow-sm hover:shadow-md transition-shadow">
+              <h3 className="text-sm font-bold text-[#fb9418] uppercase tracking-widest mb-2">
+                Lantai 1
+              </h3>
+              <p className="text-base sm:text-lg font-bold text-black">
+                Karya Seni Patung Barat
               </p>
-              <p>
-                Masuki dunia <em className="text-black font-medium">Tang Sancai</em> (keramik tiga warna), karya seni berusia lebih dari 1.300 tahun yang menggambarkan manusia, hewan, dan berbagai objek kehidupan yang dahulu melintasi jalur perdagangan legendaris Jalur Sutra, menghubungkan Tiongkok hingga Eropa.
-              </p>
-              <p>
-                Rasakan jejak pertukaran budaya dan spiritual yang membentuk peradaban dunia, serta hayati warisan budaya Dinasti Tang yang abadi.
-              </p>
-            </div>
-          </section>
+            </section>
 
-          {/* Lantai 6 & 7 */}
-          <section>
-            <h3 className="text-lg font-bold text-[#fb9418] uppercase tracking-widest mb-4 border-l-4 border-[#fb9418] pl-3">
-              Lantai 6 & 7
-            </h3>
-            {/* Placeholder Gambar */}
-            <div className="w-full h-48 sm:h-56 mb-5 rounded-xl overflow-hidden bg-black shadow-sm">
-              <img 
-                src={sophiliaImg} 
-                alt="Eksibisi Lantai 6 dan 7" 
-                className="w-full h-full object-cover hover:scale-105 transition-transform duration-700 opacity-90 hover:opacity-100"
-              />
-            </div>
-            <div className="space-y-3 text-sm sm:text-base leading-relaxed">
-              <p>
-                Lantai ini menghadirkan perjalanan melintasi dua warisan budaya besar dunia, dengan koleksi seni Eropa dan Tiongkok yang saling melengkapi.
+            {/* Lantai 5 */}
+            <section className="bg-white border border-gray-200 p-5 rounded-xl shadow-sm hover:shadow-md transition-shadow">
+              <h3 className="text-sm font-bold text-[#fb9418] uppercase tracking-widest mb-2">
+                Lantai 5
+              </h3>
+              <p className="text-base sm:text-lg font-bold text-black leading-snug">
+                Keramik Tiga Warna Dinasti Tang, <br className="hidden sm:block" />
+                Peninggalan Budaya Jalur Sutra
               </p>
-              <p>
-                Di <strong>Lantai 6</strong>, Anda akan menemukan beragam lukisan dan patung klasik Eropa yang mencerminkan kejayaan seni Barat dari berbagai periode sejarah. Setiap karya menampilkan keindahan teknik, detail, dan ekspresi artistik yang menjadi ciri khas peradaban Eropa.
+            </section>
+
+            {/* Lantai 6 & 7 */}
+            <section className="bg-white border border-gray-200 p-5 rounded-xl shadow-sm hover:shadow-md transition-shadow">
+              <h3 className="text-sm font-bold text-[#fb9418] uppercase tracking-widest mb-2">
+                Lantai 6–7
+              </h3>
+              <p className="text-base sm:text-lg font-bold text-black">
+                Karya Seni Rupa Barat dan Barang Bersejarah Asia Timur
               </p>
-              <p>
-                Sementara itu, di <strong>Lantai 7</strong>, tersaji koleksi barang antik Tiongkok yang kaya nilai sejarah dan budaya. Artefak-artefak ini merepresentasikan kehidupan, tradisi, serta filosofi masyarakat Tiongkok kuno, menghadirkan wawasan mendalam tentang warisan peradaban Timur.
-              </p>
-              
-              {/* Highlight Box dengan aksen Oranye */}
-              <p className="font-bold text-black mt-6 bg-orange-50 p-5 rounded-xl border border-orange-200 shadow-sm">
-                Kombinasi keduanya menciptakan dialog budaya yang harmonis antara Timur dan Barat dalam satu pengalaman yang utuh dan berkesan.
-              </p>
-            </div>
-          </section>
+            </section>
+
+          </div>
+
+          {/* Bagian Penutup (Call to Action) */}
+          <div className="bg-orange-50 border border-orange-200 p-6 rounded-xl shadow-sm space-y-1 text-sm sm:text-base">
+            <p className="font-extrabold text-black uppercase tracking-wide mb-2">
+              Silakan pilih tiket Anda
+            </p>
+            <p className="text-black">
+              untuk satu, dua, atau semua sekaligus
+            </p>
+            <p className="text-[#fb9418] font-bold">
+              dan rasakan perjalanan budaya yang berharga.
+            </p>
+          </div>
 
         </div>
       </div>

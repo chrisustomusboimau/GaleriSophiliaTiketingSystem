@@ -14,7 +14,7 @@ const LanguageSelector: React.FC = () => {
   const navigate = useNavigate();
 
   const handleContinue = () => {
-    navigate("/ticket-selection"); 
+    navigate("/info"); 
   };
 
   return (
