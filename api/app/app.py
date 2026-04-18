@@ -10,7 +10,11 @@ from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
+import sys
+import os
+sys.path.insert(0, os.path.dirname(__file__))
 
+from app.app import app  # Vercel akan detect variabel 'app' ini
 from app.schema import (
     UserCreate, UserRead, UserUpdate, 
     TransactionCreate, TransactionResponse, TransactionStatusUpdate,
@@ -43,7 +47,7 @@ app = FastAPI(lifespan=lifespan)
 # ==========================================
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"], 
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173","https://galeri-sophilia-tiketing-system-1gf1ftzjw.vercel.app/",], 
     allow_credentials=True,
     allow_methods=["*"], 
     allow_headers=["*"], 
