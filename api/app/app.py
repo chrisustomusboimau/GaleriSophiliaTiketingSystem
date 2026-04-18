@@ -12,9 +12,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 import sys
 import os
-sys.path.insert(0, os.path.dirname(__file__))
 
-from app.app import app  # Vercel akan detect variabel 'app' ini
 from app.schema import (
     UserCreate, UserRead, UserUpdate, 
     TransactionCreate, TransactionResponse, TransactionStatusUpdate,
