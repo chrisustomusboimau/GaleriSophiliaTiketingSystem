@@ -145,8 +145,8 @@ const defaultTranslations = {
     zh: "总价", 
   },
   queueInstruction: {
-    id: "Silakan tunjukkan QR Code atau nomor antrian ini kepada petugas kasir untuk melakukan pembayaran dan mendapatkan tiket masuk fisik Anda.",
-    en: "Please show this QR code or queue number to the cashier to make the payment and receive your physical entrance ticket.", // Please present this QR code or ticket number to the cashier for payment and to collect your physical entrance ticket.
+    id: "Silakan tunjukkan nomor antrian ini kepada petugas kasir untuk melakukan pembayaran dan mendapatkan tiket masuk fisik Anda.",
+    en: "Please present this ticket number to the cashier for payment and to collect your physical entrance ticket.", 
     zh: "请向收银员出示此二维码或排队号码以完成付款并领取实体入场票。",
   },
 

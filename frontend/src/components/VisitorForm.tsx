@@ -40,14 +40,14 @@ const getDefaultCountryByLanguage = (language: "id" | "en" | "zh"): string => {
 ===================================================== */
 
 interface VisitorCounts {
-  child: number | string;   
-  student: number | string; 
-  adult: number | string;   
+  child: number | string;
+  student: number | string;
+  adult: number | string;
 }
 
 interface CountryVisitor {
   countryCode: string;
-  count: number | string; 
+  count: number | string;
 }
 
 interface CounterInputProps {
@@ -93,8 +93,7 @@ const CounterInput: React.FC<CounterInputProps> = ({
           type="button"
           disabled={numericValue <= 0}
           onClick={() => onChange(Math.max(0, numericValue - 1))}
-          // Diperbarui: Aksen Oranye
-          className="w-10 h-10 font-bold text-[#fcfcfc] bg-[#fb9418] border border-orange-200 rounded-full hover:bg-orange-500 transition-colors shadow-sm disabled:border-gray-200 disabled:text-gray-400 disabled:bg-gray-50 transition-colors"
+          className="w-10 h-10 font-bold text-[#fcfcfc] bg-[#fb9418] border border-orange-200 rounded-full hover:bg-orange-500 transition-colors shadow-sm disabled:border-gray-200 disabled:text-gray-400 disabled:bg-gray-50"
           aria-label={`Kurangi ${label}`}
         >
           -
@@ -107,15 +106,19 @@ const CounterInput: React.FC<CounterInputProps> = ({
           min={0}
           value={value}
           onChange={handleInputChange}
-          onFocus={(e) => e.target.select()} 
-          // Diperbarui: Focus ring Oranye
+          onFocus={(e) => e.target.select()}
+          onKeyDown={(e) => { // DITAMBAHKAN
+            if (e.key === "Enter") {
+              e.preventDefault();
+              e.currentTarget.blur();
+            }
+          }}
           className="w-24 py-2 font-bold text-center text-black border border-gray-300 rounded-md focus:ring-2 focus:ring-[#fb9418] focus:border-[#fb9418] outline-none transition-shadow"
         />
 
         <button
           type="button"
           onClick={() => onChange(numericValue + 1)}
-          // Diperbarui: Aksen Oranye Solid
           className="w-10 h-10 font-bold text-[#fcfcfc] bg-[#fb9418] rounded-full hover:bg-orange-500 transition-colors shadow-sm"
           aria-label={`Tambah ${label}`}
         >
@@ -151,7 +154,7 @@ const VisitorForm: React.FC = () => {
     student: 0,
     adult: 0,
   });
-  
+
   const [countryVisitors, setCountryVisitors] = useState<CountryVisitor[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -167,7 +170,7 @@ const VisitorForm: React.FC = () => {
         { countryCode: getDefaultCountryByLanguage(language), count: 1 },
       ]);
     }
-  }, [language, navigate, selectedFloors.length]); 
+  }, [language, navigate, selectedFloors.length]);
 
   const aggregatePrices = useMemo(
     () => calculateAggregatePrices(selectedFloors),
@@ -204,19 +207,19 @@ const VisitorForm: React.FC = () => {
   };
 
   const handleUpdateCountry = (
-      index: number,
-      key: keyof CountryVisitor,
-      value: string | number
-    ) => {
-      setCountryVisitors((prev) =>
-        prev.map((c, i) => {
-          if (i !== index) return c;
-          if (key === "countryCode") return { ...c, countryCode: value as string };
-          if (key === "count") return { ...c, count: value === "" ? "" : Math.max(0, parseInt(value as string) || 0) };
-          return c;
-        })
-      );
-    };
+    index: number,
+    key: keyof CountryVisitor,
+    value: string | number
+  ) => {
+    setCountryVisitors((prev) =>
+      prev.map((c, i) => {
+        if (i !== index) return c;
+        if (key === "countryCode") return { ...c, countryCode: value as string };
+        if (key === "count") return { ...c, count: value === "" ? "" : Math.max(0, parseInt(value as string) || 0) };
+        return c;
+      })
+    );
+  };
 
   const handleRemoveCountry = (index: number) => {
     setCountryVisitors((prev) => prev.filter((_, i) => i !== index));
@@ -243,7 +246,7 @@ const VisitorForm: React.FC = () => {
     try {
       setIsSubmitting(true);
       const items: { floor: string; age_category: string; quantity: number }[] = [];
-      
+
       selectedFloors.forEach(floor => {
         if (pureCounts.adult > 0) items.push({ floor, age_category: 'adult', quantity: pureCounts.adult });
         if (pureCounts.student > 0) items.push({ floor, age_category: 'student', quantity: pureCounts.student });
@@ -254,7 +257,7 @@ const VisitorForm: React.FC = () => {
         items,
         origins: countryVisitors.map((c) => ({
           country_code: c.countryCode,
-          count: Number(c.count) || 0, 
+          count: Number(c.count) || 0,
         })),
       };
 
@@ -323,15 +326,15 @@ const VisitorForm: React.FC = () => {
 
       {/* Multi-Country Input Section */}
       <div className="mb-8 p-5 border border-gray-200 rounded-xl bg-[#fcfcfc] shadow-sm">
-        
+
         {/* HEADER NEGARA & INDIKATOR SINKRONISASI */}
         <div className="flex justify-between items-center mb-5 border-b border-gray-200 pb-3">
           <label className="block font-bold text-black">
             {translations.countryOrigin[language]}
           </label>
           <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${
-            totalVisitors !== totalFromCountries 
-              ? 'bg-red-50 text-red-600 border border-red-200' 
+            totalVisitors !== totalFromCountries
+              ? 'bg-red-50 text-red-600 border border-red-200'
               : 'bg-green-50 text-green-700 border border-green-200'
           }`}>
             {totalFromCountries} / {totalVisitors} {translations.people[language]}
@@ -344,7 +347,12 @@ const VisitorForm: React.FC = () => {
               <select
                 value={country.countryCode}
                 onChange={(e) => handleUpdateCountry(index, "countryCode", e.target.value)}
-                // Diperbarui: Focus ring Oranye
+                onKeyDown={(e) => { // DITAMBAHKAN
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    e.currentTarget.blur();
+                  }
+                }}
                 className="flex-[3] min-w-0 p-3 bg-white border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#fb9418] focus:border-[#fb9418] text-sm md:text-base truncate transition-shadow"
               >
                 {COUNTRIES.map((c) => (
@@ -360,7 +368,12 @@ const VisitorForm: React.FC = () => {
                 value={country.count}
                 onChange={(e) => handleUpdateCountry(index, "count", e.target.value)}
                 onFocus={(e) => e.target.select()}
-                // Diperbarui: Focus ring Oranye
+                onKeyDown={(e) => { // DIPERBARUI: ditambah blur()
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    e.currentTarget.blur();
+                  }
+                }}
                 className="flex-1 min-w-0 p-3 text-center border border-gray-300 rounded-md focus:ring-2 focus:ring-[#fb9418] focus:border-[#fb9418] outline-none bg-white font-bold transition-shadow"
               />
 
@@ -383,7 +396,6 @@ const VisitorForm: React.FC = () => {
         <button
           type="button"
           onClick={handleAddCountry}
-          // Diperbarui: Teks Oranye
           className="mt-5 font-bold text-[#fb9418] hover:text-orange-600 transition-colors flex items-center gap-1.5"
         >
           <span className="text-xl leading-none">+</span> {translations.addCountry[language]}
@@ -400,7 +412,6 @@ const VisitorForm: React.FC = () => {
         </div>
         <div className="flex justify-between items-end mt-4 pt-4 border-t border-gray-200">
           <span className="text-gray-800 font-bold">{translations.totalPrice[language]}</span>
-          {/* Diperbarui: Highlight Harga Oranye */}
           <span className="font-black text-2xl text-[#fb9418]">
             {formatCurrency(totalPrice)}
           </span>
@@ -410,7 +421,7 @@ const VisitorForm: React.FC = () => {
       {/* Error Display */}
       {error && (
         <div className="mb-6 p-4 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg flex items-start gap-3">
-           <svg className="w-5 h-5 text-red-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+          <svg className="w-5 h-5 text-red-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
           <span className="font-medium">{error}</span>
         </div>
       )}
@@ -419,7 +430,6 @@ const VisitorForm: React.FC = () => {
       <button
         type="submit"
         disabled={isSubmitting}
-        // Diperbarui: Tombol Oranye Solid
         className={`w-full py-4 font-bold text-[#fcfcfc] rounded-xl transition-all duration-200 shadow-md flex justify-center items-center ${
           isSubmitting
             ? "bg-gray-400 cursor-not-allowed shadow-none"
