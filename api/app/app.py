@@ -6,12 +6,10 @@ from contextlib import asynccontextmanager
 from sqlalchemy import select, func, delete 
 import uuid
 from typing import List, Optional
-from pydantic import BaseModel 
 from sqlalchemy.exc import IntegrityError
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
-import sys
-import os
+
 
 from app.schema import (
     UserCreate, UserRead, UserUpdate, 

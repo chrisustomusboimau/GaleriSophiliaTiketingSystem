@@ -5,7 +5,7 @@
  * [2] useEffect added: redirects already-logged-in users to /admin
  * [3] navigate('/admin') called after token is stored
  */
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom'; // [1] ACTIVATED
 import LoginForm from '../components/LoginForm';
 import loginImg from '../assets/login.jpg';
