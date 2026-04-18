@@ -3,6 +3,7 @@
  * ----------------------------------------------------
  * Reusable table component to display a list of transactions.
  * Diperbarui dengan warna Galeria Sophilia (Hitam/Oranye) dan dukungan confirmed_at.
+ * Update: Menambahkan kolom Jenis Pembayaran (QRIS/Kartu) yang visual.
  */
 
 import React from "react";
@@ -28,9 +29,10 @@ export interface Transaction {
   id: string;
   queue_number: number;
   created_at: string;
-  confirmed_at: string | null; // <-- DITAMBAHKAN
+  confirmed_at: string | null; 
   total_price: number;
-  status: "pending" | "paid" | "cancelled" | "confirmed"; // Diselaraskan dengan API
+  status: "pending" | "paid" | "cancelled" | "confirmed"; 
+  payment_method: string; // <-- DITAMBAHKAN: Field jenis pembayaran
   items: TransactionItem[]; 
   origins?: TransactionOrigin[]; 
 }
@@ -97,7 +99,9 @@ const PaymentHistoryComponent: React.FC<PaymentHistoryComponentProps> = ({
               <th className="p-4 whitespace-nowrap">Waktu Transaksi</th>
               <th className="p-4 whitespace-nowrap">Kategori Usia</th> 
               <th className="p-4 whitespace-nowrap">Asal Negara</th>
-              <th className="p-4 whitespace-nowrap">Lantai</th>        
+              <th className="p-4 whitespace-nowrap">Lantai</th>    
+              {/* TAMBAHAN KOLOM PEMBAYARAN */}    
+              <th className="p-4 whitespace-nowrap">Pembayaran</th>
               <th className="p-4 whitespace-nowrap">Total</th>
               <th className="p-4 text-center whitespace-nowrap">Status</th>
               <th className="p-4 rounded-tr-lg text-center whitespace-nowrap">Aksi</th>
@@ -211,16 +215,33 @@ const PaymentHistoryComponent: React.FC<PaymentHistoryComponentProps> = ({
                       )}
                     </div>
                   </td>
+
+                  {/* KOLOM BARU: JENIS PEMBAYARAN */}
+                  <td className="p-4 align-top">
+                    <div className="">
+                      {tx.payment_method === "card" ? (
+                        <span className="inline-flex items-center gap-1.5 text-[10px] font-bold px-2.5 py-1.5 bg-gray-800 text-white border border-gray-700 rounded-md uppercase tracking-wider shadow-sm">
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"></path></svg>
+                          KARTU
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1.5 text-[10px] font-bold px-2.5 py-1.5 bg-green-50 text-green-700 border border-green-200 rounded-md uppercase tracking-wider shadow-sm">
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
+                          QRIS
+                        </span>
+                      )}
+                    </div>
+                  </td>
                   
                   {/* KOLOM: TOTAL */}
-                  <td className="p-4 text-base font-black text-black align-top">
+                  <td className="p-4 text-base font-black text-black align-top whitespace-nowrap">
                     {formatCurrency(tx.total_price)}
                   </td>
                   
                   {/* KOLOM: STATUS */}
                   <td className="p-4 text-center align-top">
                     <span
-                      className={`inline-flex items-center px-3 py-1 rounded-md text-[11px] font-extrabold shadow-sm uppercase tracking-wider ${
+                      className={`inline-flex items-center px-3 py-1 rounded-md text-[11px] font-extrabold shadow-sm uppercase tracking-wider mt-1 ${
                         tx.status === "paid" || tx.status === "confirmed"
                           ? "bg-green-100 text-green-700 border border-green-200"
                           : tx.status === "pending"
@@ -237,7 +258,7 @@ const PaymentHistoryComponent: React.FC<PaymentHistoryComponentProps> = ({
                     <button
                       onClick={() => onEditClick(tx)}
                       // Menggunakan aksen oranye saat hover
-                      className="text-xs font-bold text-gray-500 hover:text-[#fcfcfc] hover:bg-black px-3 py-1.5 rounded-lg border border-gray-300 hover:border-black transition-all focus:outline-none focus:ring-2 focus:ring-black"
+                      className="mt-0.5 text-xs font-bold text-gray-500 hover:text-[#fcfcfc] hover:bg-black px-3 py-1.5 rounded-lg border border-gray-300 hover:border-black transition-all focus:outline-none focus:ring-2 focus:ring-black"
                     >
                       Edit
                     </button>

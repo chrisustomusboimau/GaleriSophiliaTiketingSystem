@@ -4,7 +4,7 @@
  * Komponen modal (popup) untuk mengedit, mengubah status,
  * dan menghapus transaksi tiket pengunjung.
  * Diperbarui dengan identitas visual Galeria Sophilia untuk Admin.
- * FIX: Perbaikan permanen input manual pada kolom "Asal Negara".
+ * Update: Penambahan fitur untuk mengedit Metode Pembayaran.
  */
 
 import React, { useState, useEffect, useMemo } from "react";
@@ -31,6 +31,7 @@ export interface TransactionData {
   id: string;
   queue_number: number;
   status: "pending" | "paid" | "cancelled" | "confirmed" | string;
+  payment_method?: string; // TAMBAHAN: Opsional karena mungkin data lama belum ada
   total_price: number;
   items: TransactionItem[];
   origins?: TransactionOrigin[]; 
@@ -40,7 +41,7 @@ interface EditTransactionModalProps {
   isOpen: boolean;
   onClose: () => void;
   transaction: TransactionData | null;
-  onSave: (id: string, updatedData: { items?: TransactionItem[]; origins?: TransactionOrigin[]; status?: string }) => Promise<void>;
+  onSave: (id: string, updatedData: { items?: TransactionItem[]; origins?: TransactionOrigin[]; status?: string; payment_method?: string }) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
 }
 
@@ -82,6 +83,9 @@ const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
   ]);
 
   const [editedStatus, setEditedStatus] = useState<string>("pending");
+  // TAMBAHAN: State untuk metode pembayaran
+  const [editedPaymentMethod, setEditedPaymentMethod] = useState<string>("qris");
+  
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -114,6 +118,10 @@ const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
       }
 
       setEditedStatus(transaction.status);
+      
+      // TAMBAHAN: Ambil nilai metode pembayaran dari data transaksi (default ke qris jika tidak ada)
+      setEditedPaymentMethod(transaction.payment_method || "qris");
+      
       setError(null);
     }
   }, [transaction, isOpen]);
@@ -134,7 +142,6 @@ const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
     return pureCounts.adult + pureCounts.student + pureCounts.child;
   }, [pureCounts]);
 
-  // KALKULASI AMAN: Memastikan string diproses dengan benar menjadi angka untuk dijumlahkan
   const totalFromCountries = useMemo(() => {
     return countryVisitors.reduce((sum, c) => {
       const val = parseInt(c.count as string, 10);
@@ -165,16 +172,14 @@ const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
     }));
   };
 
-  // --- Input Handlers: Negara (PERBAIKAN UTAMA) ---
   const handleAddCountry = () => {
-    setCountryVisitors((prev) => [...prev, { countryCode: "id", count: "" }]); // Set empty agar langsung bisa diketik
+    setCountryVisitors((prev) => [...prev, { countryCode: "id", count: "" }]); 
   };
 
   const handleUpdateCountry = (index: number, key: keyof CountryVisitorState, value: string) => {
     setCountryVisitors((prev) =>
       prev.map((c, i) => {
         if (i !== index) return c;
-        // Simpan persis apa yang diketik user (tanpa parseInt) agar input box tidak macet saat diketik
         return { ...c, [key]: value };
       })
     );
@@ -211,7 +216,6 @@ const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
       if (pureCounts.child > 0) payloadItems.push({ floor, age_category: 'child', quantity: pureCounts.child, unit_price: 0 });
     });
 
-    // Validasi akhir sebelum dikirim ke backend: Pastikan nilai kosong/string yang tidak valid jadi 0
     const payloadOrigins: TransactionOrigin[] = countryVisitors.map((c) => ({
       country_code: c.countryCode,
       count: Math.max(0, parseInt(c.count as string, 10) || 0),
@@ -224,6 +228,7 @@ const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
         items: payloadItems, 
         origins: payloadOrigins,
         status: editedStatus,
+        payment_method: editedPaymentMethod // TAMBAHAN: Kirimkan metode pembayaran
       });
       onClose();
     } catch (err: any) {
@@ -276,18 +281,57 @@ const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
             </div>
           )}
 
-          {/* 1. STATUS DROPDOWN */}
-          <div className="mb-6">
-            <label className="block text-sm font-extrabold text-black uppercase tracking-wide mb-2">Status Pembayaran</label>
-            <select
-              value={editedStatus}
-              onChange={(e) => setEditedStatus(e.target.value)}
-              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#fb9418] focus:border-[#fb9418] outline-none bg-white font-bold text-gray-800 shadow-sm cursor-pointer"
-            >
-              <option value="pending">🟡 Menunggu (Pending)</option>
-              <option value="confirmed">🟢 Dikonfirmasi (Confirmed)</option>
-              <option value="cancelled">🔴 Batal (Cancelled)</option>
-            </select>
+          {/* 1. STATUS & METODE PEMBAYARAN (Baris atas) */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+            <div>
+              <label className="block text-[11px] font-extrabold text-gray-500 uppercase tracking-wider mb-2">Status Pembayaran</label>
+              <select
+                value={editedStatus}
+                onChange={(e) => setEditedStatus(e.target.value)}
+                disabled={isSaving}
+                className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#fb9418] focus:border-[#fb9418] outline-none bg-white font-bold text-gray-800 shadow-sm cursor-pointer text-sm"
+              >
+                <option value="pending">🟡 Pending</option>
+                <option value="confirmed">🟢 Confirmed</option>
+                <option value="cancelled">🔴 Cancelled</option>
+              </select>
+            </div>
+            
+            {/* TAMBAHAN: Pilihan Edit Metode Pembayaran */}
+            <div>
+              <label className="block text-[11px] font-extrabold text-gray-500 uppercase tracking-wider mb-2">Metode Pembayaran</label>
+              <div className="flex border border-gray-300 rounded-lg overflow-hidden shadow-sm h-[42px] bg-white">
+                <label className={`flex-1 flex items-center justify-center text-xs font-bold cursor-pointer transition-colors ${
+                  editedPaymentMethod === 'qris' ? 'bg-[#fb9418] text-white' : 'text-gray-600 hover:bg-gray-50'
+                }`}>
+                  <input 
+                    type="radio" 
+                    name="editPaymentMethod" 
+                    value="qris" 
+                    checked={editedPaymentMethod === 'qris'} 
+                    onChange={(e) => setEditedPaymentMethod(e.target.value)} 
+                    className="hidden" 
+                    disabled={isSaving}
+                  />
+                  QRIS
+                </label>
+                <div className="w-[1px] bg-gray-200"></div>
+                <label className={`flex-1 flex items-center justify-center text-xs font-bold cursor-pointer transition-colors ${
+                  editedPaymentMethod === 'card' ? 'bg-black text-white' : 'text-gray-600 hover:bg-gray-50'
+                }`}>
+                  <input 
+                    type="radio" 
+                    name="editPaymentMethod" 
+                    value="card" 
+                    checked={editedPaymentMethod === 'card'} 
+                    onChange={(e) => setEditedPaymentMethod(e.target.value)} 
+                    className="hidden"
+                    disabled={isSaving}
+                  />
+                  KARTU
+                </label>
+              </div>
+            </div>
           </div>
 
           <hr className="mb-6 border-gray-200" />
@@ -323,7 +367,6 @@ const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
             <label className="block text-sm font-extrabold text-black uppercase tracking-wide mb-3">Kategori Usia</label>
             <div className="space-y-3">
               
-              {/* Dewasa */}
               <div className="flex justify-between items-center bg-white p-3 rounded-lg border border-gray-200 shadow-sm">
                 <label className="text-sm font-bold text-gray-700">Dewasa (22+ thn)</label>
                 <div className="flex items-center bg-white border border-gray-300 rounded-md overflow-hidden shadow-sm">
@@ -333,7 +376,6 @@ const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
                 </div>
               </div>
 
-              {/* Remaja */}
               <div className="flex justify-between items-center bg-white p-3 rounded-lg border border-gray-200 shadow-sm">
                 <label className="text-sm font-bold text-gray-700">Remaja ({'<'} 22 thn)</label>
                 <div className="flex items-center bg-white border border-gray-300 rounded-md overflow-hidden shadow-sm">
@@ -343,7 +385,6 @@ const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
                 </div>
               </div>
 
-              {/* Anak */}
               <div className="flex justify-between items-center bg-white p-3 rounded-lg border border-gray-200 shadow-sm">
                 <label className="text-sm font-bold text-gray-700">Anak ({'<'} 8 thn)</label>
                 <div className="flex items-center bg-white border border-gray-300 rounded-md overflow-hidden shadow-sm">
@@ -440,7 +481,6 @@ const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
               <button onClick={onClose} disabled={isSaving || isDeleting} className="px-5 py-3 border border-gray-300 bg-white text-gray-700 hover:bg-gray-100 hover:text-black font-bold rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-gray-200">
                 Batal
               </button>
-              {/* Tombol Utama Oranye */}
               <button onClick={handleSave} disabled={isSaving || isDeleting} className="px-6 py-3 bg-[#fb9418] text-[#fcfcfc] hover:bg-orange-500 font-bold rounded-lg shadow-md transition-all active:scale-95 disabled:opacity-50 flex items-center gap-2 focus:outline-none focus:ring-2 focus:ring-orange-400 focus:ring-offset-1">
                 {isSaving ? "Menyimpan..." : "Simpan Perubahan"}
               </button>

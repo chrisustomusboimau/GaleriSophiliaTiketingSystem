@@ -3,6 +3,7 @@
  * ----------------------------------------------------
  * Modal bagi admin/kasir untuk membuat transaksi baru secara manual.
  * Diperbarui dengan identitas visual Galeria Sophilia.
+ * Update: Menambahkan input Metode Pembayaran (QRIS/Card).
  */
 
 import React, { useState, useMemo } from 'react';
@@ -46,6 +47,9 @@ const ManualEntryModal: React.FC<ManualEntryModalProps> = ({
   const [countryVisitors, setCountryVisitors] = useState<CountryVisitor[]>([
     { countryCode: "id", count: 1 }
   ]);
+  
+  // TAMBAHAN: State untuk metode pembayaran
+  const [paymentMethod, setPaymentMethod] = useState<string>("qris");
   
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -144,7 +148,12 @@ const ManualEntryModal: React.FC<ManualEntryModalProps> = ({
       const response = await fetch('/api/v1/transactions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items: payloadItems, origins: payloadOrigins }),
+        // TAMBAHAN: Masukkan payment_method ke dalam payload
+        body: JSON.stringify({ 
+          items: payloadItems, 
+          origins: payloadOrigins,
+          payment_method: paymentMethod 
+        }),
       });
 
       if (!response.ok) throw new Error("Gagal membuat transaksi manual.");
@@ -166,6 +175,7 @@ const ManualEntryModal: React.FC<ManualEntryModalProps> = ({
     setSelectedFloors(["Floor 1"]);
     setCounts({ adult: 0, student: 0, child: 0 });
     setCountryVisitors([{ countryCode: "id", count: 1 }]); 
+    setPaymentMethod("qris"); // TAMBAHAN: Reset payment method
     onClose();
   };
 
@@ -323,6 +333,51 @@ const ManualEntryModal: React.FC<ManualEntryModalProps> = ({
                 >
                   <span className="text-lg leading-none">+</span> Tambah Negara
                 </button>
+              </div>
+            </div>
+
+            {/* TAMBAHAN: BAGIAN 4: METODE PEMBAYARAN */}
+            <div>
+              <label className="block text-sm font-extrabold text-black mb-3 border-b border-gray-200 pb-2 uppercase tracking-wide">
+                4. Metode Pembayaran
+              </label>
+              <div className="grid grid-cols-2 gap-3">
+                <label
+                  className={`flex items-center justify-center p-3 border-2 rounded-lg cursor-pointer transition-all ${
+                    paymentMethod === "qris"
+                      ? "border-[#fb9418] bg-orange-50 text-[#fb9418] font-bold shadow-sm"
+                      : "border-gray-200 text-gray-600 hover:bg-gray-50"
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="paymentMethod"
+                    value="qris"
+                    checked={paymentMethod === "qris"}
+                    onChange={(e) => setPaymentMethod(e.target.value)}
+                    className="hidden"
+                    disabled={isSubmitting}
+                  />
+                  QRIS
+                </label>
+                <label
+                  className={`flex items-center justify-center p-3 border-2 rounded-lg cursor-pointer transition-all text-center leading-tight ${
+                    paymentMethod === "card"
+                      ? "border-[#fb9418] bg-orange-50 text-[#fb9418] font-bold shadow-sm"
+                      : "border-gray-200 text-gray-600 hover:bg-gray-50"
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="paymentMethod"
+                    value="card"
+                    checked={paymentMethod === "card"}
+                    onChange={(e) => setPaymentMethod(e.target.value)}
+                    className="hidden"
+                    disabled={isSubmitting}
+                  />
+                  Kartu Kredit/Debit
+                </label>
               </div>
             </div>
 

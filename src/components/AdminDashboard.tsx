@@ -3,6 +3,7 @@
  * ----------------------------------------------------
  * Cashier-facing panel to manage and confirm ticket payments.
  * Update: Menambahkan Popup Toast (Notifikasi melayang) untuk konfirmasi sukses.
+ * Update: Menampilkan Metode Pembayaran (QRIS/Card) dengan jelas di kartu pengunjung.
  */
 
 import React, { useEffect, useState, useCallback, useMemo } from "react";
@@ -30,6 +31,8 @@ export interface Visitor {
   confirmed_at: string | null;
   total_price: number;
   status: "pending" | "paid" | "cancelled" | "confirmed";
+  // TAMBAHAN: Field payment_method
+  payment_method: string; 
   items: TransactionItem[];
 }
 
@@ -172,7 +175,29 @@ const VisitorCard: React.FC<VisitorCardProps> = ({
 
         <div className="pt-4 border-t border-gray-300">
           <div className="flex justify-between items-end mb-5">
-            <span className="text-xs font-bold text-gray-500 uppercase tracking-widest">Total Tagihan</span>
+            <div>
+              <span className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-1">Total Tagihan</span>
+              
+              {/* TAMBAHAN: Menampilkan Badge Metode Pembayaran */}
+              <span className={`inline-flex items-center gap-1.5 text-[10px] font-bold px-2 py-1 rounded uppercase tracking-wider border ${
+                visitor.payment_method === 'card' 
+                  ? 'bg-gray-800 text-white border-gray-700' 
+                  : 'bg-green-100 text-green-700 border-green-200'
+              }`}>
+                {visitor.payment_method === 'card' ? (
+                  <>
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"></path></svg>
+                    Kartu Kredit/Debit
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
+                    QRIS
+                  </>
+                )}
+              </span>
+            </div>
+            
             <span className="text-2xl font-black text-black leading-none">
               {formatCurrency(visitor.total_price)}
             </span>
@@ -299,11 +324,16 @@ const AdminDashboard: React.FC = () => {
 
   const handleSaveEdit = async (id: string, updatedData: any) => {
     try {
-      if (updatedData.items || updatedData.origins) {
+      // Pastikan backend endpoints menerima properties ini
+      if (updatedData.items || updatedData.origins || updatedData.payment_method) {
         const res = await fetch(`/api/v1/transactions/${id}/edit`, {
           method: "PATCH",
           headers: getAuthHeaders(),
-          body: JSON.stringify({ items: updatedData.items, origins: updatedData.origins }),
+          body: JSON.stringify({ 
+            items: updatedData.items, 
+            origins: updatedData.origins,
+            payment_method: updatedData.payment_method 
+          }),
         });
         if (!res.ok) throw new Error("Gagal simpan rincian.");
       }

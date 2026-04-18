@@ -107,7 +107,7 @@ const CounterInput: React.FC<CounterInputProps> = ({
           value={value}
           onChange={handleInputChange}
           onFocus={(e) => e.target.select()}
-          onKeyDown={(e) => { // DITAMBAHKAN
+          onKeyDown={(e) => {
             if (e.key === "Enter") {
               e.preventDefault();
               e.currentTarget.blur();
@@ -156,6 +156,9 @@ const VisitorForm: React.FC = () => {
   });
 
   const [countryVisitors, setCountryVisitors] = useState<CountryVisitor[]>([]);
+  // TAMBAHAN: State untuk metode pembayaran
+  const [paymentMethod, setPaymentMethod] = useState<string>("qris");
+  
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -253,12 +256,14 @@ const VisitorForm: React.FC = () => {
         if (pureCounts.child > 0) items.push({ floor, age_category: 'child', quantity: pureCounts.child });
       });
 
+      // TAMBAHAN: Masukkan payment_method ke dalam payload
       const payload = {
         items,
         origins: countryVisitors.map((c) => ({
           country_code: c.countryCode,
           count: Number(c.count) || 0,
         })),
+        payment_method: paymentMethod,
       };
 
       const response = await fetch("/api/v1/transactions", {
@@ -282,7 +287,7 @@ const VisitorForm: React.FC = () => {
       if (!data || !data.id) throw new Error("Respon server tidak valid (ID tidak ditemukan).");
 
       navigate(`/queue/${data.id}`, {
-        state: { origins: countryVisitors, totalVisitors, totalPrice },
+        state: { origins: countryVisitors, totalVisitors, totalPrice, paymentMethod },
       });
 
     } catch (err: any) {
@@ -292,6 +297,10 @@ const VisitorForm: React.FC = () => {
       setIsSubmitting(false);
     }
   };
+
+  // Label pelokalan sederhana untuk Metode Pembayaran
+  const paymentMethodLabel = language === "id" ? "Metode Pembayaran" : language === "zh" ? "支付方式" : "Payment Method";
+  const cardLabel = language === "id" ? "Kartu Kredit/Debit" : language === "zh" ? "信用卡/借记卡" : "Credit/Debit Card";
 
   return (
     <form onSubmit={handleSubmit} className="max-w-md mx-auto text-black">
@@ -326,7 +335,6 @@ const VisitorForm: React.FC = () => {
 
       {/* Multi-Country Input Section */}
       <div className="mb-8 p-5 border border-gray-200 rounded-xl bg-[#fcfcfc] shadow-sm">
-
         {/* HEADER NEGARA & INDIKATOR SINKRONISASI */}
         <div className="flex justify-between items-center mb-5 border-b border-gray-200 pb-3">
           <label className="block font-bold text-black">
@@ -347,7 +355,7 @@ const VisitorForm: React.FC = () => {
               <select
                 value={country.countryCode}
                 onChange={(e) => handleUpdateCountry(index, "countryCode", e.target.value)}
-                onKeyDown={(e) => { // DITAMBAHKAN
+                onKeyDown={(e) => {
                   if (e.key === "Enter") {
                     e.preventDefault();
                     e.currentTarget.blur();
@@ -368,7 +376,7 @@ const VisitorForm: React.FC = () => {
                 value={country.count}
                 onChange={(e) => handleUpdateCountry(index, "count", e.target.value)}
                 onFocus={(e) => e.target.select()}
-                onKeyDown={(e) => { // DIPERBARUI: ditambah blur()
+                onKeyDown={(e) => {
                   if (e.key === "Enter") {
                     e.preventDefault();
                     e.currentTarget.blur();
@@ -400,6 +408,49 @@ const VisitorForm: React.FC = () => {
         >
           <span className="text-xl leading-none">+</span> {translations.addCountry[language]}
         </button>
+      </div>
+
+      {/* TAMBAHAN: Payment Method Selection */}
+      <div className="mb-6 p-5 border border-gray-200 rounded-xl bg-[#fcfcfc] shadow-sm">
+        <label className="block font-bold text-black mb-4">
+          {paymentMethodLabel}
+        </label>
+        <div className="grid grid-cols-2 gap-3">
+          <label
+            className={`flex items-center justify-center p-3 border-2 rounded-lg cursor-pointer transition-all ${
+              paymentMethod === "qris"
+                ? "border-[#fb9418] bg-orange-50 text-[#fb9418] font-bold shadow-sm"
+                : "border-gray-200 text-gray-600 hover:bg-gray-50"
+            }`}
+          >
+            <input
+              type="radio"
+              name="paymentMethod"
+              value="qris"
+              checked={paymentMethod === "qris"}
+              onChange={(e) => setPaymentMethod(e.target.value)}
+              className="hidden"
+            />
+            QRIS
+          </label>
+          <label
+            className={`flex items-center justify-center p-3 border-2 rounded-lg cursor-pointer transition-all text-center leading-tight ${
+              paymentMethod === "card"
+                ? "border-[#fb9418] bg-orange-50 text-[#fb9418] font-bold shadow-sm"
+                : "border-gray-200 text-gray-600 hover:bg-gray-50"
+            }`}
+          >
+            <input
+              type="radio"
+              name="paymentMethod"
+              value="card"
+              checked={paymentMethod === "card"}
+              onChange={(e) => setPaymentMethod(e.target.value)}
+              className="hidden"
+            />
+            {cardLabel}
+          </label>
+        </div>
       </div>
 
       {/* Summary Section */}
