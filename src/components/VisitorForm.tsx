@@ -3,11 +3,10 @@
  * ----------------------------------------------------
  * Main form component for museum visitor data input.
  * Updated to match Galeria Sophilia Visual Identity.
- * Update: Menambahkan sistem Anti-Spam / Cool-down 10 Menit 
- * menggunakan localStorage.
+ * Update: Mengubah Select Negara menjadi Searchable Dropdown (Autocomplete).
  */
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { getData } from "country-list";
 import {
@@ -140,6 +139,98 @@ const CounterInput: React.FC<CounterInputProps> = ({
   );
 };
 
+// =====================================================
+// KOMPONEN BARU: SEARCHABLE COUNTRY SELECT
+// =====================================================
+const SearchableCountrySelect: React.FC<{
+  value: string;
+  onChange: (code: string) => void;
+  countries: readonly { code: string; name: string }[];
+}> = ({ value, onChange, countries }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
+  const wrapperRef = useRef<HTMLDivElement>(null);
+
+  // Cari nama negara yang sedang terpilih berdasarkan value (countryCode)
+  const selectedCountry = countries.find((c) => c.code === value);
+  
+  // Jika dropdown terbuka, tampilkan teks pencarian. Jika tertutup, tampilkan negara terpilih.
+  const displayValue = isOpen ? searchTerm : (selectedCountry?.name || "");
+
+  // Filter daftar negara berdasarkan kata kunci pencarian
+  const filteredCountries = countries.filter((c) =>
+    c.name.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  // Tutup dropdown jika user klik di luar area komponen ini
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+        setSearchTerm(""); // Reset kata kunci jika klik di luar
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  return (
+    <div ref={wrapperRef} className="relative flex-[3] min-w-0">
+      <div 
+        className="flex items-center w-full bg-white border border-gray-300 rounded-md focus-within:ring-2 focus-within:ring-[#fb9418] focus-within:border-[#fb9418] transition-shadow cursor-text"
+        onClick={() => setIsOpen(true)}
+      >
+        <input
+          type="text"
+          className="w-full p-3 bg-transparent outline-none text-sm md:text-base truncate"
+          value={displayValue}
+          placeholder="Ketik untuk mencari negara..."
+          onChange={(e) => {
+            setSearchTerm(e.target.value);
+            if (!isOpen) setIsOpen(true);
+          }}
+          onFocus={() => {
+            setIsOpen(true);
+            setSearchTerm(""); // Kosongkan field saat fokus agar langsung bisa mencari
+          }}
+        />
+        {/* Ikon Panah Dropdown */}
+        <div className="pr-3 flex items-center pointer-events-none text-gray-400">
+          <svg className={`w-4 h-4 transform transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
+        </div>
+      </div>
+
+      {/* List Dropdown Negara */}
+      {isOpen && (
+        <ul className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-xl max-h-60 overflow-y-auto">
+          {filteredCountries.length > 0 ? (
+            filteredCountries.map((c) => (
+              <li
+                key={c.code}
+                className={`px-4 py-2.5 cursor-pointer text-sm transition-colors
+                  ${value === c.code ? 'bg-orange-50 font-bold text-[#fb9418] border-l-4 border-[#fb9418]' : 'text-gray-700 hover:bg-gray-50 hover:text-black'}
+                `}
+                onClick={() => {
+                  onChange(c.code);
+                  setIsOpen(false);
+                  setSearchTerm("");
+                }}
+              >
+                {c.name}
+              </li>
+            ))
+          ) : (
+            <li className="px-4 py-3 text-sm text-gray-500 italic text-center">
+              Negara tidak ditemukan
+            </li>
+          )}
+        </ul>
+      )}
+    </div>
+  );
+};
+
+
 /* =====================================================
    MAIN COMPONENT
 ===================================================== */
@@ -163,34 +254,6 @@ const VisitorForm: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // ==========================================
-  // LOGIKA ANTI-SPAM (COOL-DOWN 10 MENIT)
-  // ==========================================
-  useEffect(() => {
-    const cachedQueue = localStorage.getItem("sophilia_active_queue");
-    if (cachedQueue) {
-      try {
-        const parsed = JSON.parse(cachedQueue);
-        const now = Date.now();
-        const tenMinutes = 10 * 60 * 1000; // 10 menit dalam milidetik
-
-        if (now - parsed.timestamp < tenMinutes) {
-          // Masih dalam masa cool-down 10 menit.
-          // Redirect pengguna kembali ke halaman tiket mereka.
-          navigate(`/queue/${parsed.id}`, { state: parsed.state, replace: true });
-        } else {
-          // Sudah lewat 10 menit, hapus kunci dari memory
-          localStorage.removeItem("sophilia_active_queue");
-        }
-      } catch (e) {
-        localStorage.removeItem("sophilia_active_queue");
-      }
-    }
-  }, [navigate]);
-
-  // ==========================================
-  // INITIALIZATION LOGIC
-  // ==========================================
   useEffect(() => {
     if (selectedFloors.length === 0) {
       navigate('/ticket-selection', { replace: true });
@@ -314,19 +377,11 @@ const VisitorForm: React.FC = () => {
       const data = await response.json();
       if (!data || !data.id) throw new Error("Respon server tidak valid (ID tidak ditemukan).");
 
-      // Menyiapkan state response untuk di-passing ke queue page
       const responseState = { origins: countryVisitors, totalVisitors, totalPrice, paymentMethod };
 
-      // ==========================================
-      // SIMPAN KUNCI ANTI-SPAM KE LOCAL STORAGE
-      // ==========================================
-      localStorage.setItem("sophilia_active_queue", JSON.stringify({
-        id: data.id,
-        timestamp: Date.now(),
-        state: responseState
-      }));
+      localStorage.setItem("sophilia_active_tx_id", data.id);
 
-      navigate(`/queue/${data.id}`, { state: responseState });
+      navigate(`/queue/${data.id}`, { state: responseState, replace: true });
 
     } catch (err: any) {
       console.error("Submission error:", err);
@@ -340,7 +395,7 @@ const VisitorForm: React.FC = () => {
   const cardLabel = language === "id" ? "Kartu Kredit/Debit" : language === "zh" ? "信用卡/借记卡" : "Credit/Debit Card";
 
   return (
-    <form onSubmit={handleSubmit} className="max-w-md mx-auto text-black">
+    <form onSubmit={handleSubmit} className="max-w-md mx-auto text-black pb-8">
       <header className="mb-8">
         <h2 className="text-xl font-bold mb-2 text-black">
           {translations.visitorCount[language]}
@@ -350,7 +405,7 @@ const VisitorForm: React.FC = () => {
         </p>
       </header>
 
-      {/* Age Category Inputs */}
+      {/* Age Category Inputs - URUTAN: Dewasa -> Remaja -> Anak */}
       <CounterInput
         label={translations.adultLabel[language]}
         price={aggregatePrices.adult}
@@ -388,23 +443,13 @@ const VisitorForm: React.FC = () => {
         <div className="space-y-4">
           {countryVisitors.map((country, index) => (
             <div key={index} className="flex flex-row items-center gap-3 w-full">
-              <select
+              
+              {/* KOMPONEN SEARCHABLE DROPDOWN YANG BARU */}
+              <SearchableCountrySelect
                 value={country.countryCode}
-                onChange={(e) => handleUpdateCountry(index, "countryCode", e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    e.currentTarget.blur();
-                  }
-                }}
-                className="flex-[3] min-w-0 p-3 bg-white border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#fb9418] focus:border-[#fb9418] text-sm md:text-base truncate transition-shadow"
-              >
-                {COUNTRIES.map((c) => (
-                  <option key={c.code} value={c.code}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
+                onChange={(newCode) => handleUpdateCountry(index, "countryCode", newCode)}
+                countries={COUNTRIES}
+              />
 
               <input
                 type="number"
