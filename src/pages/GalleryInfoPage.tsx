@@ -4,14 +4,16 @@
  * Halaman informasi eksibisi yang muncul sebelum pemilihan lantai.
  * Desain: Header terpisah di atas latar hitam (menyamai TicketSelectionPage),
  * dengan konten di dalam kanvas putih (content container).
- * Update: Menambahkan Auto-Redirect jika pengguna sudah memiliki antrian aktif.
+ * Update: Implementasi LanguageContext untuk dukungan Multibahasa.
  */
 
 import React, { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useLanguage } from '../contexts/LanguageContext';
 
 const GalleryInfoPage: React.FC = () => {
   const navigate = useNavigate();
+  const { language, translations } = useLanguage();
 
   // ==========================================
   // LOGIKA AUTO-REDIRECT TIKET AKTIF
@@ -67,13 +69,13 @@ const GalleryInfoPage: React.FC = () => {
             {/* Bagian Pembuka */}
             <div className="text-center pb-2">
               <p className="font-extrabold text-black text-xl sm:text-2xl mb-2">
-                Galeria Sophilia dibuka selama 3 jam.
+                {translations.galleryOpenTime[language]}
               </p>
               <p className="text-gray-700 font-medium text-base sm:text-lg">
-                Temukan pengalaman budaya inspiratif:
+                {translations.culturalExperience[language]}
               </p>
               <p className="text-gray-400 italic text-sm mt-1">
-                Silakan lihat informasi detail pada banner kami.
+                {translations.seeBannerInfo[language]}
               </p>
             </div>
 
@@ -82,31 +84,31 @@ const GalleryInfoPage: React.FC = () => {
               {/* Lantai 1 */}
               <div className="bg-white p-5 rounded-xl border border-gray-200 hover:border-[#fb9418] transition-colors shadow-sm">
                 <h3 className="text-sm font-bold text-[#fb9418] uppercase tracking-widest mb-1">
-                  Lantai 1
+                  {translations.floor1[language]}
                 </h3>
                 <p className="text-lg font-bold text-black transition-colors">
-                  Karya Seni Patung Barat
+                  {translations.floor1Desc[language]}
                 </p>
               </div>
 
               {/* Lantai 5 */}
               <div className="bg-white p-5 rounded-xl border border-gray-200 hover:border-[#fb9418] transition-colors shadow-sm">
                 <h3 className="text-sm font-bold text-[#fb9418] uppercase tracking-widest mb-1">
-                  Lantai 5
+                  {translations.floor5[language]}
                 </h3>
                 <p className="text-lg font-bold text-black leading-snug">
-                  Keramik Tiga Warna Dinasti Tang, <br className="hidden sm:block" />
-                  Peninggalan Budaya Jalur Sutra
+                  {translations.floor5DescPart1[language]} <br className="hidden sm:block" />
+                  {translations.floor5DescPart2[language]}
                 </p>
               </div>
 
               {/* Lantai 6 & 7 */}
               <div className="bg-white p-5 rounded-xl border border-gray-200 hover:border-[#fb9418] transition-colors shadow-sm">
                 <h3 className="text-sm font-bold text-[#fb9418] uppercase tracking-widest mb-1">
-                  Lantai 6–7
+                  {translations.floor67[language]}
                 </h3>
                 <p className="text-lg font-bold text-black">
-                  Karya Seni Rupa Barat dan Barang Bersejarah Asia Timur
+                  {translations.floor67Desc[language]}
                 </p>
               </div>
             </div>
@@ -114,13 +116,13 @@ const GalleryInfoPage: React.FC = () => {
             {/* Penutup (Call to Action) */}
             <div className="bg-orange-50 border border-orange-200 p-6 rounded-xl text-center mt-2">
               <p className="font-extrabold text-black uppercase tracking-wide mb-2 text-base sm:text-lg">
-                Silakan pilih tiket Anda
+                {translations.pleaseSelectTicket[language]}
               </p>
               <p className="text-gray-700 font-medium text-sm sm:text-base">
-                untuk satu, dua, atau semua sekaligus
+                {translations.forOneTwoOrAll[language]}
               </p>
               <p className="text-[#fb9418] font-bold mt-1 text-sm sm:text-base">
-                dan rasakan perjalanan budaya yang berharga.
+                {translations.enjoyCulturalJourney[language]}
               </p>
             </div>
 
@@ -130,7 +132,7 @@ const GalleryInfoPage: React.FC = () => {
                 onClick={() => navigate('/ticket-selection')}
                 className="w-full py-4 font-bold text-[#fcfcfc] bg-[#fb9418] hover:bg-orange-500 rounded-xl transition-all duration-200 shadow-md flex justify-center items-center gap-2 active:scale-95 uppercase tracking-wide"
               >
-                Lanjutkan
+                {translations.continueButton2[language]}
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14 5l7 7m0 0l-7 7m7-7H3" />
                 </svg>

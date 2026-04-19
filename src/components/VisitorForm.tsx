@@ -3,7 +3,7 @@
  * ----------------------------------------------------
  * Main form component for museum visitor data input.
  * Updated to match Galeria Sophilia Visual Identity.
- * Update: Mengubah Select Negara menjadi Searchable Dropdown (Autocomplete).
+ * Update: Semua teks UI kini terintegrasi 100% dengan LanguageContext.
  */
 
 import React, { useEffect, useMemo, useState, useRef } from "react";
@@ -140,34 +140,31 @@ const CounterInput: React.FC<CounterInputProps> = ({
 };
 
 // =====================================================
-// KOMPONEN BARU: SEARCHABLE COUNTRY SELECT
+// KOMPONEN SEARCHABLE COUNTRY SELECT
 // =====================================================
 const SearchableCountrySelect: React.FC<{
   value: string;
   onChange: (code: string) => void;
   countries: readonly { code: string; name: string }[];
-}> = ({ value, onChange, countries }) => {
+  placeholderText: string;
+  notFoundText: string;
+}> = ({ value, onChange, countries, placeholderText, notFoundText }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const wrapperRef = useRef<HTMLDivElement>(null);
 
-  // Cari nama negara yang sedang terpilih berdasarkan value (countryCode)
   const selectedCountry = countries.find((c) => c.code === value);
-  
-  // Jika dropdown terbuka, tampilkan teks pencarian. Jika tertutup, tampilkan negara terpilih.
   const displayValue = isOpen ? searchTerm : (selectedCountry?.name || "");
 
-  // Filter daftar negara berdasarkan kata kunci pencarian
   const filteredCountries = countries.filter((c) =>
     c.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  // Tutup dropdown jika user klik di luar area komponen ini
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
         setIsOpen(false);
-        setSearchTerm(""); // Reset kata kunci jika klik di luar
+        setSearchTerm("");
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
@@ -184,23 +181,21 @@ const SearchableCountrySelect: React.FC<{
           type="text"
           className="w-full p-3 bg-transparent outline-none text-sm md:text-base truncate"
           value={displayValue}
-          placeholder="Ketik untuk mencari negara..."
+          placeholder={placeholderText}
           onChange={(e) => {
             setSearchTerm(e.target.value);
             if (!isOpen) setIsOpen(true);
           }}
           onFocus={() => {
             setIsOpen(true);
-            setSearchTerm(""); // Kosongkan field saat fokus agar langsung bisa mencari
+            setSearchTerm(""); 
           }}
         />
-        {/* Ikon Panah Dropdown */}
         <div className="pr-3 flex items-center pointer-events-none text-gray-400">
           <svg className={`w-4 h-4 transform transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
         </div>
       </div>
 
-      {/* List Dropdown Negara */}
       {isOpen && (
         <ul className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-xl max-h-60 overflow-y-auto">
           {filteredCountries.length > 0 ? (
@@ -221,7 +216,7 @@ const SearchableCountrySelect: React.FC<{
             ))
           ) : (
             <li className="px-4 py-3 text-sm text-gray-500 italic text-center">
-              Negara tidak ditemukan
+              {notFoundText}
             </li>
           )}
         </ul>
@@ -253,6 +248,26 @@ const VisitorForm: React.FC = () => {
   
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // LOGIKA ANTI-SPAM (COOL-DOWN 10 MENIT)
+  useEffect(() => {
+    const cachedQueue = localStorage.getItem("sophilia_active_queue");
+    if (cachedQueue) {
+      try {
+        const parsed = JSON.parse(cachedQueue);
+        const now = Date.now();
+        const tenMinutes = 10 * 60 * 1000;
+
+        if (now - parsed.timestamp < tenMinutes) {
+          navigate(`/queue/${parsed.id}`, { state: parsed.state, replace: true });
+        } else {
+          localStorage.removeItem("sophilia_active_queue");
+        }
+      } catch (e) {
+        localStorage.removeItem("sophilia_active_queue");
+      }
+    }
+  }, [navigate]);
 
   useEffect(() => {
     if (selectedFloors.length === 0) {
@@ -298,7 +313,7 @@ const VisitorForm: React.FC = () => {
   };
 
   const handleAddCountry = () => {
-    setCountryVisitors((prev) => [...prev, { countryCode: "id", count: 0 }]);
+    setCountryVisitors((prev) => [...prev, { countryCode: getDefaultCountryByLanguage(language), count: 0 }]);
   };
 
   const handleUpdateCountry = (
@@ -379,7 +394,11 @@ const VisitorForm: React.FC = () => {
 
       const responseState = { origins: countryVisitors, totalVisitors, totalPrice, paymentMethod };
 
-      localStorage.setItem("sophilia_active_tx_id", data.id);
+      localStorage.setItem("sophilia_active_queue", JSON.stringify({
+        id: data.id,
+        timestamp: Date.now(),
+        state: responseState
+      }));
 
       navigate(`/queue/${data.id}`, { state: responseState, replace: true });
 
@@ -391,8 +410,10 @@ const VisitorForm: React.FC = () => {
     }
   };
 
-  const paymentMethodLabel = language === "id" ? "Metode Pembayaran" : language === "zh" ? "支付方式" : "Payment Method";
-  const cardLabel = language === "id" ? "Kartu Kredit/Debit" : language === "zh" ? "信用卡/借记卡" : "Credit/Debit Card";
+  // Replace {count} di floorSelectionDesc dengan jumlah lantai asli
+  const floorDescText = translations.floorSelectionDesc[language]
+    ? translations.floorSelectionDesc[language].replace("{count}", selectedFloors.length.toString())
+    : "";
 
   return (
     <form onSubmit={handleSubmit} className="max-w-md mx-auto text-black pb-8">
@@ -401,11 +422,11 @@ const VisitorForm: React.FC = () => {
           {translations.visitorCount[language]}
         </h2>
         <p className="text-gray-600 text-sm">
-          Anda memilih <span className="font-bold text-black">{selectedFloors.length} lantai</span>. Harga yang tertera adalah total biaya per orang untuk akses tersebut.
+          {floorDescText}
         </p>
       </header>
 
-      {/* Age Category Inputs - URUTAN: Dewasa -> Remaja -> Anak */}
+      {/* Age Category Inputs */}
       <CounterInput
         label={translations.adultLabel[language]}
         price={aggregatePrices.adult}
@@ -444,11 +465,12 @@ const VisitorForm: React.FC = () => {
           {countryVisitors.map((country, index) => (
             <div key={index} className="flex flex-row items-center gap-3 w-full">
               
-              {/* KOMPONEN SEARCHABLE DROPDOWN YANG BARU */}
               <SearchableCountrySelect
                 value={country.countryCode}
                 onChange={(newCode) => handleUpdateCountry(index, "countryCode", newCode)}
                 countries={COUNTRIES}
+                placeholderText={translations.searchCountryPlaceholder[language]}
+                notFoundText={translations.countryNotFound[language]}
               />
 
               <input
@@ -471,7 +493,7 @@ const VisitorForm: React.FC = () => {
                   type="button"
                   onClick={() => handleRemoveCountry(index)}
                   className="flex-none w-10 h-10 flex items-center justify-center font-bold text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors border border-transparent"
-                  aria-label="Hapus negara"
+                  aria-label="Hapus"
                 >
                   ✕
                 </button>
@@ -494,7 +516,7 @@ const VisitorForm: React.FC = () => {
       {/* Payment Method Selection */}
       <div className="mb-6 p-5 border border-gray-200 rounded-xl bg-[#fcfcfc] shadow-sm">
         <label className="block font-bold text-black mb-4">
-          {paymentMethodLabel}
+          {translations.paymentMethod[language]}
         </label>
         <div className="grid grid-cols-2 gap-3">
           <label
@@ -529,7 +551,7 @@ const VisitorForm: React.FC = () => {
               onChange={(e) => setPaymentMethod(e.target.value)}
               className="hidden"
             />
-            {cardLabel}
+            {translations.creditDebitCard[language]}
           </label>
         </div>
       </div>

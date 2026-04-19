@@ -3,11 +3,13 @@
  * ----------------------------------------------------
  * Page component that displays the generated queue ticket for a visitor.
  * Diperbarui dengan identitas visual Galeria Sophilia dan dukungan confirmed_at.
+ * Update: Terintegrasi penuh dengan LanguageContext untuk dukungan multibahasa.
  */
 
 import React, { useEffect, useState, useCallback } from 'react';
 import { useParams, Navigate, useNavigate } from 'react-router-dom';
 import QueueDisplay from '../components/QueueDisplay';
+import { useLanguage } from '../contexts/LanguageContext';
 
 /* =====================================================
    TYPES
@@ -31,8 +33,8 @@ export interface Visitor {
   total_price: number;
   status: string;
   created_at: string; 
-  confirmed_at: string | null; // <-- Tipe data baru untuk timestamp konfirmasi
-  items: TransactionItem[];    // <-- Disesuaikan dengan skema API array items
+  confirmed_at: string | null; 
+  items: TransactionItem[];    
   origins: TransactionOrigin[]; 
 }
 
@@ -43,6 +45,7 @@ export interface Visitor {
 const QueuePage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { language, translations } = useLanguage();
 
   const [visitor, setVisitor] = useState<Visitor | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -64,9 +67,9 @@ const QueuePage: React.FC = () => {
 
       if (!response.ok) {
         if (response.status === 404) {
-          throw new Error("Data pengunjung tidak ditemukan. Tiket mungkin sudah kedaluwarsa atau ID salah.");
+          throw new Error(translations.visitorNotFoundDetail[language]);
         }
-        throw new Error("Gagal memuat data dari server. Periksa koneksi internet Anda.");
+        throw new Error(translations.fetchDataError[language]);
       }
 
       const data: Visitor = await response.json();
@@ -74,11 +77,11 @@ const QueuePage: React.FC = () => {
 
     } catch (err: any) {
       console.error('Error loading visitor data:', err);
-      setError(err.message || 'Gagal memuat data pengunjung.');
+      setError(err.message || translations.loadVisitorError[language]);
     } finally {
       setIsLoading(false);
     }
-  }, [id]);
+  }, [id, language, translations]);
 
   useEffect(() => {
     loadVisitor();
@@ -95,7 +98,7 @@ const QueuePage: React.FC = () => {
           {/* Spinner Oranye */}
           <div className="w-12 h-12 border-4 border-[#fb9418] border-t-transparent rounded-full animate-spin" />
           <p className="text-gray-400 font-medium animate-pulse tracking-wide uppercase text-sm">
-            Memuat tiket antrian...
+            {translations.loadingQueueTicket[language]}
           </p>
         </div>
       );
@@ -110,16 +113,16 @@ const QueuePage: React.FC = () => {
             </svg>
           </div>
           <p className="text-black text-xl font-bold mb-3">
-            {error || 'Data pengunjung tidak ditemukan'}
+            {error || translations.visitorNotFoundTitle[language]}
           </p>
           <p className="text-gray-600 mb-8 text-sm leading-relaxed">
-            Nomor antrian yang Anda cari mungkin salah, sudah dihapus, atau sesi telah berakhir.
+            {translations.queueNumberInvalid[language]}
           </p>
           <button
             onClick={() => navigate('/')}
             className="w-full px-6 py-4 bg-[#fb9418] text-[#fcfcfc] rounded-xl hover:bg-orange-500 transition-all active:scale-95 font-bold shadow-md"
           >
-            Kembali ke Halaman Utama
+            {translations.backToHomeButton[language]}
           </button>
         </div>
       );
@@ -140,7 +143,7 @@ const QueuePage: React.FC = () => {
         <button 
           onClick={() => navigate('/')}
           className="absolute left-4 sm:left-6 text-gray-400 hover:text-[#fb9418] transition-colors p-2 focus:outline-none"
-          aria-label="Kembali ke Beranda"
+          aria-label={translations.backToHomeAria[language]}
         >
           <svg className="w-6 h-6 sm:w-7 sm:h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />

@@ -5,31 +5,14 @@
  * Menampilkan pilihan lantai, mengelola state lantai yang dipilih,
  * dan meneruskan data tersebut ke halaman VisitorForm.
  * Diperbarui dengan identitas visual Galeria Sophilia.
+ * Update: Terintegrasi penuh dengan LanguageContext untuk dukungan multibahasa.
  */
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useLanguage } from '../contexts/LanguageContext';
 import FloorCard, { FloorData } from '../components/FloorCard';
 import GalleryInfoModal from '../components/GalleryInfoModal';
-
-const FLOORS: FloorData[] = [
-  { 
-    id: 'Floor 6/7', 
-    label: 'Lantai 6 & 7',
-    prices: { adult: 100000, student: 50000, child: 25000 }
-  },
-  { 
-    id: 'Floor 5', 
-    label: 'Lantai 5',
-    prices: { adult: 40000, student: 20000, child: 10000 }
-  },
-  { 
-    id: 'Floor 1', 
-    label: 'Lantai 1',
-    prices: { adult: 60000, student: 40000, child: 20000 }
-  }
-];
 
 const TicketSelectionPage: React.FC = () => {
   const { language, translations } = useLanguage();
@@ -37,6 +20,26 @@ const TicketSelectionPage: React.FC = () => {
   
   const [selectedFloors, setSelectedFloors] = useState<string[]>([]);
   const [isInfoOpen, setIsInfoOpen] = useState<boolean>(false); 
+
+  // Memindahkan data FLOORS ke dalam useMemo agar nama lantai (label)
+  // dapat diterjemahkan secara otomatis saat bahasa diubah.
+  const floorsData: FloorData[] = useMemo(() => [
+    { 
+      id: 'Floor 6/7', 
+      label: translations.floor6And7Label[language],
+      prices: { adult: 100000, student: 50000, child: 25000 }
+    },
+    { 
+      id: 'Floor 5', 
+      label: translations.floor5Label[language],
+      prices: { adult: 40000, student: 20000, child: 10000 }
+    },
+    { 
+      id: 'Floor 1', 
+      label: translations.floor1Label[language],
+      prices: { adult: 60000, student: 40000, child: 20000 }
+    }
+  ], [language, translations]);
 
   const toggleFloor = (floorId: string) => {
     setSelectedFloors((prev) => 
@@ -51,10 +54,15 @@ const TicketSelectionPage: React.FC = () => {
     navigate('/visitor-form', { state: { selectedFloors } });
   };
 
+  // Dinamis text untuk tombol "Lanjutkan ({count} Dipilih)"
+  const continueButtonText = translations.continueSelected[language]
+    ? translations.continueSelected[language].replace("{count}", selectedFloors.length.toString())
+    : "";
+
   return (
     <div className="min-h-screen bg-black flex flex-col relative font-sans">
       
-      {/* HEADER: Galeria Sophilia Branding */}
+      {/* HEADER: Galeria Sophilia Branding (Tetap tidak diterjemahkan karena nama brand) */}
       <header className="bg-black py-8 px-4 flex flex-col items-center justify-center shrink-0 border-b border-white/10 z-10">
         <div className="text-center select-none">
           <h2 className="text-[#fcfcfc] font-light tracking-[0.4em] text-sm md:text-base uppercase">
@@ -79,28 +87,28 @@ const TicketSelectionPage: React.FC = () => {
           <div className="text-center mb-6">
             <div className="flex items-center justify-center gap-2">
               <h2 className="text-xl font-bold text-black uppercase tracking-wide">
-                Area Pameran
+                {translations.exhibitionArea[language]}
               </h2>
               
               {/* Tombol 'i' Info (Aksen Oranye) */}
               <button 
                 onClick={() => setIsInfoOpen(true)}
                 className="w-6 h-6 rounded-full bg-orange-100 text-[#fb9418] flex items-center justify-center hover:bg-[#fb9418] hover:text-[#fcfcfc] transition-colors focus:outline-none focus:ring-2 focus:ring-[#fb9418] focus:ring-offset-1"
-                aria-label="Informasi Lantai"
-                title="Lihat informasi kurasi lantai"
+                aria-label={translations.floorInfoAria[language]}
+                title={translations.floorInfoTitle[language]}
               >
                 <span className="font-serif italic font-bold text-sm">i</span>
               </button>
             </div>
             
             <p className="text-gray-500 text-sm mt-2">
-              Silakan pilih satu atau lebih lantai yang ingin Anda kunjungi
+              {translations.selectFloorInstruction[language]}
             </p>
           </div>
 
           {/* List Komponen Kartu Lantai */}
           <div className="space-y-4">
-            {FLOORS.map((floor) => (
+            {floorsData.map((floor) => (
               <FloorCard
                 key={floor.id}
                 floor={floor}
@@ -126,7 +134,7 @@ const TicketSelectionPage: React.FC = () => {
                   : "bg-[#fb9418] hover:bg-orange-500 hover:shadow-lg active:scale-95"
               }`}
             >
-              Lanjutkan ({selectedFloors.length} Dipilih)
+              {selectedFloors.length === 0 ? translations.continueButton[language] : continueButtonText}
               {selectedFloors.length > 0 && (
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14 5l7 7m0 0l-7 7m7-7H3" />
