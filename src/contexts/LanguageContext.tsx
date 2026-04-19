@@ -180,7 +180,7 @@ const defaultTranslations = {
     en: "Western Sculpture Art", 
     zh: "西方雕塑艺术" 
   },
-  floor5: { id: "Lantai 5", en: "5ᵗʰ flooe", zh: "5层" },
+  floor5: { id: "Lantai 5", en: "5ᵗʰ floor", zh: "5层" },
   floor5DescPart1: { 
     id: "Keramik Tiga Warna Dinasti Tang,", 
     en: "Tang Tri-Color Ceramics,", 

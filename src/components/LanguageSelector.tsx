@@ -33,7 +33,7 @@ const LanguageSelector: React.FC = () => {
       </div>
 
       {/* Grid tombol pilihan bahasa */}
-      <div className="grid grid-cols-3 gap-3 sm:gap-4 w-full mb-8">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 w-full mb-8">
         
         {/* Tombol Bahasa Indonesia */}
         <button
@@ -75,7 +75,7 @@ const LanguageSelector: React.FC = () => {
         </button>
 
         {/* Tombol Bahasa Mandarin */}
-        <button
+        {/* <button
           onClick={() => setLanguage("zh")}
           className={`flex flex-col items-center justify-center p-4 rounded-xl border-2 transition-all duration-200 ${
             language === "zh"
@@ -91,7 +91,7 @@ const LanguageSelector: React.FC = () => {
           <span className={`font-bold text-sm ${language === "zh" ? "text-black" : "text-gray-500"}`}>
             中文
           </span>
-        </button>
+        </button> */}
 
       </div>
 
