@@ -65,18 +65,18 @@ const defaultTranslations = {
     zh: "请按年龄段选择访客人数", // 请按年龄段选择访客人数
   },
   childLabel: {
-    id: "Anak \n(< 8 tahun)",
-    en: "Child \n(< 8 years)", // (Under 8)
+    id: "Anak \n(Di bawah 8 tahun)",
+    en: "Child \n(Under 8 years)", // (Under 8)
     zh: "儿童\n（8岁以下）",
   },
   teenLabel: {
-    id: "Remaja \n(< 22 tahun)",
-    en: "Teen \n(< 22 years)",
+    id: "Remaja \n(Di bawah 22 tahun)",
+    en: "Teen \n(Under 22 years)",
     zh: "青少年\n（22岁以下）",
   },
   adultLabel: {
-    id: "Dewasa \n(≥ 22 tahun)",
-    en: "Adult \n(≥ 22 years and above)", // tambah 22
+    id: "Dewasa \n(22 tahun ke atas)",
+    en: "Adult \n(22 years and above)", // tambah 22
     zh: "成人\n（22岁及以上）",
   },
   totalVisitors: {
