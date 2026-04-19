@@ -112,6 +112,7 @@ async def create_transaction(
             # 3. Create main transaction (Mulai dari max_queue harian + 1)
             new_transaction = TransactionEntry(
                 queue_number=max_queue + 1,
+                date_only=now_wib.date(),
                 total_price=total_price,
                 status="pending",
                 payment_method=payload.payment_method.value, 
