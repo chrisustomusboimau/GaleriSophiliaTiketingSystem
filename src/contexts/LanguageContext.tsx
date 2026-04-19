@@ -147,7 +147,7 @@ const defaultTranslations = {
   queueInstruction: {
     id: "Silakan tunjukkan nomor antrian ini kepada petugas kasir untuk melakukan pembayaran dan mendapatkan tiket masuk fisik Anda.",
     en: "Please present this ticket number to the cashier for payment and to collect your physical entrance ticket.", 
-    zh: "请向收银员出示此二维码或排队号码以完成付款并领取实体入场票。",
+    zh: "请向收银员出示此排队号码以完成付款并领取实体门票",
   },
   floorSelectionDesc: { 
     id: "Anda memilih {count} lantai. Harga yang tertera adalah total biaya per orang untuk akses tersebut.", 
