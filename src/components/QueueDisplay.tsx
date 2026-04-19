@@ -4,6 +4,7 @@
  * Component to display the generated queue ticket.
  * Diperbarui dengan identitas visual Galeria Sophilia.
  * Update: Terintegrasi penuh dengan LanguageContext untuk dukungan multibahasa.
+ * Update: Mengaktifkan line break (\n) pada teks label kategori usia.
  */
 
 import React, { useMemo } from 'react';
@@ -115,10 +116,11 @@ const QueueDisplay: React.FC<QueueDisplayProps> = ({ visitor }) => {
                     {/* Category Header */}
                     <div className="flex justify-between items-end mb-4 border-b border-gray-100 pb-3">
                       <div>
-                        <span className="font-bold text-black capitalize block text-lg mb-1">
+                        {/* PENAMBAHAN CLASS: whitespace-pre-line agar \n berfungsi sebagai enter */}
+                        <span className="font-bold text-black capitalize block text-lg mb-1 whitespace-pre-line">
                           {getCategoryLabel(category)}
                         </span>
-                        <span className="text-xs font-bold text-[#fb9418] bg-orange-50 border border-orange-100 px-3 py-1 rounded-full">
+                        <span className="text-xs font-bold text-[#fb9418] bg-orange-50 border border-orange-100 px-3 py-1 rounded-full inline-block mt-1">
                           {data.quantity} {translations.people[language]}
                         </span>
                       </div>
