@@ -3,7 +3,7 @@
  * ----------------------------------------------------
  * Komponen untuk menampilkan ringkasan data transaksi.
  * Diperbarui dengan identitas visual Galeria Sophilia (Putih/Hitam/Oranye).
- * Update: Menambahkan fitur Rekap Pengunjung Berdasarkan Interval Waktu 30 Menit.
+ * Update: Menambahkan fitur Filter Waktu Global untuk seluruh rekap data.
  */
 
 import React, { useMemo, useState } from 'react';
@@ -27,7 +27,7 @@ export interface Transaction {
   status: string;
   payment_method?: string;
   total_price?: number;
-  created_at?: string; // TAMBAHAN: Diperlukan untuk rekap waktu
+  created_at?: string; // Diperlukan untuk rekap waktu
   items: TransactionItem[];
   origins?: TransactionOrigin[]; 
 }
@@ -57,9 +57,9 @@ const TICKET_CATEGORIES = [
 const Summary: React.FC<SummaryProps> = ({ transactions }) => {
   const [isExpanded, setIsExpanded] = useState<boolean>(false);
   
-  // STATE: Untuk Filter Jam Kepadatan Pengunjung
-  const [startTimeStr, setStartTimeStr] = useState<string>('10:00');
-  const [endTimeStr, setEndTimeStr] = useState<string>('16:00');
+  // STATE: Untuk Filter Rentang Waktu Global
+  const [startTimeStr, setStartTimeStr] = useState<string>('12:00');
+  const [endTimeStr, setEndTimeStr] = useState<string>('15:00');
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('id-ID', {
@@ -70,14 +70,41 @@ const Summary: React.FC<SummaryProps> = ({ transactions }) => {
   };
 
   // =========================================================
-  // KALKULASI DINAMIS (Mengikuti Filter Data Tabel Sepenuhnya)
+  // 0. PRE-FILTER TRANSAKSI BERDASARKAN WAKTU
+  // =========================================================
+  const filteredTransactions = useMemo(() => {
+    const [startH, startM] = startTimeStr.split(':').map(Number);
+    const [endH, endM] = endTimeStr.split(':').map(Number);
+
+    if (isNaN(startH) || isNaN(endH)) return transactions;
+
+    const startMins = startH * 60 + startM;
+    const endMins = endH * 60 + endM;
+
+    // Pastikan urutan waktu benar
+    const actualStart = Math.min(startMins, endMins);
+    const actualEnd = Math.max(startMins, endMins);
+
+    return transactions.filter(tx => {
+      if (!tx.created_at) return true; // Jika tidak ada timestamp, ikutkan saja
+      const date = new Date(tx.created_at);
+      const txMins = date.getHours() * 60 + date.getMinutes();
+      
+      // Filter transaksi yang hanya berada di antara waktu yang dipilih
+      return txMins >= actualStart && txMins <= actualEnd;
+    });
+  }, [transactions, startTimeStr, endTimeStr]);
+
+
+  // =========================================================
+  // KALKULASI DINAMIS (Menggunakan filteredTransactions)
   // =========================================================
   
   // 1. Kalkulasi Statistik Utama
   const dynamicStats = useMemo(() => {
     let visitors = 0, children = 0, teens = 0, adults = 0, revenue = 0;
     
-    transactions.forEach(tx => {
+    filteredTransactions.forEach(tx => {
       revenue += (tx.total_price || 0);
       
       const seenCategories = new Set<string>();
@@ -94,13 +121,13 @@ const Summary: React.FC<SummaryProps> = ({ transactions }) => {
 
     visitors = children + teens + adults;
     return { visitors, children, teens, adults, revenue };
-  }, [transactions]);
+  }, [filteredTransactions]);
 
   // 2. Kalkulasi jumlah pengunjung per lantai
   const floorStats = useMemo(() => {
     const stats: Record<string, number> = {};
 
-    transactions.forEach((tx) => {
+    filteredTransactions.forEach((tx) => {
       const floorsInTx = new Set<string>();
       tx.items.forEach(item => floorsInTx.add(item.floor));
 
@@ -117,13 +144,13 @@ const Summary: React.FC<SummaryProps> = ({ transactions }) => {
     });
 
     return Object.entries(stats).sort(); 
-  }, [transactions]);
+  }, [filteredTransactions]);
 
   // 3. Kalkulasi jumlah pengunjung per negara
   const countryStats = useMemo(() => {
     const stats: Record<string, number> = {};
 
-    transactions.forEach((tx) => {
+    filteredTransactions.forEach((tx) => {
       if (tx.origins) {
         tx.origins.forEach(origin => {
           const code = origin.country_code.toUpperCase();
@@ -133,7 +160,7 @@ const Summary: React.FC<SummaryProps> = ({ transactions }) => {
     });
 
     return Object.entries(stats).sort((a, b) => b[1] - a[1]);
-  }, [transactions]);
+  }, [filteredTransactions]);
 
   // 4. Kalkulasi Tabel Rekapitulasi Pembayaran (QRIS vs Card)
   const salesSummary = useMemo(() => {
@@ -150,7 +177,7 @@ const Summary: React.FC<SummaryProps> = ({ transactions }) => {
     let totalQrisQty = 0, totalQrisNominal = 0;
     let totalCardQty = 0, totalCardNominal = 0;
 
-    transactions.forEach(tx => {
+    filteredTransactions.forEach(tx => {
       const isCard = tx.payment_method === 'card';
 
       tx.items.forEach(item => {
@@ -180,13 +207,12 @@ const Summary: React.FC<SummaryProps> = ({ transactions }) => {
       rows, 
       totals: { totalQrisQty, totalQrisNominal, totalCardQty, totalCardNominal } 
     };
-  }, [transactions]);
+  }, [filteredTransactions]);
 
   // =========================================================
   // 5. KALKULASI INTERVAL WAKTU 30 MENIT
   // =========================================================
   const timeIntervalStats = useMemo(() => {
-    // 1. Parsing waktu mulai dan akhir dari string HH:MM
     const [startH, startM] = startTimeStr.split(':').map(Number);
     const [endH, endM] = endTimeStr.split(':').map(Number);
     
@@ -195,14 +221,12 @@ const Summary: React.FC<SummaryProps> = ({ transactions }) => {
     let startMins = startH * 60 + startM;
     let endMins = endH * 60 + endM;
     
-    // Validasi agar tidak terbalik
     if (startMins > endMins) {
       const temp = startMins;
       startMins = endMins;
       endMins = temp;
     }
 
-    // 2. Buat array blok waktu per 30 menit
     const intervals: {
       label: string;
       startMin: number;
@@ -232,19 +256,16 @@ const Summary: React.FC<SummaryProps> = ({ transactions }) => {
       });
     }
 
-    // 3. Distribusikan transaksi ke dalam interval waktu
-    transactions.forEach(tx => {
-      // Pastikan ada tanggal pembuatan
+    // Menggunakan filteredTransactions agar selaras
+    filteredTransactions.forEach(tx => {
       if (!tx.created_at) return;
       
       const date = new Date(tx.created_at);
       const txMins = date.getHours() * 60 + date.getMinutes();
 
-      // Cari interval yang cocok
       const interval = intervals.find(inv => txMins >= inv.startMin && txMins < inv.endMin);
       if (!interval) return;
 
-      // Hitung orang per lantai di transaksi ini
       let f1 = 0, f5 = 0, f67 = 0;
       const seenF1 = new Set(), seenF5 = new Set(), seenF67 = new Set();
 
@@ -262,7 +283,7 @@ const Summary: React.FC<SummaryProps> = ({ transactions }) => {
 
     return intervals;
 
-  }, [transactions, startTimeStr, endTimeStr]);
+  }, [filteredTransactions, startTimeStr, endTimeStr]);
 
 
   return (
@@ -297,6 +318,34 @@ const Summary: React.FC<SummaryProps> = ({ transactions }) => {
         }`}
       >
         <div className="space-y-6">
+
+          {/* =========================================================
+              BARU: FILTER WAKTU GLOBAL
+              ========================================================= */}
+          <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div>
+              <h3 className="font-extrabold text-black uppercase tracking-wider text-sm">Filter Rentang Waktu</h3>
+              <p className="text-[11px] sm:text-xs text-gray-500 font-medium mt-1">
+                Atur jam di bawah ini untuk menampilkan rekapitulasi data penjualan dan statistik pada periode tertentu.
+              </p>
+            </div>
+            
+            <div className="flex items-center gap-2 text-sm font-bold bg-gray-50 p-2 rounded-lg border border-gray-200 w-full sm:w-auto">
+              <input 
+                type="time" 
+                value={startTimeStr} 
+                onChange={(e) => setStartTimeStr(e.target.value)}
+                className="bg-white border border-gray-300 rounded px-2 py-1.5 outline-none focus:border-[#fb9418] w-full sm:w-auto"
+              />
+              <span className="text-gray-400">-</span>
+              <input 
+                type="time" 
+                value={endTimeStr} 
+                onChange={(e) => setEndTimeStr(e.target.value)}
+                className="bg-white border border-gray-300 rounded px-2 py-1.5 outline-none focus:border-[#fb9418] w-full sm:w-auto"
+              />
+            </div>
+          </div>
           
           {/* Grid Utama Stats */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
@@ -332,11 +381,8 @@ const Summary: React.FC<SummaryProps> = ({ transactions }) => {
           <div className="bg-[#fcfcfc] rounded-2xl shadow-sm border border-gray-200 overflow-hidden mt-6">
             <div className="p-5 border-b border-gray-200 bg-white flex justify-between items-center">
               <h4 className="text-sm font-extrabold text-black uppercase tracking-wider">
-                Rekapitulasi Penjualan Harian
+                Rekapitulasi Penjualan (Sesuai Filter Waktu)
               </h4>
-              <span className="text-[10px] sm:text-xs font-bold text-gray-500 bg-gray-100 px-2.5 py-1 rounded-md border border-gray-200">
-                Sesuai Filter Tabel
-              </span>
             </div>
             
             <div className="overflow-x-auto">
@@ -427,33 +473,13 @@ const Summary: React.FC<SummaryProps> = ({ transactions }) => {
             </div>
           </div>
 
-          {/* =========================================================
-              BARU: TABEL KEPADATAN PENGUNJUNG (INTERVAL 30 MENIT)
-              ========================================================= */}
+          {/* TABEL KEPADATAN PENGUNJUNG (INTERVAL 30 MENIT) */}
           <div className="bg-[#fcfcfc] rounded-2xl shadow-sm border border-gray-200 overflow-hidden mt-6">
             
-            {/* Header & Controls */}
-            <div className="p-5 border-b border-gray-200 bg-white flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+            <div className="p-5 border-b border-gray-200 bg-white flex justify-between items-center">
               <h4 className="text-sm font-extrabold text-black uppercase tracking-wider">
                 Kepadatan Pengunjung (Per 30 Menit)
               </h4>
-              
-              {/* Input Jam */}
-              <div className="flex items-center gap-2 text-sm font-bold bg-gray-50 p-2 rounded-lg border border-gray-200">
-                <input 
-                  type="time" 
-                  value={startTimeStr} 
-                  onChange={(e) => setStartTimeStr(e.target.value)}
-                  className="bg-white border border-gray-300 rounded px-2 py-1 outline-none focus:border-[#fb9418]"
-                />
-                <span className="text-gray-400">-</span>
-                <input 
-                  type="time" 
-                  value={endTimeStr} 
-                  onChange={(e) => setEndTimeStr(e.target.value)}
-                  className="bg-white border border-gray-300 rounded px-2 py-1 outline-none focus:border-[#fb9418]"
-                />
-              </div>
             </div>
 
             {/* Tabel Interval */}
@@ -522,7 +548,7 @@ const Summary: React.FC<SummaryProps> = ({ transactions }) => {
                     </div>
                   ))
                 ) : (
-                  <p className="text-gray-400 italic text-sm text-center py-4 bg-gray-50 rounded-lg">Belum ada data lantai.</p>
+                  <p className="text-gray-400 italic text-sm text-center py-4 bg-gray-50 rounded-lg">Belum ada data lantai pada rentang waktu ini.</p>
                 )}
               </div>
             </div>
@@ -545,7 +571,7 @@ const Summary: React.FC<SummaryProps> = ({ transactions }) => {
                     </div>
                   ))
                 ) : (
-                  <p className="text-gray-400 italic text-sm col-span-full text-center py-4 bg-gray-50 rounded-lg">Belum ada data negara.</p>
+                  <p className="text-gray-400 italic text-sm col-span-full text-center py-4 bg-gray-50 rounded-lg">Belum ada data negara pada rentang waktu ini.</p>
                 )}
               </div>
             </div>
