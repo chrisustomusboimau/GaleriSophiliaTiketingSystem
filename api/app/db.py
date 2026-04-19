@@ -4,8 +4,8 @@ import uuid
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-# Updated to use standard Uuid (cross-compatible with SQLite and PostgreSQL)
-from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, Uuid
+# BARU: Tambahkan Date dan UniqueConstraint ke dalam import
+from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, Uuid, Date, UniqueConstraint
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase, relationship
 
@@ -58,6 +58,19 @@ class TransactionEntry(Base):
     
     # 2. NULLABLE CONFIRMED AT: Opsional, awalnya Null, diisi otomatis oleh API saat status confirmed
     confirmed_at = Column(DateTime(timezone=True), nullable=True, default=None)
+
+    # --- BARU: PENANGANAN RACE CONDITION ANTREAN ---
+    
+    # Kolom khusus untuk tanggal transaksi
+    date_only = Column(Date, nullable=False)
+
+    # Composite Unique Constraint 
+    # Mencegah duplikat nomor antrean di HARI YANG SAMA
+    __table_args__ = (
+        UniqueConstraint('queue_number', 'date_only', name='uq_queue_per_day'),
+    )
+
+    # ----------------------------------------------
 
     # Relationships
     items = relationship("TransactionItem", back_populates="transaction", cascade="all, delete-orphan", lazy="selectin")
