@@ -4,6 +4,7 @@
  * Reusable table component to display a list of transactions.
  * Diperbarui dengan warna Galeria Sophilia (Hitam/Oranye) dan dukungan confirmed_at.
  * Update: Menerapkan Tema Warna Lantai yang konsisten dengan AdminDashboard.
+ * Update: Memperbaiki logika kategori usia agar tidak menghitung ganda jika membeli banyak lantai.
  */
 
 import React from "react";
@@ -91,7 +92,7 @@ const PaymentHistoryComponent: React.FC<PaymentHistoryComponentProps> = ({
   // Helper untuk menerjemahkan kategori ke Bahasa Indonesia
   const getCategoryLabel = (cat: string) => {
     if (cat === "adult") return "Dewasa";
-    if (cat === "student") return "Remaja";
+    if (cat === "student" || cat === "teen") return "Remaja";
     if (cat === "child") return "Anak";
     return cat;
   };
@@ -133,14 +134,16 @@ const PaymentHistoryComponent: React.FC<PaymentHistoryComponentProps> = ({
           <tbody className="divide-y divide-gray-100 text-sm">
             {transactions.map((tx) => {
               
-              // GROUPING LOGIC
+              // GROUPING LOGIC (DIPERBAIKI DENGAN MATH.MAX)
+              // Kita menggunakan Math.max agar jika pengunjung beli 2 lantai (misal 1 orang dewasa),
+              // sistem tetap menghitungnya sebagai 1 orang secara fisik di tabel Kategori Usia.
               const groupedByCategory = tx.items.reduce((acc, item) => {
                 const cat = item.age_category.toLowerCase();
                 if (!acc[cat]) {
                   acc[cat] = { quantity: item.quantity, floors: new Set<string>() };
                 } else {
-                  // Tambahkan quantity jika kategori yang sama muncul lagi (karena beda lantai)
-                  acc[cat].quantity += item.quantity;
+                  // Gunakan Math.max untuk mendapatkan jumlah terbesar, mencegah penghitungan ganda
+                  acc[cat].quantity = Math.max(acc[cat].quantity, item.quantity);
                 }
                 acc[cat].floors.add(item.floor);
                 return acc;

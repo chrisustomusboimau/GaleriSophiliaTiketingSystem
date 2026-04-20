@@ -3,9 +3,7 @@
  * ----------------------------------------------------
  * Main page integrating the PaymentHistoryComponent.
  * Diperbarui dengan identitas visual Galeria Sophilia (Putih/Hitam/Oranye).
- * FIX: Menambahkan kolom Metode Pembayaran & menghapus "WIB" dari Excel.
- * UPDATE: Menambahkan filter Metode Pembayaran (QRIS / EDC) dan
- * Filter Tanggal Historis yang sinkron dengan komponen Summary.
+ * FIX: Memperbaiki logika kalkulasi jumlah pengunjung agar akurat dengan Math.max
  */
 
 import React, { useEffect, useState, useCallback, useMemo } from "react";
@@ -74,9 +72,6 @@ const PaymentHistoryPage: React.FC = () => {
       setIsLoading(true);
       setError(null);
 
-      // UBAHAN PENTING:
-      // Kita mengambil '/api/v1/transactions/all' agar mendapatkan seluruh
-      // data historis, sehingga fitur filter tanggal client-side bisa bekerja untuk hari-hari lampau.
       let url = "/api/v1/transactions/all";
       if (statusFilter !== "all") {
         url += `?status=${statusFilter}`;
@@ -106,8 +101,6 @@ const PaymentHistoryPage: React.FC = () => {
   }, [statusFilter, handleUnauthorized]);
 
   // --- Filter Client-Side Utama (Metode Pembayaran & Tanggal) ---
-  // Inilah satu-satunya sumber data (Single Source of Truth) yang dipakai
-  // oleh tabel, summary, dan export ke excel agar 100% konsisten.
   const filteredTransactions = useMemo(() => {
     return transactions.filter((tx) => {
       // 1. Cek Filter Metode Pembayaran
@@ -193,7 +186,7 @@ const PaymentHistoryPage: React.FC = () => {
   };
 
   // ==========================================
-  // DERIVED SUMMARY DATA
+  // DERIVED SUMMARY DATA (DIPERBAIKI)
   // ==========================================
   const summaryStats = useMemo(() => {
     let totalChildren = 0;
@@ -206,17 +199,25 @@ const PaymentHistoryPage: React.FC = () => {
         totalRevenue += tx.total_price || 0;
       }
 
-      const seenCategories = new Set<string>();
+      // Logika Baru: Mengambil nilai jumlah orang terbanyak (Max) per kategori
+      // Hal ini mencegah "double counting" jika beli banyak lantai, 
+      // sekaligus mencegah "salah skip" jika admin mengedit beda jumlah antar lantai.
+      const uniqueCounts = { adult: 0, student: 0, child: 0 };
 
       tx.items.forEach((item) => {
         const cat = item.age_category.toLowerCase();
-        if (!seenCategories.has(cat)) {
-          if (cat === "child") totalChildren += item.quantity;
-          else if (cat === "student" || cat === "teen") totalTeens += item.quantity;
-          else if (cat === "adult") totalAdults += item.quantity;
-          seenCategories.add(cat);
+        if (cat === "adult") {
+          uniqueCounts.adult = Math.max(uniqueCounts.adult, item.quantity);
+        } else if (cat === "student" || cat === "teen") {
+          uniqueCounts.student = Math.max(uniqueCounts.student, item.quantity);
+        } else if (cat === "child") {
+          uniqueCounts.child = Math.max(uniqueCounts.child, item.quantity);
         }
       });
+
+      totalChildren += uniqueCounts.child;
+      totalTeens += uniqueCounts.student;
+      totalAdults += uniqueCounts.adult;
     });
 
     return {
@@ -229,7 +230,7 @@ const PaymentHistoryPage: React.FC = () => {
   }, [filteredTransactions]);
 
   // ==========================================
-  // EXPORT TO EXCEL LOGIC
+  // EXPORT TO EXCEL LOGIC (DIPERBAIKI)
   // ==========================================
   const handleExportExcel = async () => {
     if (filteredTransactions.length === 0) return;
@@ -290,16 +291,17 @@ const PaymentHistoryPage: React.FC = () => {
           timeStr = "Menunggu";
         }
 
+        // Logika Ekspor juga diselaraskan dengan Math.max
         const uniqueCounts = { adult: 0, student: 0, child: 0 };
-        const seenCategories = new Set<string>();
 
         tx.items.forEach((item) => {
           const cat = item.age_category.toLowerCase();
-          if (!seenCategories.has(cat)) {
-            if (cat === "adult") uniqueCounts.adult = item.quantity;
-            if (cat === "student" || cat === "teen") uniqueCounts.student = item.quantity;
-            if (cat === "child") uniqueCounts.child = item.quantity;
-            seenCategories.add(cat);
+          if (cat === "adult") {
+            uniqueCounts.adult = Math.max(uniqueCounts.adult, item.quantity);
+          } else if (cat === "student" || cat === "teen") {
+            uniqueCounts.student = Math.max(uniqueCounts.student, item.quantity);
+          } else if (cat === "child") {
+            uniqueCounts.child = Math.max(uniqueCounts.child, item.quantity);
           }
         });
 
