@@ -1,146 +1,170 @@
-import os
+# app/db.py
+# ==========================================================
+# DATABASE SETUP
+#
+# Perubahan dari versi sebelumnya:
+#   - Dihapus : import os, load_dotenv, ZoneInfo
+#   - Dihapus : os.getenv("DATABASE_URL") + logika transformasi URL
+#   - Dihapus : WIB = ZoneInfo(...) — duplikat dari config.py
+#   - Dihapus : nilai engine hardcoded (pool_pre_ping, cache_size)
+#   - Ditambah: satu baris import dari app.config
+#
+# Semua konfigurasi kini dibaca dari app.config.settings.
+# ==========================================================
+
 from collections.abc import AsyncGenerator
 import uuid
-from datetime import datetime
-from zoneinfo import ZoneInfo
 
-# BARU: Tambahkan Date dan UniqueConstraint ke dalam import
-from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, Uuid, Date, UniqueConstraint
+from sqlalchemy import (
+    Column, String, Integer, DateTime, ForeignKey,
+    Uuid, Date, UniqueConstraint
+)
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase, relationship
 
 from fastapi_users.db import SQLAlchemyUserDatabase, SQLAlchemyBaseUserTableUUID
 from fastapi import Depends
-from dotenv import load_dotenv
 
-# Load environment variables (berguna untuk testing di lokal)
-load_dotenv()
+# Satu-satunya sumber konfigurasi — tidak ada lagi os.getenv() di sini
+from app.config import settings
 
-# Ambil URL dari Environment Variable (di-set di Railway nanti)
-DATABASE_URL = os.getenv("DATABASE_URL")
 
-if not DATABASE_URL:
-    raise ValueError("DATABASE_URL environment variable is not set!")
-
-# PENTING UNTUK SUPABASE + ASYNC: 
-# Supabase memberikan URL berawalan 'postgresql://', tetapi SQLAlchemy async 
-# membutuhkan awalan 'postgresql+asyncpg://'. Kita ubah secara otomatis di sini.
-if DATABASE_URL.startswith("postgres://"):
-    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+asyncpg://", 1)
-elif DATABASE_URL.startswith("postgresql://") and not DATABASE_URL.startswith("postgresql+asyncpg://"):
-    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
-
-WIB = ZoneInfo("Asia/Jakarta")
+# ==========================================
+# ORM MODELS
+# ==========================================
 
 class Base(DeclarativeBase):
     pass
 
+
 class User(SQLAlchemyBaseUserTableUUID, Base):
     """
-    Admin user model. 
-    Public visitors do not have accounts, so transactions do not require a user_id.
+    Admin user model.
+    Public visitors do not have accounts,
+    so transactions do not require a user_id.
     """
     pass
+
 
 class TransactionEntry(Base):
     __tablename__ = "transactions"
 
-    id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    queue_number = Column(Integer, nullable=False, index=True)
-    total_price = Column(Integer, nullable=False)
-    status = Column(String, nullable=False, default="pending")
-    
-    # --- TAMBAHAN BARU: Payment Method (Default: qris) ---
+    id            = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    queue_number  = Column(Integer, nullable=False, index=True)
+    total_price   = Column(Integer, nullable=False)
+    status        = Column(String,  nullable=False, default="pending")
     payment_method = Column(String, nullable=False, default="qris")
-    
-    # 1. IMMUTABLE CREATED AT: Wajib ada, diisi otomatis saat data pertama kali dibuat
-    created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(WIB))
-    
-    # 2. NULLABLE CONFIRMED AT: Opsional, awalnya Null, diisi otomatis oleh API saat status confirmed
-    confirmed_at = Column(DateTime(timezone=True), nullable=True, default=None)
 
-    # --- BARU: PENANGANAN RACE CONDITION ANTREAN ---
-    
-    # Kolom khusus untuk tanggal transaksi
-    date_only = Column(Date, nullable=False)
-
-    # Composite Unique Constraint 
-    # Mencegah duplikat nomor antrean di HARI YANG SAMA
-    __table_args__ = (
-        UniqueConstraint('queue_number', 'date_only', name='uq_queue_per_day'),
+    # Immutable — diisi otomatis saat pertama kali dibuat
+    # Menggunakan settings.timezone agar konsisten dengan konfigurasi terpusat
+    created_at  = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: __import__("datetime").datetime.now(settings.timezone)
     )
 
-    # ----------------------------------------------
+    # Nullable — diisi oleh API saat status berubah ke "confirmed" / "paid"
+    confirmed_at = Column(DateTime(timezone=True), nullable=True, default=None)
 
-    # Relationships
-    items = relationship("TransactionItem", back_populates="transaction", cascade="all, delete-orphan", lazy="selectin")
-    origins = relationship("TransactionOriginEntry", back_populates="transaction", cascade="all, delete-orphan", lazy="selectin")
+    # Kolom tanggal untuk composite unique constraint (reset harian antrean)
+    date_only = Column(Date, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("queue_number", "date_only", name="uq_queue_per_day"),
+    )
+
+    # Relationships — lazy="selectin" agar data termuat otomatis tanpa query N+1
+    items   = relationship(
+        "TransactionItem",
+        back_populates="transaction",
+        cascade="all, delete-orphan",
+        lazy="selectin"
+    )
+    origins = relationship(
+        "TransactionOriginEntry",
+        back_populates="transaction",
+        cascade="all, delete-orphan",
+        lazy="selectin"
+    )
+
 
 class TransactionItem(Base):
     """
-    Stores each specific ticket type selected in a transaction.
-    Example: 2 Adults for Floor 6, 1 Child for Floor 1.
+    Menyimpan setiap jenis tiket yang dipilih dalam satu transaksi.
+    Contoh: 2 Adult untuk Floor 6, 1 Child untuk Floor 1.
     """
     __tablename__ = "transaction_items"
 
-    id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    transaction_id = Column(Uuid(as_uuid=True), ForeignKey("transactions.id", ondelete="CASCADE"), nullable=False)
-    
-    floor = Column(String, nullable=False)        # e.g., "Floor 1", "Floor 5", "Floor 6/7"
-    age_category = Column(String, nullable=False) # e.g., "adult", "student", "child"
-    quantity = Column(Integer, nullable=False, default=1)
-    unit_price = Column(Integer, nullable=False)  # Price at time of purchase
+    id             = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    transaction_id = Column(
+        Uuid(as_uuid=True),
+        ForeignKey("transactions.id", ondelete="CASCADE"),
+        nullable=False
+    )
+    floor          = Column(String,  nullable=False)        # e.g., "Floor 1", "Floor 5", "Floor 6/7"
+    age_category   = Column(String,  nullable=False)        # e.g., "adult", "student", "child"
+    quantity       = Column(Integer, nullable=False, default=1)
+    unit_price     = Column(Integer, nullable=False)        # Harga saat pembelian (price snapshot)
 
     transaction = relationship("TransactionEntry", back_populates="items")
-    
+
+
 class TransactionOriginEntry(Base):
     """
-    Tracks the origin countries for a specific transaction.
-    Normalized to support groups of visitors coming from multiple different countries.
+    Mencatat negara asal pengunjung dalam satu transaksi.
+    Dinormalisasi untuk mendukung kelompok pengunjung dari beberapa negara berbeda.
     """
     __tablename__ = "transaction_origins"
 
-    id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    
-    # Foreign Key linking back to the main transaction
-    transaction_id = Column(Uuid(as_uuid=True), ForeignKey("transactions.id", ondelete="CASCADE"), nullable=False)
-    
-    # Origin Details
-    country_code = Column(String(2), nullable=False) # e.g., 'id', 'us', 'jp'
-    count = Column(Integer, nullable=False, default=1) # Number of people from this country
+    id             = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    transaction_id = Column(
+        Uuid(as_uuid=True),
+        ForeignKey("transactions.id", ondelete="CASCADE"),
+        nullable=False
+    )
+    country_code = Column(String(2), nullable=False)  # e.g., 'id', 'us', 'jp'
+    count        = Column(Integer,   nullable=False, default=1)
 
-    # Relationships
     transaction = relationship("TransactionEntry", back_populates="origins")
 
 
 # ==========================================
-# DATABASE SETUP & HELPERS
+# DATABASE ENGINE & SESSION
 # ==========================================
 
-# Menambahkan pool_pre_ping untuk menjaga koneksi tetap stabil di server cloud
+# URL sudah dinormalisasi ke format asyncpg oleh settings.database_url_async
+# Semua parameter engine juga berasal dari settings — tidak ada hardcode di sini
 engine = create_async_engine(
-    DATABASE_URL, 
-    pool_pre_ping=True,
+    settings.database_url_async,
+    pool_pre_ping=settings.db_pool_pre_ping,
     connect_args={
-        "prepared_statement_cache_size": 0,
-        "statement_cache_size": 0
+        "statement_cache_size":          settings.db_statement_cache_size,
+        "prepared_statement_cache_size": settings.db_prepared_statement_cache_size,
     }
 )
 
 async_session_maker = async_sessionmaker(engine, expire_on_commit=False)
 
+
+# ==========================================
+# HELPERS / DEPENDENCIES
+# ==========================================
+
 async def create_db_and_tables():
-    """Creates all tables. For production, consider using Alembic for migrations."""
+    """
+    Membuat semua tabel jika belum ada.
+    Untuk production, pertimbangkan menggunakan Alembic untuk migrasi.
+    """
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
 
 async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
-    """Dependency to yield a database session per request."""
+    """Dependency: yield satu sesi database per request."""
     async with async_session_maker() as session:
         yield session
 
 
 async def get_user_db(session: AsyncSession = Depends(get_async_session)):
-    """Dependency used by fastapi-users to access the User table."""
+    """Dependency yang digunakan fastapi-users untuk mengakses tabel User."""
     yield SQLAlchemyUserDatabase(session, User)
