@@ -1,7 +1,7 @@
 import os
 import uuid
-from typing import Optional
-from fastapi import Depends, Request
+from typing import Optional, List
+from fastapi import Depends, Request, HTTPException, status
 from fastapi_users import BaseUserManager, FastAPIUsers, UUIDIDMixin
 from fastapi_users.authentication import (
     AuthenticationBackend,
@@ -22,7 +22,8 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
     verification_token_secret = SECRET
 
     async def on_after_register(self, user, request: Optional[Request] = None):
-        print(f"User {user.id} has registered.")
+        # UPDATE: Menampilkan role saat user baru mendaftar
+        print(f"User {user.id} has registered with role: {user.role}.")
 
     async def on_after_forgot_password(self, user, token, request=None):
         print(f"User {user.id} has forgot their password. Reset token: {token}.")
@@ -46,5 +47,35 @@ auth_backend = AuthenticationBackend(
 
 fastapi_users = FastAPIUsers[User, uuid.UUID](get_user_manager, auth_backends=[auth_backend])
 
+# User dasar yang sedang login (semua role yang penting aktif)
 current_active_user = fastapi_users.current_user(active=True)
 optional_current_user = fastapi_users.current_user(active=True, optional=True)
+
+# ==========================================
+# ROLE-BASED DEPENDENCIES (PENJAGA PINTU)
+# ==========================================
+
+def require_role(allowed_roles: List[str]):
+    """
+    Fungsi pembuat dependency untuk membatasi endpoint berdasarkan role.
+    Hanya user dengan role yang ada di daftar 'allowed_roles' yang bisa lewat.
+    """
+    async def role_checker(user: User = Depends(current_active_user)):
+        if user.role not in allowed_roles:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Akses ditolak. Endpoint ini membutuhkan role: {', '.join(allowed_roles)}"
+            )
+        return user
+    return role_checker
+
+# --- DAFTAR PENJAGA PINTU YANG BISA DIGUNAKAN DI MAIN.PY ---
+
+# 1. Hanya Admin
+current_admin = require_role(["admin"])
+
+# 2. Kasir (Admin juga biasanya diberi akses untuk fitur kasir)
+current_kasir = require_role(["admin", "kasir"])
+
+# 3. Checker (Admin juga diberi akses)
+current_checker = require_role(["admin", "checker"])

@@ -5,13 +5,18 @@ from typing import List, Optional
 import uuid
 from datetime import datetime
 from fastapi_users import schemas
-from enum import Enum # <-- TAMBAHAN: Import Enum
+from enum import Enum 
 
 # --- ENUMS ---
-# TAMBAHAN: Definisi metode pembayaran yang diizinkan
 class PaymentMethodEnum(str, Enum):
     qris = "qris"
     card = "card"
+
+# TAMBAHAN: Definisi Role User
+class RoleEnum(str, Enum):
+    admin = "admin"
+    kasir = "kasir"
+    checker = "checker"
 
 # --- ORIGIN SCHEMA ---
 class OriginBase(BaseModel):
@@ -31,7 +36,6 @@ class TicketItemResponse(TicketItemBase):
 class TransactionCreate(BaseModel):
     items: List[TicketItemBase]
     origins: List[OriginBase] = []
-    # TAMBAHAN: Field payment method dengan nilai default 'qris'
     payment_method: PaymentMethodEnum = PaymentMethodEnum.qris
 
 class TransactionResponse(BaseModel):
@@ -40,10 +44,7 @@ class TransactionResponse(BaseModel):
     total_price: int
     status: str
     created_at: datetime
-    # Tambahkan confirmed_at agar selalu diekspos oleh API
     confirmed_at: Optional[datetime] = None
-    
-    # TAMBAHAN: Field payment method untuk response
     payment_method: PaymentMethodEnum
     
     items: List[TicketItemResponse]
@@ -67,23 +68,21 @@ class TransactionUpdateData(BaseModel):
     Allows updating the items array, origins array, and/or the payment status.
     """
     items: Optional[List[TransactionItemSchema]] = None
-    origins: Optional[List[OriginBase]] = None  # <--- INI SANGAT PENTING AGAR API EDIT BEKERJA
+    origins: Optional[List[OriginBase]] = None  
     status: Optional[str] = None
-    
-    # TAMBAHAN: Mengizinkan admin mengubah metode pembayaran
     payment_method: Optional[PaymentMethodEnum] = None
 
 class TransactionStatusUpdate(BaseModel):
     status: str = Field(..., pattern="^(pending|paid|confirmed|cancelled)$")
 
 # ==========================================
-# USER SCHEMAS (Admin Auth)
+# USER SCHEMAS (Auth & Roles)
 # ==========================================
 class UserRead(schemas.BaseUser[uuid.UUID]):
-    pass
+    role: RoleEnum # Menampilkan role saat membaca data user
 
 class UserCreate(schemas.BaseUserCreate):
-    pass
+    role: RoleEnum = RoleEnum.kasir # Default saat buat user baru adalah kasir
 
 class UserUpdate(schemas.BaseUserUpdate):
-    pass
+    role: Optional[RoleEnum] = None # Mengizinkan perubahan role

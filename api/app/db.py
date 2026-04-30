@@ -1,14 +1,6 @@
 # app/db.py
 # ==========================================================
 # DATABASE SETUP
-#
-# Perubahan dari versi sebelumnya:
-#   - Dihapus : import os, load_dotenv, ZoneInfo
-#   - Dihapus : os.getenv("DATABASE_URL") + logika transformasi URL
-#   - Dihapus : WIB = ZoneInfo(...) — duplikat dari config.py
-#   - Dihapus : nilai engine hardcoded (pool_pre_ping, cache_size)
-#   - Ditambah: satu baris import dari app.config
-#
 # Semua konfigurasi kini dibaca dari app.config.settings.
 # ==========================================================
 
@@ -39,11 +31,12 @@ class Base(DeclarativeBase):
 
 class User(SQLAlchemyBaseUserTableUUID, Base):
     """
-    Admin user model.
+    Model user untuk staff internal.
     Public visitors do not have accounts,
     so transactions do not require a user_id.
     """
-    pass
+    # TAMBAHAN: Kolom role untuk membedakan admin, kasir, dan checker
+    role = Column(String, nullable=False, default="kasir")
 
 
 class TransactionEntry(Base):

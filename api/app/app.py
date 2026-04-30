@@ -1,9 +1,8 @@
-# main.py — Setelah refactor menggunakan config terpusat
+# main.py
 # ==========================================================
 # Perubahan dari versi sebelumnya:
-#   - PRICES_MAP, WIB, MAX_RETRY, CORS origins DIHAPUS dari sini
-#   - Semua nilai tersebut dibaca dari app.config (sumber tunggal)
-#   - Prefix API dibaca dari settings.api_prefix
+#   - Menambahkan custom endpoint GET /api/v1/users untuk
+#     mengambil daftar semua staf (hanya untuk Admin).
 # ==========================================================
 
 from fastapi import FastAPI, HTTPException, Depends, Query
@@ -16,7 +15,7 @@ from typing import List, Optional
 from sqlalchemy.exc import IntegrityError
 from datetime import datetime, timedelta
 
-from app.config import settings  # <-- SATU-SATUNYA sumber konfigurasi
+from app.config import settings
 
 from app.schema import (
     UserCreate, UserRead, UserUpdate,
@@ -27,12 +26,17 @@ from app.db import (
     create_db_and_tables, get_async_session, User,
     TransactionEntry, TransactionOriginEntry, TransactionItem
 )
-from app.users import auth_backend, current_active_user, fastapi_users
 
+from app.users import auth_backend, fastapi_users, require_role
 
 # ----------------------------------------------------------
-# Tidak ada lagi hardcode di sini — semua dari settings
+# INISIALISASI PENJAGA PINTU (ROLE-BASED ACCESS)
 # ----------------------------------------------------------
+current_admin   = require_role(["admin"])
+current_kasir   = require_role(["admin", "kasir"])
+current_checker = require_role(["admin", "kasir", "checker"])
+
+
 PREFIX = settings.api_prefix   # "/api/v1"
 WIB    = settings.timezone     # ZoneInfo("Asia/Jakarta")
 
@@ -45,11 +49,11 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 # ==========================================
-# CORS MIDDLEWARE — Dari settings
+# CORS MIDDLEWARE
 # ==========================================
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins_list,  # Dibaca dari .env
+    allow_origins=settings.cors_origins_list,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -58,11 +62,42 @@ app.add_middleware(
 # ==========================================
 # AUTHENTICATION ROUTERS
 # ==========================================
-app.include_router(fastapi_users.get_auth_router(auth_backend),           prefix=f"{PREFIX}/auth/jwt", tags=["auth"])
-app.include_router(fastapi_users.get_register_router(UserRead, UserCreate),prefix=f"{PREFIX}/auth",     tags=["auth"])
-app.include_router(fastapi_users.get_reset_password_router(),              prefix=f"{PREFIX}/auth",     tags=["auth"])
-app.include_router(fastapi_users.get_verify_router(UserRead),              prefix=f"{PREFIX}/auth",     tags=["auth"])
-app.include_router(fastapi_users.get_users_router(UserRead, UserUpdate),   prefix=f"{PREFIX}/users",    tags=["users"])
+# 1. PUBLIC: Login & Reset Password bisa diakses siapa saja
+app.include_router(fastapi_users.get_auth_router(auth_backend), prefix=f"{PREFIX}/auth/jwt", tags=["auth"])
+app.include_router(fastapi_users.get_reset_password_router(),   prefix=f"{PREFIX}/auth",     tags=["auth"])
+app.include_router(fastapi_users.get_verify_router(UserRead),   prefix=f"{PREFIX}/auth",     tags=["auth"])
+
+# 2. RESTRICTED: Pendaftaran hanya untuk Admin
+app.include_router(
+    fastapi_users.get_register_router(UserRead, UserCreate),
+    prefix=f"{PREFIX}/auth",
+    tags=["auth-admin"],
+    dependencies=[Depends(current_admin)]  
+)
+
+# Rute standar users dari fastapi-users (hanya bisa /me atau /id)
+app.include_router(
+    fastapi_users.get_users_router(UserRead, UserUpdate),
+    prefix=f"{PREFIX}/users",
+    tags=["users-admin"],
+    dependencies=[Depends(current_admin)]  
+)
+
+# ==========================================
+# CUSTOM USER ROUTER: GET ALL USERS (HANYA ADMIN)
+# ==========================================
+@app.get(f"{PREFIX}/users", response_model=List[UserRead], tags=["users-admin"])
+async def list_all_users(
+    session: AsyncSession = Depends(get_async_session),
+    user: User = Depends(current_admin) # <-- HANYA ADMIN
+):
+    """ADMIN: Mengambil daftar seluruh staf (admin, kasir, checker)."""
+    try:
+        result = await session.execute(select(User))
+        users = result.scalars().all()
+        return users
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch users: {e}")
 
 
 # ==========================================
@@ -74,13 +109,13 @@ async def create_transaction(
     payload: TransactionCreate,
     session: AsyncSession = Depends(get_async_session)
 ):
-    for attempt in range(settings.max_queue_retry):  # Dari .env: MAX_QUEUE_RETRY
+    """PUBLIC: Pengunjung bisa membuat antrian transaksi baru."""
+    for attempt in range(settings.max_queue_retry):
         try:
             total_price = 0
             transaction_items = []
 
             for item in payload.items:
-                # settings.prices_map identik strukturnya dengan PRICES_MAP lama
                 floor_prices = settings.prices_map.get(item.floor)
                 if not floor_prices:
                     raise HTTPException(status_code=400, detail=f"Invalid floor: {item.floor}")
@@ -138,9 +173,9 @@ async def create_transaction(
 async def list_today_transactions(
     status: Optional[str] = Query(None, description="Filter by payment status (e.g., 'pending')"),
     session: AsyncSession = Depends(get_async_session),
-    user: User = Depends(current_active_user)
+    user: User = Depends(current_checker) # <-- PENJAGA PINTU: ADMIN, KASIR, CHECKER
 ):
-    """ADMIN: Lists transactions FOR TODAY ONLY (WIB Timezone)."""
+    """STAFF: Lists transactions FOR TODAY ONLY."""
     try:
         now_wib = datetime.now(WIB)
         start_of_today_wib    = datetime(now_wib.year, now_wib.month, now_wib.day, tzinfo=WIB)
@@ -165,9 +200,9 @@ async def list_today_transactions(
 async def list_all_transactions(
     status: Optional[str] = Query(None, description="Filter by payment status (e.g., 'pending')"),
     session: AsyncSession = Depends(get_async_session),
-    user: User = Depends(current_active_user)
+    user: User = Depends(current_checker) # <-- PENJAGA PINTU: ADMIN, KASIR, CHECKER
 ):
-    """ADMIN: Lists ALL historical transactions."""
+    """STAFF: Lists ALL historical transactions."""
     try:
         query = select(TransactionEntry).order_by(TransactionEntry.created_at.asc())
         if status:
@@ -205,9 +240,9 @@ async def update_transaction_status(
     transaction_id: uuid.UUID,
     payload: TransactionStatusUpdate,
     session: AsyncSession = Depends(get_async_session),
-    user: User = Depends(current_active_user)
+    user: User = Depends(current_kasir) # <-- PENJAGA PINTU: HANYA ADMIN & KASIR (Checker Ditolak)
 ):
-    """ADMIN: Updates the payment status of a ticket."""
+    """STAFF: Updates the payment status of a ticket."""
     try:
         result = await session.execute(
             select(TransactionEntry).where(TransactionEntry.id == transaction_id)
@@ -232,9 +267,9 @@ async def edit_transaction_data(
     transaction_id: uuid.UUID,
     payload: TransactionUpdateData,
     session: AsyncSession = Depends(get_async_session),
-    user: User = Depends(current_active_user)
+    user: User = Depends(current_kasir) # <-- PENJAGA PINTU: HANYA ADMIN & KASIR (Checker Ditolak)
 ):
-    """ADMIN: Updates items and origins by deleting old records and inserting new ones."""
+    """STAFF: Updates items and origins by deleting old records and inserting new ones."""
     result = await session.execute(select(TransactionEntry).where(TransactionEntry.id == transaction_id))
     entry = result.scalars().first()
     if not entry:
@@ -293,7 +328,7 @@ async def edit_transaction_data(
 async def delete_transaction_entry(
     transaction_id: uuid.UUID,
     session: AsyncSession = Depends(get_async_session),
-    user: User = Depends(current_active_user)
+    user: User = Depends(current_admin) # <-- PENJAGA PINTU: HANYA ADMIN BISA MENGHAPUS
 ):
     """ADMIN: Deletes a specific transaction from the queue."""
     try:

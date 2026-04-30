@@ -11,6 +11,7 @@ import PaymentHistoryPage from "./pages/PaymentHistoryPage";
 import ProtectedRoute from "./components/ProtectedRoute";
 import GalleryInfoPage from './pages/GalleryInfoPage';
 import SummaryPage from "./pages/SummaryPage"; // Sesuaikan path jika perlu
+import UserManagementPage from "./pages/UserManagementPage";
 
 
 /**
@@ -43,6 +44,8 @@ export function App() {
             <Route path="/queue/:id" element={<QueuePage />} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/admin/summary" element={<SummaryPage />} />
+            <Route path="/admin/users" element={<UserManagementPage />} />
+
 
             {/* Protected routes — ProtectedRoute checks token before rendering */}
             <Route element={<ProtectedRoute />}>
