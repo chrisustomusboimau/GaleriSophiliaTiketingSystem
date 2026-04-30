@@ -14,6 +14,8 @@ import uuid
 from typing import List, Optional
 from sqlalchemy.exc import IntegrityError
 from datetime import datetime, timedelta
+from pydantic import BaseModel, EmailStr
+from fastapi_users.password import PasswordHelper
 
 from app.config import settings
 
@@ -48,6 +50,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
+_password_helper = PasswordHelper()
 # ==========================================
 # CORS MIDDLEWARE
 # ==========================================
@@ -86,6 +89,129 @@ app.include_router(
 # ==========================================
 # CUSTOM USER ROUTER: GET ALL USERS (HANYA ADMIN)
 # ==========================================
+class UserUpdatePayload(BaseModel):
+    """Payload untuk update akun staf oleh Admin."""
+    email:     Optional[EmailStr] = None
+    role:      Optional[str]      = None
+    is_active: Optional[bool]     = None
+    password:  Optional[str]      = None
+
+@app.patch(f"{PREFIX}/users/{{user_id}}/update", response_model=UserRead, tags=["users-admin"])
+async def update_user_by_admin(
+    user_id: uuid.UUID,
+    payload: UserUpdatePayload,
+    session: AsyncSession = Depends(get_async_session),
+    admin: User = Depends(current_admin),
+):
+    """ADMIN: Mengubah email, role, status aktif, atau password akun staf."""
+    result = await session.execute(select(User).where(User.id == user_id))
+    target = result.scalars().first()
+ 
+    if not target:
+        raise HTTPException(status_code=404, detail="User tidak ditemukan.")
+ 
+    # Cek duplikasi email sebelum update
+    if payload.email is not None and payload.email != target.email:
+        existing = await session.execute(
+            select(User).where(User.email == payload.email)
+        )
+        if existing.scalars().first():
+            raise HTTPException(status_code=400, detail="Email sudah digunakan oleh akun lain.")
+        target.email = payload.email
+ 
+    if payload.role is not None:
+        valid_roles = {"admin", "kasir", "checker"}
+        if payload.role not in valid_roles:
+            raise HTTPException(status_code=400, detail=f"Role tidak valid. Pilih dari: {valid_roles}")
+        target.role = payload.role
+ 
+    if payload.is_active is not None:
+        target.is_active = payload.is_active
+ 
+    if payload.password is not None:
+        if len(payload.password) < 8:
+            raise HTTPException(status_code=400, detail="Password minimal 8 karakter.")
+        
+        target.hashed_password = _password_helper.hash(payload.password)
+ 
+    try:
+        await session.commit()
+        await session.refresh(target)
+        return target
+    except Exception as e:
+        await session.rollback()
+        raise HTTPException(status_code=500, detail=f"Gagal menyimpan perubahan: {e}")
+ 
+ 
+# ==========================================
+# CUSTOM USER ROUTER: DELETE USER (HANYA ADMIN)
+# ==========================================
+ 
+@app.delete(f"{PREFIX}/users/{{user_id}}/delete", tags=["users-admin"])
+async def delete_user_by_admin(
+    user_id: uuid.UUID,
+    session: AsyncSession = Depends(get_async_session),
+    admin: User = Depends(current_admin),
+):
+    """ADMIN: Menghapus akun staf secara permanen."""
+    # Cegah admin menghapus akunnya sendiri
+    if admin.id == user_id:
+        raise HTTPException(status_code=400, detail="Tidak bisa menghapus akun Anda sendiri.")
+ 
+    result = await session.execute(select(User).where(User.id == user_id))
+    target = result.scalars().first()
+ 
+    if not target:
+        raise HTTPException(status_code=404, detail="User tidak ditemukan.")
+ 
+    try:
+        await session.delete(target)
+        await session.commit()
+        return {"success": True, "message": f"Akun {target.email} berhasil dihapus."}
+    except Exception as e:
+        await session.rollback()
+        raise HTTPException(status_code=500, detail=f"Gagal menghapus akun: {e}")
+ 
+
+@app.patch(f"{PREFIX}/users/{{user_id}}/update", response_model=UserRead, tags=["users-admin"])
+async def update_user_by_admin(
+    user_id: uuid.UUID,
+    payload: UserUpdatePayload,
+    session: AsyncSession = Depends(get_async_session),
+    admin: User = Depends(current_admin),  # <-- HANYA ADMIN
+):
+    """ADMIN: Mengubah role, status aktif, atau password akun staf."""
+    result = await session.execute(select(User).where(User.id == user_id))
+    target = result.scalars().first()
+ 
+    if not target:
+        raise HTTPException(status_code=404, detail="User tidak ditemukan.")
+ 
+    if payload.role is not None:
+        valid_roles = {"admin", "kasir", "checker"}
+        if payload.role not in valid_roles:
+            raise HTTPException(status_code=400, detail=f"Role tidak valid. Pilih dari: {valid_roles}")
+        target.role = payload.role
+ 
+    if payload.is_active is not None:
+        target.is_active = payload.is_active
+ 
+    if payload.password is not None:
+        if len(payload.password) < 8:
+            raise HTTPException(status_code=400, detail="Password minimal 8 karakter.")
+        # Hash password menggunakan password helper dari fastapi-users
+        
+        target.hashed_password = _password_helper.hash(payload.password)        
+ 
+    try:
+        await session.commit()
+        await session.refresh(target)
+        return target
+    except Exception as e:
+        await session.rollback()
+        raise HTTPException(status_code=500, detail=f"Gagal menyimpan perubahan: {e}")
+ 
+
 @app.get(f"{PREFIX}/users", response_model=List[UserRead], tags=["users-admin"])
 async def list_all_users(
     session: AsyncSession = Depends(get_async_session),
