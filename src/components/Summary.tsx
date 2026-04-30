@@ -56,8 +56,8 @@ const TICKET_CATEGORIES = [
 
 const Summary: React.FC<SummaryProps> = ({ transactions }) => {
   // STATE: Untuk Filter Rentang Waktu Global & Preset
-  const [startTimeStr, setStartTimeStr] = useState<string>('09:00');
-  const [endTimeStr, setEndTimeStr] = useState<string>('15:00');
+  const [startTimeStr, setStartTimeStr] = useState<string>('00:00');
+  const [endTimeStr, setEndTimeStr] = useState<string>('23:59');
   const [activeSession, setActiveSession] = useState<string>('manual');
 
   const formatCurrency = (amount: number) => {
