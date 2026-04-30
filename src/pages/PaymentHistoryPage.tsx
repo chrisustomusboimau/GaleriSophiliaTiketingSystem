@@ -3,7 +3,7 @@
  * ----------------------------------------------------
  * Main page integrating the PaymentHistoryComponent.
  * Diperbarui dengan identitas visual Galeria Sophilia (Putih/Hitam/Oranye).
- * FIX: Memperbaiki logika kalkulasi jumlah pengunjung agar akurat dengan Math.max
+ * UPDATE: Komponen Summary dipindahkan ke halaman terpisah.
  */
 
 import React, { useEffect, useState, useCallback, useMemo } from "react";
@@ -12,7 +12,6 @@ import ExcelJS from "exceljs";
 import { saveAs } from "file-saver";
 import PaymentHistoryComponent, { Transaction } from "../components/PaymentHistoryComponent";
 import EditTransactionModal from "../components/EditTransactionModal";
-import Summary from "../components/Summary";
 
 const PaymentHistoryPage: React.FC = () => {
   const navigate = useNavigate();
@@ -33,13 +32,8 @@ const PaymentHistoryPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
 
   // --- Filter States ---
-  // Filter Status (dikirim ke server sebagai query param)
   const [statusFilter, setStatusFilter] = useState<string>("confirmed");
-  
-  // Filter Metode Pembayaran (diterapkan client-side)
   const [paymentFilter, setPaymentFilter] = useState<string>("all");
-  
-  // Filter Tanggal (diterapkan client-side, default ke hari ini)
   const [dateFilter, setDateFilter] = useState<string>(getTodayString());
 
   // --- Modal State ---
@@ -100,33 +94,40 @@ const PaymentHistoryPage: React.FC = () => {
     }
   }, [statusFilter, handleUnauthorized]);
 
-  // --- Filter Client-Side Utama (Metode Pembayaran & Tanggal) ---
+  // --- Filter Client-Side ---
   const filteredTransactions = useMemo(() => {
     return transactions.filter((tx) => {
-      // 1. Cek Filter Metode Pembayaran
-      if (paymentFilter !== "all" && tx.payment_method !== paymentFilter) {
-        return false;
-      }
-
-      // 2. Cek Filter Tanggal
+      if (paymentFilter !== "all" && tx.payment_method !== paymentFilter) return false;
+      
       if (dateFilter) {
         if (!tx.created_at) return false;
         const txDate = new Date(tx.created_at);
-        const yyyy = txDate.getFullYear();
-        const mm = String(txDate.getMonth() + 1).padStart(2, "0");
-        const dd = String(txDate.getDate()).padStart(2, "0");
-        const formattedTxDate = `${yyyy}-${mm}-${dd}`;
-
-        if (formattedTxDate !== dateFilter) {
-          return false;
-        }
+        const formattedTxDate = `${txDate.getFullYear()}-${String(txDate.getMonth() + 1).padStart(2, "0")}-${String(txDate.getDate()).padStart(2, "0")}`;
+        if (formattedTxDate !== dateFilter) return false;
       }
-
       return true;
     });
   }, [transactions, paymentFilter, dateFilter]);
 
-  // --- Edit & Delete Handlers ---
+  // --- Label Indikator Ringkasan Filter Aktif ---
+  const activeFilterLabel = useMemo(() => {
+    const parts: string[] = [];
+    if (dateFilter) {
+      const [yyyy, mm, dd] = dateFilter.split("-");
+      parts.push(`Tanggal: ${dd}/${mm}/${yyyy}`);
+    } else {
+      parts.push("Semua Waktu");
+    }
+    if (statusFilter !== "all") {
+      parts.push(statusFilter === "confirmed" ? "Lunas" : statusFilter === "pending" ? "Pending" : "Batal");
+    }
+    if (paymentFilter !== "all") {
+      parts.push(paymentFilter === "qris" ? "QRIS" : "EDC");
+    }
+    return parts.length > 0 ? parts.join(" · ") : null;
+  }, [statusFilter, paymentFilter, dateFilter]);
+
+  // --- Handlers ---
   const handleEditClick = (tx: Transaction) => {
     setSelectedTx(tx);
     setIsModalOpen(true);
@@ -144,7 +145,6 @@ const PaymentHistoryPage: React.FC = () => {
             payment_method: updatedData.payment_method,
           }),
         });
-
         if (!responseEdit.ok) {
           if (responseEdit.status === 401) return handleUnauthorized();
           throw new Error("Gagal menyimpan rincian tiket.");
@@ -157,13 +157,11 @@ const PaymentHistoryPage: React.FC = () => {
           headers: getAuthHeaders(),
           body: JSON.stringify({ status: updatedData.status }),
         });
-
         if (!responseStatus.ok) {
           if (responseStatus.status === 401) return handleUnauthorized();
           throw new Error("Gagal menyimpan status tiket.");
         }
       }
-
       await loadTransactions();
     } catch (error) {
       console.error(error);
@@ -176,65 +174,15 @@ const PaymentHistoryPage: React.FC = () => {
       method: "DELETE",
       headers: getAuthHeaders(),
     });
-
     if (!response.ok) {
       if (response.status === 401) return handleUnauthorized();
       throw new Error("Gagal menghapus data.");
     }
-
     await loadTransactions();
   };
 
-  // ==========================================
-  // DERIVED SUMMARY DATA (DIPERBAIKI)
-  // ==========================================
-  const summaryStats = useMemo(() => {
-    let totalChildren = 0;
-    let totalTeens = 0;
-    let totalAdults = 0;
-    let totalRevenue = 0;
-
-    filteredTransactions.forEach((tx) => {
-      if (tx.status === "paid" || tx.status === "confirmed") {
-        totalRevenue += tx.total_price || 0;
-      }
-
-      // Logika Baru: Mengambil nilai jumlah orang terbanyak (Max) per kategori
-      // Hal ini mencegah "double counting" jika beli banyak lantai, 
-      // sekaligus mencegah "salah skip" jika admin mengedit beda jumlah antar lantai.
-      const uniqueCounts = { adult: 0, student: 0, child: 0 };
-
-      tx.items.forEach((item) => {
-        const cat = item.age_category.toLowerCase();
-        if (cat === "adult") {
-          uniqueCounts.adult = Math.max(uniqueCounts.adult, item.quantity);
-        } else if (cat === "student" || cat === "teen") {
-          uniqueCounts.student = Math.max(uniqueCounts.student, item.quantity);
-        } else if (cat === "child") {
-          uniqueCounts.child = Math.max(uniqueCounts.child, item.quantity);
-        }
-      });
-
-      totalChildren += uniqueCounts.child;
-      totalTeens += uniqueCounts.student;
-      totalAdults += uniqueCounts.adult;
-    });
-
-    return {
-      totalVisitors: totalChildren + totalTeens + totalAdults,
-      totalChildren,
-      totalTeens,
-      totalAdults,
-      totalRevenue,
-    };
-  }, [filteredTransactions]);
-
-  // ==========================================
-  // EXPORT TO EXCEL LOGIC (DIPERBAIKI)
-  // ==========================================
   const handleExportExcel = async () => {
     if (filteredTransactions.length === 0) return;
-
     try {
       setIsExporting(true);
       const workbook = new ExcelJS.Workbook();
@@ -258,90 +206,51 @@ const PaymentHistoryPage: React.FC = () => {
       headerRow.font = { bold: true, color: { argb: "FFFFFFFF" } };
       headerRow.alignment = { vertical: "middle", horizontal: "center" };
       headerRow.eachCell((cell) => {
-        cell.fill = {
-          type: "pattern",
-          pattern: "solid",
-          fgColor: { argb: "FF000000" },
-        };
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF000000" } };
       });
 
       const statusMap: Record<string, string> = {
-        paid: "LUNAS",
-        confirmed: "LUNAS",
-        pending: "PENDING",
-        cancelled: "BATAL",
+        paid: "LUNAS", confirmed: "LUNAS", pending: "PENDING", cancelled: "BATAL",
       };
 
       filteredTransactions.forEach((tx) => {
         const dateObj = new Date(tx.created_at || "");
-        const dateStr = `${dateObj.getDate().toString().padStart(2, "0")}/${(
-          dateObj.getMonth() + 1
-        )
-          .toString()
-          .padStart(2, "0")}/${dateObj.getFullYear()}`;
+        const dateStr = `${dateObj.getDate().toString().padStart(2, "0")}/${(dateObj.getMonth() + 1).toString().padStart(2, "0")}/${dateObj.getFullYear()}`;
 
         let timeStr = "-";
         if (tx.confirmed_at) {
           const confDate = new Date(tx.confirmed_at);
-          timeStr = `${confDate.getHours().toString().padStart(2, "0")}:${confDate
-            .getMinutes()
-            .toString()
-            .padStart(2, "0")}`;
+          timeStr = `${confDate.getHours().toString().padStart(2, "0")}:${confDate.getMinutes().toString().padStart(2, "0")}`;
         } else {
           timeStr = "Menunggu";
         }
 
-        // Logika Ekspor juga diselaraskan dengan Math.max
         const uniqueCounts = { adult: 0, student: 0, child: 0 };
-
         tx.items.forEach((item) => {
           const cat = item.age_category.toLowerCase();
-          if (cat === "adult") {
-            uniqueCounts.adult = Math.max(uniqueCounts.adult, item.quantity);
-          } else if (cat === "student" || cat === "teen") {
-            uniqueCounts.student = Math.max(uniqueCounts.student, item.quantity);
-          } else if (cat === "child") {
-            uniqueCounts.child = Math.max(uniqueCounts.child, item.quantity);
-          }
+          if (cat === "adult") uniqueCounts.adult = Math.max(uniqueCounts.adult, item.quantity);
+          else if (cat === "student" || cat === "teen") uniqueCounts.student = Math.max(uniqueCounts.student, item.quantity);
+          else if (cat === "child") uniqueCounts.child = Math.max(uniqueCounts.child, item.quantity);
         });
 
-        const uniqueFloors = Array.from(new Set(tx.items.map((i) => i.floor)))
-          .sort()
-          .join(", ");
-
+        const uniqueFloors = Array.from(new Set(tx.items.map((i) => i.floor))).sort().join(", ");
         let pmStr = "-";
         if (tx.payment_method === "card") pmStr = "EDC";
         else if (tx.payment_method === "qris") pmStr = "QRIS";
         else if (tx.payment_method) pmStr = tx.payment_method.toUpperCase();
 
         const row = worksheet.addRow({
-          queue_number: tx.queue_number,
-          id: tx.id,
-          date: dateStr,
-          time: timeStr,
-          floors: uniqueFloors,
-          child: uniqueCounts.child,
-          student: uniqueCounts.student,
-          adult: uniqueCounts.adult,
-          payment_method: pmStr,
-          total_price: tx.total_price,
-          status: statusMap[tx.status] || tx.status,
+          queue_number: tx.queue_number, id: tx.id, date: dateStr, time: timeStr, floors: uniqueFloors,
+          child: uniqueCounts.child, student: uniqueCounts.student, adult: uniqueCounts.adult,
+          payment_method: pmStr, total_price: tx.total_price, status: statusMap[tx.status] || tx.status,
         });
-
         row.getCell("total_price").numFmt = '"Rp"#,##0;[Red]\\-"Rp"#,##0';
       });
 
       const now = new Date();
-      const dateSuffix = `${now.getFullYear()}${(now.getMonth() + 1)
-        .toString()
-        .padStart(2, "0")}${now.getDate().toString().padStart(2, "0")}_${now
-        .getHours()
-        .toString()
-        .padStart(2, "0")}${now.getMinutes().toString().padStart(2, "0")}`;
+      const dateSuffix = `${now.getFullYear()}${(now.getMonth() + 1).toString().padStart(2, "0")}${now.getDate().toString().padStart(2, "0")}_${now.getHours().toString().padStart(2, "0")}${now.getMinutes().toString().padStart(2, "0")}`;
       const buffer = await workbook.xlsx.writeBuffer();
-      const blob = new Blob([buffer], {
-        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      });
+      const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
       saveAs(blob, `Data_Kasir_Sophilia_${dateSuffix}.xlsx`);
     } catch (err) {
       console.error("Failed to export to Excel:", err);
@@ -355,57 +264,27 @@ const PaymentHistoryPage: React.FC = () => {
     loadTransactions();
   }, [loadTransactions]);
 
-  // --- Label Indikator Ringkasan Filter Aktif ---
-  const activeFilterLabel = useMemo(() => {
-    const parts: string[] = [];
-    
-    // Label Tanggal
-    if (dateFilter) {
-      const [yyyy, mm, dd] = dateFilter.split("-");
-      parts.push(`Tanggal: ${dd}/${mm}/${yyyy}`);
-    } else {
-      parts.push("Semua Waktu");
-    }
-
-    // Label Status
-    if (statusFilter !== "all") {
-      parts.push(
-        statusFilter === "confirmed" ? "Lunas" : statusFilter === "pending" ? "Pending" : "Batal"
-      );
-    }
-
-    // Label Metode
-    if (paymentFilter !== "all") {
-      parts.push(paymentFilter === "qris" ? "QRIS" : "EDC");
-    }
-
-    return parts.length > 0 ? parts.join(" · ") : null;
-  }, [statusFilter, paymentFilter, dateFilter]);
+  // --- Navigasi ke Halaman Summary ---
+  const handleViewSummary = () => {
+    navigate("/admin/summary", { 
+      state: { filteredTransactions, activeFilterLabel } 
+    });
+  };
 
   return (
     <div className="min-h-screen bg-[#fcfcfc] flex flex-col font-sans text-black">
-
       {/* HEADER */}
       <header className="bg-black border-b-[4px] border-[#fb9418] sticky top-0 z-40 shadow-md shrink-0">
         <div className="max-w-7xl mx-auto py-4 px-4 sm:px-6 flex justify-between items-center">
-
-          <div
-            className="flex flex-col select-none cursor-pointer"
-            onClick={() => navigate("/admin")}
-          >
-            <h2 className="text-[#fcfcfc] font-light tracking-[0.3em] text-[10px] sm:text-xs uppercase ml-0.5">
-              Galeria
-            </h2>
-            <h1 className="text-[#fb9418] font-bold tracking-wider text-xl sm:text-2xl uppercase leading-none mt-0.5">
-              Sophilia
-            </h1>
+          <div className="flex flex-col select-none cursor-pointer" onClick={() => navigate("/admin")}>
+            <h2 className="text-[#fcfcfc] font-light tracking-[0.3em] text-[10px] sm:text-xs uppercase ml-0.5">Galeria</h2>
+            <h1 className="text-[#fb9418] font-bold tracking-wider text-xl sm:text-2xl uppercase leading-none mt-0.5">Sophilia</h1>
           </div>
 
           <div className="flex items-center gap-2 sm:gap-4">
             <div className="hidden md:block text-xs font-bold tracking-widest uppercase bg-[#1a1a1a] text-[#fb9418] border border-zinc-800 px-3 py-1.5 rounded-lg shadow-inner">
               Riwayat Transaksi
             </div>
-
             <button
               onClick={() => navigate("/admin")}
               className="text-xs sm:text-sm font-bold px-3 sm:px-4 py-2 rounded-lg border border-zinc-700 text-gray-300 hover:text-[#fb9418] hover:border-[#fb9418] hover:bg-[#fb9418]/10 transition-all active:scale-95"
@@ -413,7 +292,6 @@ const PaymentHistoryPage: React.FC = () => {
               <span className="hidden sm:inline">Kembali ke Antrian</span>
               <span className="sm:hidden">Antrian</span>
             </button>
-
             <button
               onClick={handleLogout}
               className="text-xs sm:text-sm font-bold px-3 sm:px-4 py-2 rounded-lg bg-red-600/10 border border-red-500/30 text-red-500 hover:bg-red-600 hover:text-[#fcfcfc] transition-all active:scale-95"
@@ -426,37 +304,28 @@ const PaymentHistoryPage: React.FC = () => {
 
       <main className="flex-1 p-4 sm:p-6 lg:p-8">
         <div className="max-w-7xl mx-auto space-y-8">
-
           <header className="flex flex-col sm:flex-row sm:justify-between sm:items-end border-b-2 border-gray-200 pb-5 gap-4 mt-2">
             <div>
-              <h2 className="text-2xl font-bold text-black uppercase tracking-wider">
-                Data Transaksi
-              </h2>
-              <p className="text-gray-500 text-sm mt-1">
-                Pantau seluruh riwayat transaksi pengunjung.
-              </p>
+              <h2 className="text-2xl font-bold text-black uppercase tracking-wider">Data Transaksi</h2>
+              <p className="text-gray-500 text-sm mt-1">Pantau seluruh riwayat transaksi pengunjung.</p>
             </div>
 
             <div className="flex items-center gap-3 flex-wrap">
-
-              {/* ── FILTER TANGGAL (client-side) ── */}
+              {/* FILTER TANGGAL */}
               <div className="flex items-center bg-white border border-gray-300 rounded-lg shadow-sm px-3 py-2 focus-within:ring-2 focus-within:ring-[#fb9418] focus-within:border-[#fb9418] cursor-pointer">
                 <svg className="w-4 h-4 text-gray-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
                 </svg>
                 <input
-                  type="date"
-                  value={dateFilter}
-                  onChange={(e) => setDateFilter(e.target.value)}
+                  type="date" value={dateFilter} onChange={(e) => setDateFilter(e.target.value)}
                   className="text-sm font-bold text-black outline-none bg-transparent cursor-pointer"
                   title="Filter Berdasarkan Tanggal"
                 />
               </div>
 
-              {/* ── FILTER STATUS (server-side) ── */}
+              {/* FILTER STATUS */}
               <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
+                value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}
                 className="bg-white border-gray-300 rounded-lg shadow-sm text-sm font-bold text-black focus:ring-[#fb9418] focus:border-[#fb9418] py-2 px-3 border outline-none cursor-pointer h-[38px]"
               >
                 <option value="all">Semua Status</option>
@@ -465,37 +334,26 @@ const PaymentHistoryPage: React.FC = () => {
                 <option value="cancelled">Batal (Cancelled)</option>
               </select>
 
-              {/* ── FILTER METODE PEMBAYARAN (client-side) ── */}
+              {/* FILTER METODE */}
               <div className="flex border border-gray-300 rounded-lg overflow-hidden shadow-sm bg-white text-sm font-bold h-[38px]">
-                {(
-                  [
-                    { value: "all",  label: "Semua" },
-                    { value: "qris", label: "QRIS"  },
-                    { value: "card", label: "EDC"   },
-                  ] as const
-                ).map(({ value, label }) => (
+                {([ { value: "all", label: "Semua" }, { value: "qris", label: "QRIS" }, { value: "card", label: "EDC" } ] as const).map(({ value, label }) => (
                   <button
-                    key={value}
-                    onClick={() => setPaymentFilter(value)}
-                    className={`px-4 py-1 transition-colors focus:outline-none ${
-                      paymentFilter === value
-                        ? value === "card"
-                          ? "bg-black text-white"
-                          : "bg-[#fb9418] text-white"
-                        : "text-gray-600 hover:bg-gray-50"
-                    } ${value !== "all" ? "border-l border-gray-300" : ""}`}
+                    key={value} onClick={() => setPaymentFilter(value)}
+                    className={`px-4 py-1 transition-colors focus:outline-none ${ paymentFilter === value ? value === "card" ? "bg-black text-white" : "bg-[#fb9418] text-white" : "text-gray-600 hover:bg-gray-50" } ${value !== "all" ? "border-l border-gray-300" : ""}`}
                   >
                     {label}
                   </button>
                 ))}
               </div>
 
+              {/* TOMBOL HALAMAN SUMMARY (BARU) */}
               <button
-                onClick={loadTransactions}
-                disabled={isLoading}
-                className="text-sm font-bold px-4 py-2 bg-white border border-gray-300 rounded-lg text-black hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-200 disabled:opacity-50 transition-colors shadow-sm h-[38px]"
+                onClick={handleViewSummary}
+                disabled={filteredTransactions.length === 0}
+                className="text-sm font-bold px-4 py-2 bg-blue-50 border border-blue-200 rounded-lg text-blue-700 hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm flex items-center gap-2 h-[38px]"
               >
-                {isLoading ? "Memuat..." : "Refresh"}
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
+                <span>Lihat Ringkasan</span>
               </button>
 
               <button
@@ -508,22 +366,15 @@ const PaymentHistoryPage: React.FC = () => {
             </div>
           </header>
 
-          {/* Badge filter aktif + tombol reset */}
           {activeFilterLabel && (
             <div className="flex flex-wrap items-center gap-2 -mt-4">
               <span className="text-xs text-gray-500 font-medium">Filter aktif:</span>
               <span className="inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1 rounded-full bg-orange-50 text-[#fb9418] border border-orange-200">
                 {activeFilterLabel}
-                <span className="font-black text-black ml-1">
-                  {filteredTransactions.length} data
-                </span>
+                <span className="font-black text-black ml-1">{filteredTransactions.length} data</span>
               </span>
               <button
-                onClick={() => { 
-                  setStatusFilter("all"); 
-                  setPaymentFilter("all"); 
-                  setDateFilter(""); // Dikosongkan agar menampilkan semua riwayat
-                }}
+                onClick={() => { setStatusFilter("all"); setPaymentFilter("all"); setDateFilter(""); }}
                 className="text-xs text-gray-400 hover:text-red-500 font-bold transition-colors underline underline-offset-2 ml-2"
               >
                 Reset Semua Filter
@@ -531,50 +382,19 @@ const PaymentHistoryPage: React.FC = () => {
             </div>
           )}
 
-          {/* Summary komponen hanya menerima data yang sudah difilter */}
-          <Summary
-            totalVisitors={summaryStats.totalVisitors}
-            totalChildren={summaryStats.totalChildren}
-            totalTeens={summaryStats.totalTeens}
-            totalAdults={summaryStats.totalAdults}
-            totalRevenue={summaryStats.totalRevenue}
-            transactions={filteredTransactions}
-          />
-
           {error && (
             <div className="p-4 bg-red-50 border border-red-200 text-red-700 rounded-xl shadow-sm flex items-center gap-3">
-              <svg
-                className="w-5 h-5 shrink-0"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth="2"
-                  d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                />
-              </svg>
               <span className="font-medium">{error}</span>
             </div>
           )}
 
-          {/* Tabel Detail */}
-          <PaymentHistoryComponent
-            transactions={filteredTransactions}
-            isLoading={isLoading}
-            onEditClick={handleEditClick}
-          />
+          <PaymentHistoryComponent transactions={filteredTransactions} isLoading={isLoading} onEditClick={handleEditClick} />
         </div>
       </main>
 
       <EditTransactionModal
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        transaction={selectedTx}
-        onSave={handleSaveEdit}
-        onDelete={handleDeleteTransaction}
+        isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} transaction={selectedTx}
+        onSave={handleSaveEdit} onDelete={handleDeleteTransaction}
       />
     </div>
   );

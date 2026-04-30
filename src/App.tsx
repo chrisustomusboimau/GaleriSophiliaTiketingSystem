@@ -10,6 +10,8 @@ import LoginPage from "./pages/LoginPage";
 import PaymentHistoryPage from "./pages/PaymentHistoryPage"; 
 import ProtectedRoute from "./components/ProtectedRoute";
 import GalleryInfoPage from './pages/GalleryInfoPage';
+import SummaryPage from "./pages/SummaryPage"; // Sesuaikan path jika perlu
+
 
 /**
  * Root application component.
@@ -40,6 +42,7 @@ export function App() {
             <Route path="/visitor-form" element={<VisitorFormPage />} />         {/* <-- UPDATED */}
             <Route path="/queue/:id" element={<QueuePage />} />
             <Route path="/login" element={<LoginPage />} />
+            <Route path="/admin/summary" element={<SummaryPage />} />
 
             {/* Protected routes — ProtectedRoute checks token before rendering */}
             <Route element={<ProtectedRoute />}>
