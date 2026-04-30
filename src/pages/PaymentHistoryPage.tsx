@@ -3,7 +3,7 @@
  * ----------------------------------------------------
  * Main page integrating the PaymentHistoryComponent.
  * Diperbarui dengan identitas visual Galeria Sophilia (Putih/Hitam/Oranye).
- * UPDATE: Komponen Summary dipindahkan ke halaman terpisah.
+ * UPDATE: Menambahkan Filter Sesi Waktu Global (Otomatis & Manual).
  */
 
 import React, { useEffect, useState, useCallback, useMemo } from "react";
@@ -36,6 +36,11 @@ const PaymentHistoryPage: React.FC = () => {
   const [paymentFilter, setPaymentFilter] = useState<string>("all");
   const [dateFilter, setDateFilter] = useState<string>(getTodayString());
 
+  // --- Waktu / Sesi Filter States ---
+  const [startTimeStr, setStartTimeStr] = useState<string>("");
+  const [endTimeStr, setEndTimeStr] = useState<string>("");
+  const [activeSession, setActiveSession] = useState<string>("all");
+
   // --- Modal State ---
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedTx, setSelectedTx] = useState<Transaction | null>(null);
@@ -58,6 +63,19 @@ const PaymentHistoryPage: React.FC = () => {
 
   const handleLogout = () => {
     handleUnauthorized();
+  };
+
+  // --- Handlers Sesi Waktu ---
+  const handleSessionSelect = (sessionName: string, start: string, end: string) => {
+    setActiveSession(sessionName);
+    setStartTimeStr(start);
+    setEndTimeStr(end);
+  };
+
+  const handleManualTimeChange = (type: "start" | "end", value: string) => {
+    setActiveSession("manual");
+    if (type === "start") setStartTimeStr(value);
+    else setEndTimeStr(value);
   };
 
   // --- Data Fetching ---
@@ -97,17 +115,43 @@ const PaymentHistoryPage: React.FC = () => {
   // --- Filter Client-Side ---
   const filteredTransactions = useMemo(() => {
     return transactions.filter((tx) => {
+      // Filter Metode Pembayaran
       if (paymentFilter !== "all" && tx.payment_method !== paymentFilter) return false;
       
+      // Filter Tanggal
       if (dateFilter) {
         if (!tx.created_at) return false;
         const txDate = new Date(tx.created_at);
         const formattedTxDate = `${txDate.getFullYear()}-${String(txDate.getMonth() + 1).padStart(2, "0")}-${String(txDate.getDate()).padStart(2, "0")}`;
         if (formattedTxDate !== dateFilter) return false;
       }
+
+      // Filter Rentang Waktu (Jam)
+      if (startTimeStr && endTimeStr) {
+        if (!tx.created_at) return false;
+        
+        const txDate = new Date(tx.created_at);
+        const txMins = txDate.getHours() * 60 + txDate.getMinutes();
+
+        const [startH, startM] = startTimeStr.split(':').map(Number);
+        const [endH, endM] = endTimeStr.split(':').map(Number);
+
+        if (!isNaN(startH) && !isNaN(endH)) {
+          const startMins = startH * 60 + startM;
+          const endMins = endH * 60 + endM;
+
+          const actualStart = Math.min(startMins, endMins);
+          const actualEnd = Math.max(startMins, endMins);
+
+          if (txMins < actualStart || txMins > actualEnd) {
+            return false;
+          }
+        }
+      }
+
       return true;
     });
-  }, [transactions, paymentFilter, dateFilter]);
+  }, [transactions, paymentFilter, dateFilter, startTimeStr, endTimeStr]);
 
   // --- Label Indikator Ringkasan Filter Aktif ---
   const activeFilterLabel = useMemo(() => {
@@ -118,6 +162,11 @@ const PaymentHistoryPage: React.FC = () => {
     } else {
       parts.push("Semua Waktu");
     }
+
+    if (startTimeStr && endTimeStr) {
+      parts.push(`Jam: ${startTimeStr}-${endTimeStr}`);
+    }
+
     if (statusFilter !== "all") {
       parts.push(statusFilter === "confirmed" ? "Lunas" : statusFilter === "pending" ? "Pending" : "Batal");
     }
@@ -125,7 +174,7 @@ const PaymentHistoryPage: React.FC = () => {
       parts.push(paymentFilter === "qris" ? "QRIS" : "EDC");
     }
     return parts.length > 0 ? parts.join(" · ") : null;
-  }, [statusFilter, paymentFilter, dateFilter]);
+  }, [statusFilter, paymentFilter, dateFilter, startTimeStr, endTimeStr]);
 
   // --- Handlers ---
   const handleEditClick = (tx: Transaction) => {
@@ -303,78 +352,160 @@ const PaymentHistoryPage: React.FC = () => {
       </header>
 
       <main className="flex-1 p-4 sm:p-6 lg:p-8">
-        <div className="max-w-7xl mx-auto space-y-8">
-          <header className="flex flex-col sm:flex-row sm:justify-between sm:items-end border-b-2 border-gray-200 pb-5 gap-4 mt-2">
-            <div>
-              <h2 className="text-2xl font-bold text-black uppercase tracking-wider">Data Transaksi</h2>
-              <p className="text-gray-500 text-sm mt-1">Pantau seluruh riwayat transaksi pengunjung.</p>
-            </div>
-
-            <div className="flex items-center gap-3 flex-wrap">
-              {/* FILTER TANGGAL */}
-              <div className="flex items-center bg-white border border-gray-300 rounded-lg shadow-sm px-3 py-2 focus-within:ring-2 focus-within:ring-[#fb9418] focus-within:border-[#fb9418] cursor-pointer">
-                <svg className="w-4 h-4 text-gray-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
-                </svg>
-                <input
-                  type="date" value={dateFilter} onChange={(e) => setDateFilter(e.target.value)}
-                  className="text-sm font-bold text-black outline-none bg-transparent cursor-pointer"
-                  title="Filter Berdasarkan Tanggal"
-                />
+        <div className="max-w-7xl mx-auto space-y-6">
+          
+          <header className="flex flex-col border-b-2 border-gray-200 pb-5 gap-4 mt-2">
+            
+            {/* Baris Pertama: Judul & Filter Utama */}
+            <div className="flex flex-col lg:flex-row lg:justify-between lg:items-end gap-4">
+              <div>
+                <h2 className="text-2xl font-bold text-black uppercase tracking-wider">Data Transaksi</h2>
+                <p className="text-gray-500 text-sm mt-1">Pantau seluruh riwayat transaksi pengunjung.</p>
               </div>
 
-              {/* FILTER STATUS */}
-              <select
-                value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}
-                className="bg-white border-gray-300 rounded-lg shadow-sm text-sm font-bold text-black focus:ring-[#fb9418] focus:border-[#fb9418] py-2 px-3 border outline-none cursor-pointer h-[38px]"
-              >
-                <option value="all">Semua Status</option>
-                <option value="confirmed">Lunas / Dikonfirmasi</option>
-                <option value="pending">Menunggu (Pending)</option>
-                <option value="cancelled">Batal (Cancelled)</option>
-              </select>
+              <div className="flex items-center gap-3 flex-wrap">
+                {/* FILTER TANGGAL */}
+                <div className="flex items-center bg-white border border-gray-300 rounded-lg shadow-sm px-3 py-2 focus-within:ring-2 focus-within:ring-[#fb9418] focus-within:border-[#fb9418] cursor-pointer">
+                  <svg className="w-4 h-4 text-gray-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                  </svg>
+                  <input
+                    type="date" value={dateFilter} onChange={(e) => setDateFilter(e.target.value)}
+                    className="text-sm font-bold text-black outline-none bg-transparent cursor-pointer"
+                    title="Filter Berdasarkan Tanggal"
+                  />
+                </div>
 
-              {/* FILTER METODE */}
-              <div className="flex border border-gray-300 rounded-lg overflow-hidden shadow-sm bg-white text-sm font-bold h-[38px]">
-                {([ { value: "all", label: "Semua" }, { value: "qris", label: "QRIS" }, { value: "card", label: "EDC" } ] as const).map(({ value, label }) => (
-                  <button
-                    key={value} onClick={() => setPaymentFilter(value)}
-                    className={`px-4 py-1 transition-colors focus:outline-none ${ paymentFilter === value ? value === "card" ? "bg-black text-white" : "bg-[#fb9418] text-white" : "text-gray-600 hover:bg-gray-50" } ${value !== "all" ? "border-l border-gray-300" : ""}`}
-                  >
-                    {label}
-                  </button>
-                ))}
+                {/* FILTER STATUS */}
+                <select
+                  value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}
+                  className="bg-white border-gray-300 rounded-lg shadow-sm text-sm font-bold text-black focus:ring-[#fb9418] focus:border-[#fb9418] py-2 px-3 border outline-none cursor-pointer h-[38px]"
+                >
+                  <option value="all">Semua Status</option>
+                  <option value="confirmed">Lunas / Dikonfirmasi</option>
+                  <option value="pending">Menunggu (Pending)</option>
+                  <option value="cancelled">Batal (Cancelled)</option>
+                </select>
+
+                {/* FILTER METODE */}
+                <div className="flex border border-gray-300 rounded-lg overflow-hidden shadow-sm bg-white text-sm font-bold h-[38px]">
+                  {([ { value: "all", label: "Semua" }, { value: "qris", label: "QRIS" }, { value: "card", label: "EDC" } ] as const).map(({ value, label }) => (
+                    <button
+                      key={value} onClick={() => setPaymentFilter(value)}
+                      className={`px-4 py-1 transition-colors focus:outline-none ${ paymentFilter === value ? value === "card" ? "bg-black text-white" : "bg-[#fb9418] text-white" : "text-gray-600 hover:bg-gray-50" } ${value !== "all" ? "border-l border-gray-300" : ""}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* TOMBOL HALAMAN SUMMARY */}
+                <button
+                  onClick={handleViewSummary}
+                  disabled={filteredTransactions.length === 0}
+                  className="text-sm font-bold px-4 py-2 bg-blue-50 border border-blue-200 rounded-lg text-blue-700 hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm flex items-center gap-2 h-[38px]"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
+                  <span>Lihat Ringkasan</span>
+                </button>
+
+                <button
+                  onClick={handleExportExcel}
+                  disabled={isExporting || filteredTransactions.length === 0}
+                  className="text-sm font-bold px-4 py-2 bg-[#1a1a1a] border border-gray-800 rounded-lg text-white hover:bg-black focus:outline-none focus:ring-2 focus:ring-gray-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm flex items-center gap-2 h-[38px]"
+                >
+                  {isExporting ? <span>Mengekspor...</span> : <span>Unduh Excel</span>}
+                </button>
               </div>
-
-              {/* TOMBOL HALAMAN SUMMARY (BARU) */}
-              <button
-                onClick={handleViewSummary}
-                disabled={filteredTransactions.length === 0}
-                className="text-sm font-bold px-4 py-2 bg-blue-50 border border-blue-200 rounded-lg text-blue-700 hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm flex items-center gap-2 h-[38px]"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
-                <span>Lihat Ringkasan</span>
-              </button>
-
-              <button
-                onClick={handleExportExcel}
-                disabled={isExporting || filteredTransactions.length === 0}
-                className="text-sm font-bold px-4 py-2 bg-[#1a1a1a] border border-gray-800 rounded-lg text-white hover:bg-black focus:outline-none focus:ring-2 focus:ring-gray-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm flex items-center gap-2 h-[38px]"
-              >
-                {isExporting ? <span>Mengekspor...</span> : <span>Unduh Excel</span>}
-              </button>
             </div>
+
+            {/* Baris Kedua: FILTER SESI WAKTU (PRESET) */}
+            <div className="w-full flex flex-col md:flex-row items-start md:items-center gap-3 pt-4 border-t border-gray-100">
+              <span className="text-xs font-bold text-gray-500 uppercase tracking-widest shrink-0">
+                Pilih Sesi Waktu:
+              </span>
+              
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  onClick={() => handleSessionSelect('minggu_pagi', '09:00', '10:45')}
+                  className={`px-3 py-1.5 text-xs font-bold rounded-lg border transition-all ${
+                    activeSession === 'minggu_pagi'
+                      ? 'bg-black text-white border-black shadow-md'
+                      : 'bg-white text-gray-600 border-gray-300 hover:border-gray-400 hover:bg-gray-50'
+                  }`}
+                >
+                  Minggu Pagi (09.00 - 10.45)
+                </button>
+                <button
+                  onClick={() => handleSessionSelect('minggu_siang', '12:00', '15:00')}
+                  className={`px-3 py-1.5 text-xs font-bold rounded-lg border transition-all ${
+                    activeSession === 'minggu_siang'
+                      ? 'bg-black text-white border-black shadow-md'
+                      : 'bg-white text-gray-600 border-gray-300 hover:border-gray-400 hover:bg-gray-50'
+                  }`}
+                >
+                  Minggu Siang (12.00 - 15.00)
+                </button>
+                <button
+                  onClick={() => handleSessionSelect('sabtu', '13:30', '16:30')}
+                  className={`px-3 py-1.5 text-xs font-bold rounded-lg border transition-all ${
+                    activeSession === 'sabtu'
+                      ? 'bg-black text-white border-black shadow-md'
+                      : 'bg-white text-gray-600 border-gray-300 hover:border-gray-400 hover:bg-gray-50'
+                  }`}
+                >
+                  Sabtu (13.30 - 16.30)
+                </button>
+                <button
+                  onClick={() => handleSessionSelect('all', '', '')}
+                  className={`px-3 py-1.5 text-xs font-bold rounded-lg border transition-all ${
+                    activeSession === 'all'
+                      ? 'bg-orange-50 text-[#fb9418] border-orange-200 shadow-sm'
+                      : 'bg-white text-gray-600 border-gray-300 hover:border-gray-400 hover:bg-gray-50'
+                  }`}
+                >
+                  Semua Waktu
+                </button>
+
+                {/* Input Manual Tersembunyi tapi Otomatis Aktif */}
+                <div className="flex items-center gap-1.5 bg-white px-2 py-1 rounded-lg border border-gray-300 ml-1">
+                  <input 
+                    type="time" 
+                    value={startTimeStr} 
+                    onChange={(e) => handleManualTimeChange('start', e.target.value)}
+                    className="text-xs font-bold text-gray-700 outline-none bg-transparent cursor-pointer"
+                  />
+                  <span className="text-gray-400 text-xs">-</span>
+                  <input 
+                    type="time" 
+                    value={endTimeStr} 
+                    onChange={(e) => handleManualTimeChange('end', e.target.value)}
+                    className="text-xs font-bold text-gray-700 outline-none bg-transparent cursor-pointer"
+                  />
+                  <span className="text-[10px] text-gray-400 font-medium ml-1 hidden sm:inline">(Manual)</span>
+                </div>
+              </div>
+            </div>
+
           </header>
 
+          {/* BADGE Indikator Filter Aktif */}
           {activeFilterLabel && (
-            <div className="flex flex-wrap items-center gap-2 -mt-4">
+            <div className="flex flex-wrap items-center gap-2 -mt-2">
               <span className="text-xs text-gray-500 font-medium">Filter aktif:</span>
               <span className="inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1 rounded-full bg-orange-50 text-[#fb9418] border border-orange-200">
                 {activeFilterLabel}
                 <span className="font-black text-black ml-1">{filteredTransactions.length} data</span>
               </span>
               <button
-                onClick={() => { setStatusFilter("all"); setPaymentFilter("all"); setDateFilter(""); }}
+                onClick={() => { 
+                  setStatusFilter("all"); 
+                  setPaymentFilter("all"); 
+                  setDateFilter(""); 
+                  setActiveSession("all");
+                  setStartTimeStr("");
+                  setEndTimeStr("");
+                }}
                 className="text-xs text-gray-400 hover:text-red-500 font-bold transition-colors underline underline-offset-2 ml-2"
               >
                 Reset Semua Filter

@@ -3,7 +3,7 @@
  * ----------------------------------------------------
  * Komponen untuk menampilkan ringkasan data transaksi.
  * Diperbarui dengan identitas visual Galeria Sophilia (Putih/Hitam/Oranye).
- * Update: Menghapus fitur dropdown agar konten langsung terbuka.
+ * Update: Menambahkan Preset Tombol Sesi Waktu.
  */
 
 import React, { useMemo, useState } from 'react';
@@ -55,9 +55,10 @@ const TICKET_CATEGORIES = [
 ];
 
 const Summary: React.FC<SummaryProps> = ({ transactions }) => {
-  // STATE: Untuk Filter Rentang Waktu Global
-  const [startTimeStr, setStartTimeStr] = useState<string>('12:00');
+  // STATE: Untuk Filter Rentang Waktu Global & Preset
+  const [startTimeStr, setStartTimeStr] = useState<string>('09:00');
   const [endTimeStr, setEndTimeStr] = useState<string>('15:00');
+  const [activeSession, setActiveSession] = useState<string>('manual');
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('id-ID', {
@@ -65,6 +66,19 @@ const Summary: React.FC<SummaryProps> = ({ transactions }) => {
       currency: 'IDR',
       maximumFractionDigits: 0,
     }).format(amount);
+  };
+
+  // --- Handlers untuk Preset Sesi ---
+  const handleSessionSelect = (sessionName: string, start: string, end: string) => {
+    setActiveSession(sessionName);
+    setStartTimeStr(start);
+    setEndTimeStr(end);
+  };
+
+  const handleManualTimeChange = (type: 'start' | 'end', value: string) => {
+    setActiveSession('manual'); // Otomatis pindah ke manual jika jam diubah sendiri
+    if (type === 'start') setStartTimeStr(value);
+    else setEndTimeStr(value);
   };
 
   // =========================================================
@@ -290,30 +304,81 @@ const Summary: React.FC<SummaryProps> = ({ transactions }) => {
       <div className="space-y-6">
 
         {/* =========================================================
-            BARU: FILTER WAKTU GLOBAL
+            BARU: FILTER WAKTU GLOBAL & PRESET
             ========================================================= */}
-        <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <div>
-            <h3 className="font-extrabold text-black uppercase tracking-wider text-sm">Filter Rentang Waktu</h3>
-            <p className="text-[11px] sm:text-xs text-gray-500 font-medium mt-1">
-              Atur jam di bawah ini untuk menampilkan rekapitulasi data penjualan dan statistik pada periode tertentu.
-            </p>
-          </div>
-          
-          <div className="flex items-center gap-2 text-sm font-bold bg-gray-50 p-2 rounded-lg border border-gray-200 w-full sm:w-auto">
-            <input 
-              type="time" 
-              value={startTimeStr} 
-              onChange={(e) => setStartTimeStr(e.target.value)}
-              className="bg-white border border-gray-300 rounded px-2 py-1.5 outline-none focus:border-[#fb9418] w-full sm:w-auto"
-            />
-            <span className="text-gray-400">-</span>
-            <input 
-              type="time" 
-              value={endTimeStr} 
-              onChange={(e) => setEndTimeStr(e.target.value)}
-              className="bg-white border border-gray-300 rounded px-2 py-1.5 outline-none focus:border-[#fb9418] w-full sm:w-auto"
-            />
+        <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-200">
+          <div className="flex flex-col md:flex-row md:items-start justify-between gap-6">
+            
+            {/* Bagian Kiri: Judul dan Preset Sesi */}
+            <div className="flex-1">
+              <h3 className="font-extrabold text-black uppercase tracking-wider text-sm mb-3">Filter Rentang Waktu</h3>
+              
+              {/* Preset Buttons */}
+              <div className="flex flex-wrap gap-2 mb-3">
+                <button
+                  onClick={() => handleSessionSelect('minggu_pagi', '09:00', '10:45')}
+                  className={`px-3 py-1.5 text-xs font-bold rounded-lg border transition-all ${
+                    activeSession === 'minggu_pagi'
+                      ? 'bg-black text-white border-black shadow-md'
+                      : 'bg-white text-gray-600 border-gray-300 hover:border-gray-400 hover:bg-gray-50'
+                  }`}
+                >
+                  Minggu Pagi (09.00 - 10.45)
+                </button>
+                <button
+                  onClick={() => handleSessionSelect('minggu_siang', '12:00', '15:00')}
+                  className={`px-3 py-1.5 text-xs font-bold rounded-lg border transition-all ${
+                    activeSession === 'minggu_siang'
+                      ? 'bg-black text-white border-black shadow-md'
+                      : 'bg-white text-gray-600 border-gray-300 hover:border-gray-400 hover:bg-gray-50'
+                  }`}
+                >
+                  Minggu Siang (12.00 - 15.00)
+                </button>
+                <button
+                  onClick={() => handleSessionSelect('sabtu', '13:30', '16:30')}
+                  className={`px-3 py-1.5 text-xs font-bold rounded-lg border transition-all ${
+                    activeSession === 'sabtu'
+                      ? 'bg-black text-white border-black shadow-md'
+                      : 'bg-white text-gray-600 border-gray-300 hover:border-gray-400 hover:bg-gray-50'
+                  }`}
+                >
+                  Sabtu (13.30 - 16.30)
+                </button>
+                <button
+                  onClick={() => setActiveSession('manual')}
+                  className={`px-3 py-1.5 text-xs font-bold rounded-lg border transition-all ${
+                    activeSession === 'manual'
+                      ? 'bg-orange-50 text-[#fb9418] border-orange-200'
+                      : 'bg-white text-gray-600 border-gray-300 hover:border-gray-400 hover:bg-gray-50'
+                  }`}
+                >
+                  Kustom Manual
+                </button>
+              </div>
+
+              <p className="text-[11px] sm:text-xs text-gray-500 font-medium">
+                Pilih sesi atau atur jam manual di samping untuk menampilkan rekapitulasi data penjualan dan statistik pada periode tertentu.
+              </p>
+            </div>
+            
+            {/* Bagian Kanan: Input Manual */}
+            <div className="flex items-center gap-2 text-sm font-bold bg-gray-50 p-2 rounded-lg border border-gray-200 shrink-0">
+              <input 
+                type="time" 
+                value={startTimeStr} 
+                onChange={(e) => handleManualTimeChange('start', e.target.value)}
+                className="bg-white border border-gray-300 rounded px-2 py-1.5 outline-none focus:border-[#fb9418] focus:ring-1 focus:ring-[#fb9418] transition-all"
+              />
+              <span className="text-gray-400">-</span>
+              <input 
+                type="time" 
+                value={endTimeStr} 
+                onChange={(e) => handleManualTimeChange('end', e.target.value)}
+                className="bg-white border border-gray-300 rounded px-2 py-1.5 outline-none focus:border-[#fb9418] focus:ring-1 focus:ring-[#fb9418] transition-all"
+              />
+            </div>
+
           </div>
         </div>
         
