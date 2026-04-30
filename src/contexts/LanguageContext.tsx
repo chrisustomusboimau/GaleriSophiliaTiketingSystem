@@ -64,19 +64,19 @@ const defaultTranslations = {
     en: "Please select the number of visitors by age category", // Please select the number of visitors by age category
     zh: "请按年龄段选择访客人数", // 请按年龄段选择访客人数
   },
-  childLabel: {
-    id: "Anak \n(Di bawah 8 tahun)",
-    en: "Child \n(Under 8 years)", // (Under 8)
-    zh: "儿童\n（8岁以下）",
+childLabel: {
+    id: "Anak \n(0-7 tahun)",
+    en: "Child \n(0-7 years)", 
+    zh: "儿童\n（0-7岁）",
   },
   teenLabel: {
-    id: "Remaja \n(Di bawah 22 tahun)",
-    en: "Teen \n(Under 22 years)",
-    zh: "青少年\n（22岁以下）",
+    id: "Remaja \n(8-21 tahun)",
+    en: "Teen \n(8-21 years)",
+    zh: "青少年\n（8-21岁）",
   },
   adultLabel: {
     id: "Dewasa \n(22 tahun ke atas)",
-    en: "Adult \n(22 years and above)", // tambah 22
+    en: "Adult \n(22 years and above)", 
     zh: "成人\n（22岁及以上）",
   },
   totalVisitors: {
