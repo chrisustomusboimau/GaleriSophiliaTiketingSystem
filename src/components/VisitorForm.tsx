@@ -417,30 +417,30 @@ const VisitorForm: React.FC = () => {
 
   return (
     <form onSubmit={handleSubmit} className="max-w-md mx-auto text-black pb-8">
-      <header className="mb-8">
+      {/* <header className="mb-8">
         <h2 className="text-xl font-bold mb-2 text-black">
           {translations.visitorCount[language]}
         </h2>
         <p className="text-gray-600 text-sm">
           {floorDescText}
         </p>
-      </header>
+      </header> */}
 
       {/* Age Category Inputs */}
       <CounterInput
-        label={translations.adultLabel[language]}
+        label={translations.adultLabel2[language]}
         price={aggregatePrices.adult}
         value={counts.adult}
         onChange={(v) => updateCount("adult", v)}
       />
       <CounterInput
-        label={translations.teenLabel[language]}
+        label={translations.teenLabel2[language]}
         price={aggregatePrices.student}
         value={counts.student}
         onChange={(v) => updateCount("student", v)}
       />
       <CounterInput
-        label={translations.childLabel[language]}
+        label={translations.childLabel2[language]}
         price={aggregatePrices.child}
         value={counts.child}
         onChange={(v) => updateCount("child", v)}
@@ -580,25 +580,38 @@ const VisitorForm: React.FC = () => {
         </div>
       )}
 
-      {/* Submit Button */}
-      <button
-        type="submit"
-        disabled={isSubmitting}
-        className={`w-full py-4 font-bold text-[#fcfcfc] rounded-xl transition-all duration-200 shadow-md flex justify-center items-center ${
-          isSubmitting
-            ? "bg-gray-400 cursor-not-allowed shadow-none"
-            : "bg-[#fb9418] hover:bg-orange-500 hover:shadow-lg active:scale-[0.98]"
-        }`}
-      >
-        {isSubmitting ? (
-          <span className="flex items-center gap-2">
-            <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-            {translations.processing[language]}
-          </span>
-        ) : (
-          translations.getQueueButton[language]
-        )}
-      </button>
+    {/* Tombol Kembali & Submit */}
+      <div className="flex gap-3">
+        {/* Tombol Kembali */}
+        <button
+          type="button"
+          onClick={() => navigate(-1)}
+          disabled={isSubmitting}
+          className="flex-1 py-4 font-bold text-black bg-white border border-gray-300 hover:bg-gray-100 rounded-xl transition-all duration-200 flex justify-center items-center gap-2 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {translations.backButton?.[language] || "Kembali"}
+        </button>
+
+        {/* Submit Button */}
+        <button
+          type="submit"
+          disabled={isSubmitting}
+          className={`flex-1 py-4 font-bold text-[#fcfcfc] rounded-xl transition-all duration-200 shadow-md flex justify-center items-center ${
+            isSubmitting
+              ? "bg-gray-400 cursor-not-allowed shadow-none"
+              : "bg-[#fb9418] hover:bg-orange-500 hover:shadow-lg active:scale-[0.98]"
+          }`}
+        >
+          {isSubmitting ? (
+            <span className="flex items-center gap-2">
+              <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+              {translations.processing[language]}
+            </span>
+          ) : (
+            translations.getQueueButton[language]
+          )}
+        </button>
+      </div>
     </form>
   );
 };

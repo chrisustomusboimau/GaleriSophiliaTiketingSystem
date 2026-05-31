@@ -110,9 +110,6 @@ const TicketSelectionPage: React.FC = () => {
               onClick={() => navigate(-1)}
               className="flex-1 py-4 font-bold text-black bg-white border border-gray-300 hover:bg-gray-100 rounded-xl transition-all duration-200 flex justify-center items-center gap-2 active:scale-95"
             >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-              </svg>
               {translations.backButton?.[language] || "Kembali"}
             </button>
 
@@ -130,11 +127,7 @@ const TicketSelectionPage: React.FC = () => {
                 ? (translations.continueButton?.[language] || "Lanjutkan") 
                 : continueButtonText}
               
-              {selectedFloors.length > 0 && (
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14 5l7 7m0 0l-7 7m7-7H3" />
-                </svg>
-              )}
+              {selectedFloors.length > 0}
             </button>
             
           </div>

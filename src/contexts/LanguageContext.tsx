@@ -54,10 +54,10 @@ backButton: {
     en: "Back",
     zh: "返回",
   },
-  ticketingTitle: {
-    id: "Pembelian Tiket Museum",
-    en: "Museum Ticketing",
-    zh: "美术馆售票", // 博物馆 -> 美术馆
+ticketingTitle: {
+    id: "Pemesanan Tiket",
+    en: "Ticket Booking",
+    zh: "门票预订",
   },
   visitorCount: {
     id: "Jumlah Pengunjung",
@@ -84,20 +84,35 @@ backButton: {
     en: "Adult \n(≥ 22)", 
     zh: "成人\n（≥ 22）",
   },
+  childLabel2: {
+    id: "Anak (7-12)",
+    en: "Child (7-12)", 
+    zh: "儿童（7-12）",
+  },
+  teenLabel2: {
+    id: "Pelajar (13-21)",
+    en: "Student (13-21)",
+    zh: "学生（13-21）",
+  },
+  adultLabel2: {
+    id: "Dewasa (≥ 22)",
+    en: "Adult (≥ 22)", 
+    zh: "成人（≥ 22）",
+  },
   totalVisitors: {
-    id: "Total Pengunjung:",
-    en: "Total Visitors:",
-    zh: "访客总数：", 
+    id: "Pengunjung",
+    en: "Visitors",
+    zh: "访客", 
   },
   totalPrice: {
-    id: "Total Harga:",
-    en: "Total Price:",
-    zh: "总价：",
+    id: "Harga",
+    en: "Price",
+    zh: "价格",
   },
   getQueueButton: {
-    id: "Dapatkan Nomor Antrian",
-    en: "Get Queue Number",
-    zh: "获取队列号码",
+    id: "Pesan Sekarang",
+    en: "Order Now",
+    zh: "立即下单", 
   },
   processing: {
     id: "Memproses...",
