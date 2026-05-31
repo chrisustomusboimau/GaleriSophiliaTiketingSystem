@@ -7,22 +7,14 @@
 
 import React from 'react';
 import LanguageSelector from '../components/LanguageSelector';
+import Header from '../components/Header'; // <Header />
 
 const ScanPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-black flex flex-col font-sans">
       
       {/* HEADER: Galeria Sophilia Branding */}
-      <header className="bg-black pt-16 pb-8 px-4 flex flex-col items-center justify-center shrink-0 z-10">
-        <div className="text-center select-none">
-          <h2 className="text-[#fcfcfc] font-light tracking-[0.5em] text-base md:text-lg uppercase ml-2">
-            Galeria
-          </h2>
-          <h1 className="text-[#fb9418] font-bold tracking-wider text-5xl md:text-6xl mt-2 uppercase">
-            Sophilia
-          </h1>
-        </div>
-      </header>
+      <Header />
       
       {/* MAIN CONTENT AREA */}
       <main className="flex-1 flex flex-col items-center justify-center p-4 relative">

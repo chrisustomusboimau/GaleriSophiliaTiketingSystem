@@ -9,6 +9,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom'; // [1] ACTIVATED
 import LoginForm from '../components/LoginForm';
 import loginImg from '../assets/login.jpg';
+import Header from '../components/Header'; // <Header />
 
 interface LoginResponse {
   access_token: string;

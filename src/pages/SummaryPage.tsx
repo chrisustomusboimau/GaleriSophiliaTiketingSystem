@@ -10,6 +10,8 @@ import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import Summary from "../components/Summary";
 import { Transaction } from "../components/PaymentHistoryComponent";
+import Header from '../components/Header'; // <Header />
+
 
 const SummaryPage: React.FC = () => {
   const navigate = useNavigate();
@@ -168,12 +170,7 @@ const SummaryPage: React.FC = () => {
       <header className="bg-black border-b-[4px] border-[#fb9418] sticky top-0 z-40 shadow-md shrink-0">
         <div className="max-w-7xl mx-auto py-4 px-4 sm:px-6 flex justify-between items-center">
           <div className="flex flex-col select-none cursor-pointer" onClick={() => navigate("/admin/history")}>
-            <h2 className="text-[#fcfcfc] font-light tracking-[0.3em] text-[10px] sm:text-xs uppercase ml-0.5">
-              Galeria
-            </h2>
-            <h1 className="text-[#fb9418] font-bold tracking-wider text-xl sm:text-2xl uppercase leading-none mt-0.5">
-              Sophilia
-            </h1>
+            <Header />
           </div>
 
           <div className="flex items-center gap-4">

@@ -10,6 +10,7 @@
 import React, { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useLanguage } from '../contexts/LanguageContext';
+import Header from '../components/Header'; // <Header />
 
 const GalleryInfoPage: React.FC = () => {
   const navigate = useNavigate();
@@ -44,16 +45,7 @@ const GalleryInfoPage: React.FC = () => {
     <div className="min-h-screen bg-black flex flex-col relative font-sans selection:bg-orange-200">
       
       {/* HEADER: Galeria Sophilia Branding (Di luar kanvas putih) */}
-      <header className="bg-black py-8 px-4 flex flex-col items-center justify-center shrink-0 border-b border-white/10 z-10">
-        <div className="text-center select-none">
-          <h2 className="text-[#fcfcfc] font-light tracking-[0.4em] text-sm md:text-base uppercase">
-            Galeria
-          </h2>
-          <h1 className="text-[#fb9418] font-bold tracking-wider text-4xl md:text-5xl mt-1 uppercase">
-            Sophilia
-          </h1>
-        </div>
-      </header>
+      <Header />
 
       {/* MAIN CONTENT AREA */}
       <main className="flex-1 flex flex-col items-center p-4 sm:p-8 relative">

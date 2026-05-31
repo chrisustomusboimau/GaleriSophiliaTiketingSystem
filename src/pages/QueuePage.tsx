@@ -10,6 +10,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { useParams, Navigate, useNavigate } from 'react-router-dom';
 import QueueDisplay from '../components/QueueDisplay';
 import { useLanguage } from '../contexts/LanguageContext';
+import Header from '../components/Header'; // <Header />
 
 /* =====================================================
    TYPES
@@ -150,14 +151,7 @@ const QueuePage: React.FC = () => {
           </svg>
         </button>
 
-        <div className="text-center select-none pt-1">
-          <h2 className="text-[#fcfcfc] font-light tracking-[0.4em] text-xs md:text-sm uppercase ml-1">
-            Galeria
-          </h2>
-          <h1 className="text-[#fb9418] font-bold tracking-wider text-2xl md:text-3xl mt-1 uppercase leading-none">
-            Sophilia
-          </h1>
-        </div>
+        <Header />
       </header>
 
       {/* MAIN CONTENT AREA */}

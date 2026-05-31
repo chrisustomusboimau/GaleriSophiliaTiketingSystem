@@ -12,6 +12,7 @@ import ExcelJS from "exceljs";
 import { saveAs } from "file-saver";
 import PaymentHistoryComponent, { Transaction } from "../components/PaymentHistoryComponent";
 import EditTransactionModal from "../components/EditTransactionModal";
+import Header from '../components/Header'; // <Header />
 
 const PaymentHistoryPage: React.FC = () => {
   const navigate = useNavigate();
@@ -326,8 +327,7 @@ const PaymentHistoryPage: React.FC = () => {
       <header className="bg-black border-b-[4px] border-[#fb9418] sticky top-0 z-40 shadow-md shrink-0">
         <div className="max-w-7xl mx-auto py-4 px-4 sm:px-6 flex justify-between items-center">
           <div className="flex flex-col select-none cursor-pointer" onClick={() => navigate("/admin")}>
-            <h2 className="text-[#fcfcfc] font-light tracking-[0.3em] text-[10px] sm:text-xs uppercase ml-0.5">Galeria</h2>
-            <h1 className="text-[#fb9418] font-bold tracking-wider text-xl sm:text-2xl uppercase leading-none mt-0.5">Sophilia</h1>
+            <Header />
           </div>
 
           <div className="flex items-center gap-2 sm:gap-4">

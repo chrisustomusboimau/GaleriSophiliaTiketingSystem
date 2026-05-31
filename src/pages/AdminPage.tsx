@@ -11,6 +11,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import AdminDashboard from '../components/AdminDashboard';
 import ManualEntryModal from '../components/ManualEntryModal';
+import Header from '../components/Header'; // <Header />
 
 const AdminPage: React.FC = () => {
   const navigate = useNavigate();
@@ -65,14 +66,7 @@ const AdminPage: React.FC = () => {
         <div className="max-w-7xl mx-auto py-4 px-4 sm:px-6 flex justify-between items-center">
           
           {/* Logo Digital Galeria Sophilia */}
-          <div className="flex flex-col select-none cursor-pointer" onClick={() => navigate('/admin')}>
-            <h2 className="text-[#fcfcfc] font-light tracking-[0.3em] text-[10px] sm:text-xs uppercase ml-0.5">
-              Galeria
-            </h2>
-            <h1 className="text-[#fb9418] font-bold tracking-wider text-xl sm:text-2xl uppercase leading-none mt-0.5">
-              Sophilia
-            </h1>
-          </div>
+          <Header />
 
           {/* Action Buttons */}
           <div className="flex items-center gap-2 sm:gap-4">
