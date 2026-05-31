@@ -22,7 +22,7 @@ const LanguageSelector: React.FC = () => {
     // menyatu dengan sempurna saat dipanggil di dalam Card putih pada ScanPage.tsx
     <div className="w-full flex flex-col items-center">
       
-      {/* Bagian judul dan deskripsi sambutan */}
+      {/* Bagian judul dan deskripsi sambutan
       <div className="text-center mb-8">
         <h2 className="text-2xl font-bold text-black mb-2">
           {translations.welcomeTitle[language]}
@@ -30,7 +30,7 @@ const LanguageSelector: React.FC = () => {
         <p className="text-gray-500 text-sm">
           {translations.welcomeDescription[language]}
         </p>
-      </div>
+      </div> */}
 
       {/* Grid tombol pilihan bahasa */}
       <div className="grid grid-cols-2 gap-3 sm:gap-4 w-full mb-8">
