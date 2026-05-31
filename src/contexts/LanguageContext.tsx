@@ -49,6 +49,11 @@ const defaultTranslations = {
     en: "Continue",
     zh: "继续",
   },
+backButton: {
+    id: "Kembali",
+    en: "Back",
+    zh: "返回",
+  },
   ticketingTitle: {
     id: "Pembelian Tiket Museum",
     en: "Museum Ticketing",
@@ -64,20 +69,20 @@ const defaultTranslations = {
     en: "Please select the number of visitors by age category", // Please select the number of visitors by age category
     zh: "请按年龄段选择访客人数", // 请按年龄段选择访客人数
   },
-childLabel: {
-    id: "Anak \n(0-7 tahun)",
-    en: "Child \n(0-7 years)", 
-    zh: "儿童\n（0-7岁）",
+  childLabel: {
+    id: "Anak \n(7-12)",
+    en: "Child \n(7-12)", 
+    zh: "儿童\n（7-12）",
   },
   teenLabel: {
-    id: "Remaja \n(8-21 tahun)",
-    en: "Teen \n(8-21 years)",
-    zh: "青少年\n（8-21岁）",
+    id: "Pelajar \n(13-21)",
+    en: "Student \n(13-21)",
+    zh: "学生\n（13-21）",
   },
   adultLabel: {
-    id: "Dewasa \n(22 tahun ke atas)",
-    en: "Adult \n(22 years and above)", 
-    zh: "成人\n（22岁及以上）",
+    id: "Dewasa \n(≥ 22)",
+    en: "Adult \n(≥ 22)", 
+    zh: "成人\n（≥ 22）",
   },
   totalVisitors: {
     id: "Total Pengunjung:",
@@ -213,10 +218,10 @@ childLabel: {
     zh: "并体验一次宝贵的文化之旅。" 
   },
   continueButton2: { 
-    id: "Lanjutkan", 
-    en: "Continue", 
-    zh: "继续" 
-  },
+      id: "Klik disini untuk memilih tiket", 
+      en: "Click here to select tickets", 
+      zh: "点击此处选择门票" 
+    },
 
 // --- TAMBAHAN BARU UNTUK TICKET SELECTION PAGE ---
   floor6And7Label: { id: "Lantai 6 & 7", en: "Floor 6 & 7", zh: "6 & 7层" },
@@ -226,9 +231,9 @@ childLabel: {
   floorInfoAria: { id: "Informasi Lantai", en: "Floor Information", zh: "楼层信息" },
   floorInfoTitle: { id: "Lihat informasi kurasi lantai", en: "View floor curation information", zh: "查看楼层策展信息" },
   selectFloorInstruction: { 
-    id: "Silakan pilih satu atau lebih lantai yang ingin Anda kunjungi", 
-    en: "Please select one or more floors you wish to visit", 
-    zh: "请选择您想参观的一个或多个楼层" 
+    id: "Silakan pilih tiket Anda untuk satu, dua, atau semua sekaligus", 
+    en: "Please select your tickets for one, two, or all at once", 
+    zh: "请选择您的门票，可选一个、两个或全部" 
   },
   continueSelected: { 
     id: "Lanjutkan ({count} Dipilih)", 
