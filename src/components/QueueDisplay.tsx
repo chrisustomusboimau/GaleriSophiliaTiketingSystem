@@ -7,6 +7,7 @@
  * - Ringkasan lantai yang dikunjungi dibuat list ke bawah (vertikal).
  * - Ringkasan jumlah kategori (Anak/Remaja/Dewasa).
  * - Metode pembayaran teks murni tanpa ikon.
+ * - Ukuran font Total Pembayaran diperkecil agar lebih rapi.
  */
 
 import React, { useMemo } from 'react';
@@ -68,7 +69,7 @@ const QueueDisplay: React.FC<QueueDisplayProps> = ({ visitor }) => {
       return { floors: [], counts: {} };
     }
 
-    // 1. Ambil daftar lantai unik yang dikunjungi sebagai Array (bukan string gabungan)
+    // 1. Ambil daftar lantai unik yang dikunjungi sebagai Array
     const uniqueFloors = Array.from(new Set(visitor.items.map(i => i.floor)));
 
     // 2. Hitung jumlah pengunjung berdasarkan kategori usia
@@ -144,12 +145,12 @@ const QueueDisplay: React.FC<QueueDisplayProps> = ({ visitor }) => {
             </span>
           </div>
 
-          {/* Total Pembayaran */}
-          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center border-t-2 border-black pt-5 mt-1">
-            <span className="font-bold text-black uppercase tracking-wide text-sm sm:text-base mb-1 sm:mb-0">
+          {/* Total Pembayaran (Diperkecil) */}
+          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center border-t-2 border-black pt-4 mt-1">
+            <span className="font-bold text-black uppercase tracking-wide text-xs sm:text-sm mb-1 sm:mb-0">
               {translations.totalPayment[language]}
             </span>
-            <span className="font-extrabold text-3xl text-[#fb9418]">
+            <span className="font-extrabold text-xl sm:text-2xl text-[#fb9418]">
               {formatCurrency(visitor.total_price)}
             </span>
           </div>
