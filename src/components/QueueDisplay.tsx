@@ -5,6 +5,7 @@
  * Diperbarui dengan identitas visual Galeria Sophilia.
  * Update: Terintegrasi penuh dengan LanguageContext untuk dukungan multibahasa.
  * Update: Mengaktifkan line break (\n) pada teks label kategori usia.
+ * Update: Menggunakan ticket_code (format YYYYMMDD-001) sebagai nomor antrian.
  */
 
 import React, { useMemo } from 'react';
@@ -25,9 +26,10 @@ export interface TransactionItem {
 export interface QueueDisplayVisitor {
   id: string;
   queue_number: number;
+  ticket_code: string; // TAMBAHAN: Field ticket_code dari API
   total_price: number;
   created_at: string;
-  payment_method?: string; // TAMBAHAN: Field payment_method
+  payment_method?: string; 
   items: TransactionItem[];
 }
 
@@ -84,12 +86,14 @@ const QueueDisplay: React.FC<QueueDisplayProps> = ({ visitor }) => {
           {translations.queueNumberLabel[language]}
         </h2>
         
-        <div className="text-8xl font-extrabold text-[#fb9418] tracking-tighter leading-none mb-6">
-          {visitor.queue_number}
+        {/* PERUBAHAN DI SINI: Menggunakan visitor.ticket_code menggantikan visitor.queue_number */}
+        {/* text-6xl dan tracking-normal disesuaikan agar format tanggal-angka muat di layar mobile */}
+        <div className="text-5xl sm:text-6xl font-extrabold text-[#fb9418] tracking-normal leading-none mb-6 break-words">
+          {visitor.ticket_code}
         </div>
         
         <div className="inline-block bg-[#1a1a1a] border border-zinc-800 px-4 py-2 rounded-lg">
-          <p className="text-xs md:text-sm text-gray-400 font-mono tracking-widest">
+          <p className="text-xs md:text-sm text-gray-400 font-mono tracking-widest break-all text-center">
             ID: {visitor.id}
           </p>
         </div>
