@@ -4,8 +4,7 @@
  * Component to display the generated queue ticket.
  * Diperbarui dengan identitas visual Galeria Sophilia.
  * Update: Terintegrasi penuh dengan LanguageContext untuk dukungan multibahasa.
- * Update: Mengaktifkan line break (\n) pada teks label kategori usia.
- * Update: Menggunakan ticket_code (format YYYYMMDD-001) sebagai nomor antrian.
+ * Update: Tampilan disederhanakan (Hanya total tiket, harga, dan metode).
  */
 
 import React, { useMemo } from 'react';
@@ -26,7 +25,7 @@ export interface TransactionItem {
 export interface QueueDisplayVisitor {
   id: string;
   queue_number: number;
-  ticket_code: string; // TAMBAHAN: Field ticket_code dari API
+  ticket_code: string; 
   total_price: number;
   created_at: string;
   payment_method?: string; 
@@ -44,51 +43,25 @@ interface QueueDisplayProps {
 const QueueDisplay: React.FC<QueueDisplayProps> = ({ visitor }) => {
   const { language, translations } = useLanguage();
 
-  const getCategoryLabel = (category: string) => {
-    switch (category.toLowerCase()) {
-      case 'child': return translations.childLabel[language];
-      case 'student': return translations.teenLabel[language];
-      case 'adult': return translations.adultLabel[language];
-      default: return category;
-    }
-  };
-
-  // Group items by age_category to create a clean "Receipt" breakdown
-  const groupedItems = useMemo(() => {
-    if (!visitor.items) return {};
-    
-    return visitor.items.reduce((acc, item) => {
-      if (!acc[item.age_category]) {
-        acc[item.age_category] = {
-          items: [],
-          quantity: item.quantity, 
-          subtotal: 0
-        };
-      }
-      
-      const price = item.unit_price || 0;
-      acc[item.age_category].items.push(item);
-      acc[item.age_category].subtotal += (price * item.quantity);
-      
-      return acc;
-    }, {} as Record<string, { items: TransactionItem[], quantity: number, subtotal: number }>);
+  // Menghitung total seluruh tiket yang dibeli
+  const totalTickets = useMemo(() => {
+    if (!visitor.items) return 0;
+    return visitor.items.reduce((sum, item) => sum + item.quantity, 0);
   }, [visitor.items]);
 
-  // Default fallback ke QRIS jika tidak ada data
   const isCard = visitor.payment_method === 'card';
 
   return (
     <div className="w-full max-w-md mx-auto bg-[#fcfcfc] rounded-2xl shadow-2xl border border-gray-200 overflow-hidden">
       
-      {/* Header: Queue Number & ID (Tema Galeri Gelap) */}
+      {/* Header: Queue Number & ID */}
       <header className="bg-black pt-10 pb-8 px-6 text-center border-b-[6px] border-[#fb9418]">
         <h2 className="text-[#fcfcfc] text-sm md:text-base font-light mb-3 tracking-[0.25em] uppercase">
           {translations.queueNumberLabel[language]}
         </h2>
         
-        {/* PERUBAHAN DI SINI: Menggunakan visitor.ticket_code menggantikan visitor.queue_number */}
-        {/* text-6xl dan tracking-normal disesuaikan agar format tanggal-angka muat di layar mobile */}
-        <div className="text-5xl sm:text-6xl font-extrabold text-[#fb9418] tracking-normal leading-none mb-6 break-words">
+        {/* Font diperkecil menjadi text-3xl / 4xl agar lebih rapi */}
+        <div className="text-3xl sm:text-4xl font-extrabold text-[#fb9418] tracking-widest leading-none mb-6">
           {visitor.ticket_code}
         </div>
         
@@ -102,94 +75,47 @@ const QueueDisplay: React.FC<QueueDisplayProps> = ({ visitor }) => {
       {/* Body Area */}
       <div className="p-6 md:p-8 bg-[#fcfcfc]">
         
-        {/* Ticket Details Section */}
-        <section className="mb-6">
-          <h3 className="text-sm md:text-base font-bold text-black mb-5 border-b border-gray-200 pb-3 uppercase tracking-widest">
-            {translations.ticketDetails[language]}
-          </h3>
-          
-          <div className="space-y-4">
+        {/* Summary Section (Simple) */}
+        <section className="mb-8">
+          <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
             
-            {/* Dynamic Receipt Breakdown */}
-            {Object.keys(groupedItems).length > 0 ? (
-              Object.entries(groupedItems).map(([category, data], idx) => {
-                const pricePerPerson = data.quantity > 0 ? data.subtotal / data.quantity : 0;
-                
-                return (
-                  <div key={idx} className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
-                    {/* Category Header */}
-                    <div className="flex justify-between items-end mb-4 border-b border-gray-100 pb-3">
-                      <div>
-                        {/* PENAMBAHAN CLASS: whitespace-pre-line agar \n berfungsi sebagai enter */}
-                        <span className="font-bold text-black capitalize block text-lg mb-1 whitespace-pre-line">
-                          {getCategoryLabel(category)}
-                        </span>
-                        <span className="text-xs font-bold text-[#fb9418] bg-orange-50 border border-orange-100 px-3 py-1 rounded-full inline-block mt-1">
-                          {data.quantity} {translations.people[language]}
-                        </span>
-                      </div>
-                      <span className="font-bold text-[#fb9418] text-xl">
-                        {formatCurrency(data.subtotal)}
-                      </span>
-                    </div>
-
-                    {/* Floor Breakdown */}
-                    <div className="space-y-2">
-                      {data.items.map((item, i) => {
-                        const price = item.unit_price || 0;
-                        return (
-                          <div key={i} className="flex justify-between text-sm">
-                            <span className="text-gray-600 font-medium">{item.floor}</span>
-                            <span className="text-black font-bold">
-                              {item.quantity} &times; {formatCurrency(price)}
-                            </span>
-                          </div>
-                        );
-                      })}
-                      
-                      {/* Price Per Person Summary */}
-                      <div className="flex justify-between text-xs text-gray-500 pt-3 mt-3 border-t border-gray-200 border-dashed">
-                        <span>{translations.totalPerPerson[language]}</span>
-                        <span className="font-semibold text-gray-700">{formatCurrency(pricePerPerson)}</span>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })
-            ) : (
-              <p className="text-gray-500 italic text-sm text-center bg-gray-50 py-4 rounded-xl border border-gray-200">
-                {translations.noTicketData[language]}
-              </p>
-            )}
-            
-
-            {/* Final Grand Total */}
-            <div className="flex justify-between items-end pt-5 border-t-2 border-black mt-8">
-              <span className="font-bold text-black uppercase tracking-wide">
-                {translations.totalPayment[language]}
+            {/* Jumlah Tiket */}
+            <div className="flex justify-between items-center border-b border-gray-100 pb-4 mb-4">
+              <span className="font-bold text-gray-500 uppercase tracking-widest text-xs sm:text-sm">
+                Total Tiket
               </span>
-              <span className="font-extrabold text-3xl text-[#fb9418]">
-                {formatCurrency(visitor.total_price)}
+              <span className="font-extrabold text-black text-lg">
+                {totalTickets} {translations.people[language]}
               </span>
             </div>
 
+            {/* Total Pembayaran */}
+            <div className="flex justify-between items-center">
+              <span className="font-bold text-black uppercase tracking-wide text-sm sm:text-base">
+                {translations.totalPayment[language]}
+              </span>
+              <span className="font-extrabold text-2xl sm:text-3xl text-[#fb9418]">
+                {formatCurrency(visitor.total_price)}
+              </span>
+            </div>
+            
           </div>
         </section>
 
         {/* =====================================
-            INFORMASI METODE PEMBAYARAN
+            INFORMASI METODE PEMBAYARAN (SIMPLE)
             ===================================== */}
-        <div className="mt-8 mb-6">
-          <h4 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-3">
+        <section className="mb-4">
+          <h4 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-3 text-center">
             {translations.yourPaymentMethod[language]}
           </h4>
           
-          <div className={`p-4 border-2 rounded-xl flex items-start gap-4 ${
+          <div className={`p-4 border-2 rounded-xl flex items-center justify-center gap-3 ${
             isCard ? "border-gray-800 bg-gray-50" : "border-green-600 bg-green-50"
           }`}>
             
-            {/* Ikon Visual (Kartu atau QRIS) */}
-            <div className={`shrink-0 mt-0.5 p-2 rounded-lg ${
+            {/* Ikon Visual */}
+            <div className={`shrink-0 p-2 rounded-lg ${
               isCard ? "bg-gray-800 text-white" : "bg-green-600 text-white"
             }`}>
               {isCard ? (
@@ -199,17 +125,13 @@ const QueueDisplay: React.FC<QueueDisplayProps> = ({ visitor }) => {
               )}
             </div>
 
-            {/* Teks Instruksi */}
-            <div>
-              <p className="font-extrabold text-black uppercase tracking-wider mb-1">
-                {isCard ? translations.creditDebitCard[language] : "QRIS"}
-              </p>
-              <p className="text-sm text-gray-700 leading-relaxed font-medium">
-                {isCard ? translations.cardInstruction[language] : translations.qrisInstruction[language]}
-              </p>
-            </div>
+            {/* Nama Pembayaran Saja */}
+            <p className="font-extrabold text-black text-xl uppercase tracking-wider">
+              {isCard ? translations.creditDebitCard[language] : "QRIS"}
+            </p>
+            
           </div>
-        </div>
+        </section>
 
       </div>
     </div>
