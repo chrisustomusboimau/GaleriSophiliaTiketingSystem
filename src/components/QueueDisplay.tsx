@@ -7,7 +7,7 @@
  * - Ringkasan lantai yang dikunjungi dibuat list ke bawah (vertikal).
  * - Ringkasan jumlah kategori (Anak/Remaja/Dewasa).
  * - Metode pembayaran teks murni tanpa ikon.
- * - Ukuran font Total Pembayaran diperkecil agar lebih rapi.
+ * - Total Pembayaran diperkecil dan dikunci agar selalu 1 baris.
  */
 
 import React, { useMemo } from 'react';
@@ -128,7 +128,7 @@ const QueueDisplay: React.FC<QueueDisplayProps> = ({ visitor }) => {
                 <span className="text-gray-700 font-medium capitalize">
                   {getCategoryLabel(cat).replace('\n', ' ')}
                 </span>
-                <span className="text-black font-bold">
+                <span className="text-black font-bold whitespace-nowrap">
                   {count} orang
                 </span>
               </div>
@@ -140,17 +140,17 @@ const QueueDisplay: React.FC<QueueDisplayProps> = ({ visitor }) => {
             <span className="font-bold text-gray-500 uppercase tracking-widest text-xs sm:text-sm">
               Metode
             </span>
-            <span className="font-extrabold text-black uppercase text-sm sm:text-base">
+            <span className="font-extrabold text-black uppercase text-sm sm:text-base text-right">
               {paymentLabel}
             </span>
           </div>
 
-          {/* Total Pembayaran (Diperkecil) */}
-          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center border-t-2 border-black pt-4 mt-1">
-            <span className="font-bold text-black uppercase tracking-wide text-xs sm:text-sm mb-1 sm:mb-0">
+          {/* Total Pembayaran (1 Baris Penuh) */}
+          <div className="flex justify-between items-center border-t-2 border-black pt-4 mt-1">
+            <span className="font-bold text-black uppercase tracking-wide text-xs sm:text-sm mr-2">
               {translations.totalPayment[language]}
             </span>
-            <span className="font-extrabold text-xl sm:text-2xl text-[#fb9418]">
+            <span className="font-extrabold text-xl sm:text-2xl text-[#fb9418] whitespace-nowrap">
               {formatCurrency(visitor.total_price)}
             </span>
           </div>
