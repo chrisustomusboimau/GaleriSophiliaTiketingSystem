@@ -3,8 +3,8 @@
  * ----------------------------------------------------
  * Component to display the generated queue ticket.
  * Tampilan ultra-minimalis & rapi:
- * - Nomor antrian satu baris (tidak turun ke bawah).
- * - Ringkasan lantai yang dikunjungi.
+ * - Nomor antrian satu baris dengan ukuran font lebih kecil.
+ * - Ringkasan lantai yang dikunjungi dibuat list ke bawah (vertikal).
  * - Ringkasan jumlah kategori (Anak/Remaja/Dewasa).
  * - Metode pembayaran teks murni tanpa ikon.
  */
@@ -65,14 +65,13 @@ const QueueDisplay: React.FC<QueueDisplayProps> = ({ visitor }) => {
   // =====================================================
   const ticketSummary = useMemo(() => {
     if (!visitor.items || visitor.items.length === 0) {
-      return { floors: "-", counts: {} };
+      return { floors: [], counts: {} };
     }
 
-    // 1. Ambil daftar lantai unik yang dikunjungi
-    const uniqueFloors = Array.from(new Set(visitor.items.map(i => i.floor))).join(', ');
+    // 1. Ambil daftar lantai unik yang dikunjungi sebagai Array (bukan string gabungan)
+    const uniqueFloors = Array.from(new Set(visitor.items.map(i => i.floor)));
 
     // 2. Hitung jumlah pengunjung berdasarkan kategori usia
-    // Kita gunakan Math.max untuk mendeteksi jumlah pengunjung (misal: 3 anak ke lantai 5 & 1, berarti ada 3 anak)
     const counts = visitor.items.reduce((acc, item) => {
       acc[item.age_category] = Math.max((acc[item.age_category] || 0), item.quantity);
       return acc;
@@ -90,8 +89,8 @@ const QueueDisplay: React.FC<QueueDisplayProps> = ({ visitor }) => {
           {translations.queueNumberLabel[language]}
         </h2>
         
-        {/* Class whitespace-nowrap memastikan teks tidak turun ke baris baru */}
-        <div className="text-3xl sm:text-4xl md:text-5xl font-extrabold text-[#fb9418] tracking-widest leading-none whitespace-nowrap">
+        {/* Ukuran font diperkecil (text-2xl / 3xl / 4xl) agar tidak terlalu penuh */}
+        <div className="text-2xl sm:text-3xl md:text-4xl font-extrabold text-[#fb9418] tracking-widest leading-none whitespace-nowrap">
           {visitor.ticket_code}
         </div>
       </header>
@@ -104,14 +103,22 @@ const QueueDisplay: React.FC<QueueDisplayProps> = ({ visitor }) => {
           
           <div className="mb-5 space-y-3">
             
-            {/* Lantai yang Dikunjungi */}
+            {/* Lantai yang Dikunjungi (List ke bawah) */}
             <div className="flex justify-between items-start text-sm sm:text-base border-b border-gray-100 pb-3 mb-2">
-              <span className="text-gray-500 font-bold uppercase text-xs sm:text-sm tracking-widest">
+              <span className="text-gray-500 font-bold uppercase text-xs sm:text-sm tracking-widest mt-0.5">
                 Lantai Dikunjungi
               </span>
-              <span className="text-black font-extrabold text-right">
-                {ticketSummary.floors}
-              </span>
+              <div className="flex flex-col items-end gap-1">
+                {ticketSummary.floors.length > 0 ? (
+                  ticketSummary.floors.map((floor, idx) => (
+                    <span key={idx} className="text-black font-extrabold text-right">
+                      {floor}
+                    </span>
+                  ))
+                ) : (
+                  <span className="text-black font-extrabold text-right">-</span>
+                )}
+              </div>
             </div>
             
             {/* Rincian Kategori Usia */}
