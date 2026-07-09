@@ -41,6 +41,10 @@ class TransactionCreate(BaseModel):
 class TransactionResponse(BaseModel):
     id: uuid.UUID
     queue_number: int
+    
+    # --- TAMBAHAN BARU: Field untuk format kode tiket ---
+    ticket_code: str
+    
     total_price: int
     status: str
     created_at: datetime

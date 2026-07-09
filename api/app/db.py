@@ -44,6 +44,10 @@ class TransactionEntry(Base):
 
     id            = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
     queue_number  = Column(Integer, nullable=False, index=True)
+    
+    # --- TAMBAHAN BARU: Kolom untuk menyimpan format tiket (cth: 20260709-001) ---
+    ticket_code   = Column(String, nullable=False, unique=True, index=True)
+    
     total_price   = Column(Integer, nullable=False)
     status        = Column(String,  nullable=False, default="pending")
     payment_method = Column(String, nullable=False, default="qris")

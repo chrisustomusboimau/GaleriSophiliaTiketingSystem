@@ -3,6 +3,8 @@
 # Perubahan dari versi sebelumnya:
 #   - Menambahkan custom endpoint GET /api/v1/users untuk
 #     mengambil daftar semua staf (hanya untuk Admin).
+#   - Menambahkan format ticket_code (YYYYMMDD-001) pada 
+#     create_transaction.
 # ==========================================================
 
 from fastapi import FastAPI, HTTPException, Depends, Query
@@ -173,45 +175,6 @@ async def delete_user_by_admin(
         raise HTTPException(status_code=500, detail=f"Gagal menghapus akun: {e}")
  
 
-@app.patch(f"{PREFIX}/users/{{user_id}}/update", response_model=UserRead, tags=["users-admin"])
-async def update_user_by_admin(
-    user_id: uuid.UUID,
-    payload: UserUpdatePayload,
-    session: AsyncSession = Depends(get_async_session),
-    admin: User = Depends(current_admin),  # <-- HANYA ADMIN
-):
-    """ADMIN: Mengubah role, status aktif, atau password akun staf."""
-    result = await session.execute(select(User).where(User.id == user_id))
-    target = result.scalars().first()
- 
-    if not target:
-        raise HTTPException(status_code=404, detail="User tidak ditemukan.")
- 
-    if payload.role is not None:
-        valid_roles = {"admin", "kasir", "checker"}
-        if payload.role not in valid_roles:
-            raise HTTPException(status_code=400, detail=f"Role tidak valid. Pilih dari: {valid_roles}")
-        target.role = payload.role
- 
-    if payload.is_active is not None:
-        target.is_active = payload.is_active
- 
-    if payload.password is not None:
-        if len(payload.password) < 8:
-            raise HTTPException(status_code=400, detail="Password minimal 8 karakter.")
-        # Hash password menggunakan password helper dari fastapi-users
-        
-        target.hashed_password = _password_helper.hash(payload.password)        
- 
-    try:
-        await session.commit()
-        await session.refresh(target)
-        return target
-    except Exception as e:
-        await session.rollback()
-        raise HTTPException(status_code=500, detail=f"Gagal menyimpan perubahan: {e}")
- 
-
 @app.get(f"{PREFIX}/users", response_model=List[UserRead], tags=["users-admin"])
 async def list_all_users(
     session: AsyncSession = Depends(get_async_session),
@@ -271,10 +234,20 @@ async def create_transaction(
                     TransactionEntry.created_at < start_of_tomorrow_wib
                 )
             )
+            
+            # --- LOGIKA TIKETING BARU ---
             max_queue = result.scalar() or 0
+            sequence_number = max_queue + 1
+            
+            # Format %Y%m%d menghasilkan YYYYMMDD (contoh: 20260709)
+            date_prefix = now_wib.strftime("%Y%m%d")
+            
+            # Gabungkan dengan nomor urut (zfill(3) untuk format 001, 002, dst)
+            formatted_ticket_code = f"{date_prefix}-{str(sequence_number).zfill(3)}"
 
             new_transaction = TransactionEntry(
-                queue_number=max_queue + 1,
+                queue_number=sequence_number,            # Angka asli tetap disimpan untuk pencarian max() besok
+                ticket_code=formatted_ticket_code,       # Simpan string format baru 
                 date_only=now_wib.date(),
                 total_price=total_price,
                 status="pending",
