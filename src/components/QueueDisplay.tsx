@@ -2,13 +2,14 @@
  * QueueDisplay.tsx
  * ----------------------------------------------------
  * Component to display the generated queue ticket.
- * Tampilan ultra-minimalis: 
- * - Tanpa ID Tiket
- * - Rincian ringkas (Jumlah x Kategori - Lantai)
- * - Metode pembayaran disederhanakan dalam satu box
+ * Tampilan ultra-minimalis & rapi:
+ * - Nomor antrian satu baris (tidak turun ke bawah).
+ * - Ringkasan lantai yang dikunjungi.
+ * - Ringkasan jumlah kategori (Anak/Remaja/Dewasa).
+ * - Metode pembayaran teks murni tanpa ikon.
  */
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import { formatCurrency } from '../utils/priceCalculator';
 import { useLanguage } from "../contexts/LanguageContext";
 
@@ -24,7 +25,7 @@ export interface TransactionItem {
 }
 
 export interface QueueDisplayVisitor {
-  id: string; // Tetap ada di interface agar tidak error dengan data API
+  id: string; 
   queue_number: number;
   ticket_code: string; 
   total_price: number;
@@ -55,21 +56,42 @@ const QueueDisplay: React.FC<QueueDisplayProps> = ({ visitor }) => {
   };
 
   const isCard = visitor.payment_method === 'card';
-  // Ambil label bahasa dari context, fallback ke manual jika tidak ada
   const paymentLabel = isCard 
-    ? (translations.creditDebitCard?.[language] || "KARTU") 
+    ? (translations.creditDebitCard?.[language] || "KARTU KREDIT/DEBIT") 
     : "QRIS";
+
+  // =====================================================
+  // LOGIKA REKAPITULASI TIKET
+  // =====================================================
+  const ticketSummary = useMemo(() => {
+    if (!visitor.items || visitor.items.length === 0) {
+      return { floors: "-", counts: {} };
+    }
+
+    // 1. Ambil daftar lantai unik yang dikunjungi
+    const uniqueFloors = Array.from(new Set(visitor.items.map(i => i.floor))).join(', ');
+
+    // 2. Hitung jumlah pengunjung berdasarkan kategori usia
+    // Kita gunakan Math.max untuk mendeteksi jumlah pengunjung (misal: 3 anak ke lantai 5 & 1, berarti ada 3 anak)
+    const counts = visitor.items.reduce((acc, item) => {
+      acc[item.age_category] = Math.max((acc[item.age_category] || 0), item.quantity);
+      return acc;
+    }, {} as Record<string, number>);
+
+    return { floors: uniqueFloors, counts };
+  }, [visitor.items]);
 
   return (
     <div className="w-full max-w-md mx-auto bg-[#fcfcfc] rounded-2xl shadow-2xl border border-gray-200 overflow-hidden">
       
-      {/* Header: Hanya Queue Number (Tanpa ID) */}
+      {/* Header: Nomor Antrian Satu Baris */}
       <header className="bg-black pt-10 pb-10 px-6 text-center border-b-[6px] border-[#fb9418]">
         <h2 className="text-[#fcfcfc] text-sm md:text-base font-light mb-3 tracking-[0.25em] uppercase">
           {translations.queueNumberLabel[language]}
         </h2>
         
-        <div className="text-4xl sm:text-5xl font-extrabold text-[#fb9418] tracking-widest leading-none">
+        {/* Class whitespace-nowrap memastikan teks tidak turun ke baris baru */}
+        <div className="text-3xl sm:text-4xl md:text-5xl font-extrabold text-[#fb9418] tracking-widest leading-none whitespace-nowrap">
           {visitor.ticket_code}
         </div>
       </header>
@@ -80,39 +102,42 @@ const QueueDisplay: React.FC<QueueDisplayProps> = ({ visitor }) => {
         {/* Main Box - Menyatukan seluruh informasi */}
         <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
           
-          {/* 1. Rincian Kategori & Lantai (Tanpa detail harga) */}
           <div className="mb-5 space-y-3">
-            {visitor.items.map((item, idx) => (
+            
+            {/* Lantai yang Dikunjungi */}
+            <div className="flex justify-between items-start text-sm sm:text-base border-b border-gray-100 pb-3 mb-2">
+              <span className="text-gray-500 font-bold uppercase text-xs sm:text-sm tracking-widest">
+                Lantai Dikunjungi
+              </span>
+              <span className="text-black font-extrabold text-right">
+                {ticketSummary.floors}
+              </span>
+            </div>
+            
+            {/* Rincian Kategori Usia */}
+            {Object.entries(ticketSummary.counts).map(([cat, count], idx) => (
               <div key={idx} className="flex justify-between items-center text-sm sm:text-base border-b border-gray-50 pb-2 last:border-0 last:pb-0">
                 <span className="text-gray-700 font-medium capitalize">
-                  {/* Menghapus line-break (\n) bawaan jika ada agar teks sebaris */}
-                  <span className="font-bold text-black mr-2">{item.quantity}&times;</span> 
-                  {getCategoryLabel(item.age_category).replace('\n', ' ')}
+                  {getCategoryLabel(cat).replace('\n', ' ')}
                 </span>
-                <span className="text-gray-500 font-bold bg-gray-100 px-3 py-1 rounded-md text-xs sm:text-sm">
-                  {item.floor}
+                <span className="text-black font-bold">
+                  {count} orang
                 </span>
               </div>
             ))}
           </div>
 
-          {/* 2. Metode Pembayaran (Sederhana) */}
+          {/* Metode Pembayaran (Teks Saja) */}
           <div className="flex justify-between items-center border-t border-gray-200 border-dashed pt-4 pb-4">
             <span className="font-bold text-gray-500 uppercase tracking-widest text-xs sm:text-sm">
               Metode
             </span>
-            <span className="font-extrabold text-black uppercase flex items-center gap-2 text-sm sm:text-base">
-              {/* Ikon Mini */}
-              {isCard ? (
-                <svg className="w-5 h-5 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"></path></svg>
-              ) : (
-                <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
-              )}
+            <span className="font-extrabold text-black uppercase text-sm sm:text-base">
               {paymentLabel}
             </span>
           </div>
 
-          {/* 3. Total Pembayaran */}
+          {/* Total Pembayaran */}
           <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center border-t-2 border-black pt-5 mt-1">
             <span className="font-bold text-black uppercase tracking-wide text-sm sm:text-base mb-1 sm:mb-0">
               {translations.totalPayment[language]}
