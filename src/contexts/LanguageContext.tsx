@@ -180,9 +180,9 @@ ticketingTitle: {
   countryNotFound: { id: "Negara tidak ditemukan", en: "Country not found", zh: "未找到国家" },
 
   galleryOpenTime: { 
-    id: "Galeria Sophilia dibuka selama 3 jam.", 
-    en: "Galeria Sophilia is open for 3 hours.", 
-    zh: "索菲亚美术馆开放 3 小时。" 
+    id: "<b>Galeria Sophilia</b> dibuka selama <b>3 jam</b>.", 
+    en: "<b>Galeria Sophilia</b> is open for <b>3 hours</b>.", 
+    zh: "<b>索菲亚美术馆</b>开放 <b>3 小时</b>。" 
   },
   culturalExperience: { 
     id: "Temukan pengalaman budaya inspiratif:", 

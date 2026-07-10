@@ -66,9 +66,8 @@ const GalleryInfoPage: React.FC = () => {
 
             {/* Bagian Pembuka */}
             <div className="text-center pb-4 text-black text-base sm:text-[17px] leading-snug">
-              <p className="font-bold">
-                {translations.galleryOpenTime[language]}
-              </p>
+              {/* Menggunakan dangerouslySetInnerHTML untuk merender tag <b> dari dictionary */}
+              <p dangerouslySetInnerHTML={{ __html: translations.galleryOpenTime[language] }} />
               <p>
                 {translations.culturalExperience[language]}
               </p>
