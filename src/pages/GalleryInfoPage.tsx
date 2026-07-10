@@ -6,8 +6,8 @@
  * dengan konten di dalam kanvas putih (content container).
  * Update: Implementasi LanguageContext untuk dukungan Multibahasa.
  * Update 2: Typography Futura, no italic, unified floor container,
- *           lowercase bold floor labels, regular weight descriptions,
- *           center-aligned floor content. No dividers between floors.
+ * lowercase bold floor labels, regular weight descriptions,
+ * center-aligned floor content. No dividers between floors.
  */
 
 import React, { useEffect } from 'react';
@@ -65,14 +65,14 @@ const GalleryInfoPage: React.FC = () => {
           <div className="flex flex-col gap-1">
 
             {/* Bagian Pembuka */}
-            <div className="text-center pb-2">
-              <p className="font-extrabold text-black text-xl sm:text-2xl mb-2">
+            <div className="text-center pb-4 text-black text-base sm:text-[17px] leading-snug">
+              <p className="font-bold">
                 {translations.galleryOpenTime[language]}
               </p>
-              <p className="text-gray-700 font-medium text-base sm:text-lg">
+              <p>
                 {translations.culturalExperience[language]}
               </p>
-              <p className="text-gray-400 text-sm mt-1">
+              <p>
                 {translations.seeBannerInfo[language]}
               </p>
             </div>
