@@ -4,6 +4,8 @@
  * Cashier-facing panel to manage and confirm ticket payments.
  * Update: Menambahkan warna tema spesifik untuk setiap Lantai
  * agar kasir dapat membedakan tiket dengan sangat cepat.
+ * Update: Menampilkan ticket_code (format YYYYMMDD-001) sebagai
+ * identitas utama tiket, menggantikan nomor antrian polos.
  */
 
 import React, { useEffect, useState, useCallback, useMemo } from "react";
@@ -27,6 +29,7 @@ export interface TransactionItem {
 export interface Visitor {
   id: string;
   queue_number: number;
+  ticket_code: string;
   created_at: string;
   confirmed_at: string | null;
   total_price: number;
@@ -130,19 +133,26 @@ const VisitorCard: React.FC<VisitorCardProps> = ({
   return (
     <div className="bg-[#fcfcfc] rounded-xl shadow-md overflow-hidden border border-gray-200 flex flex-col hover:shadow-lg transition-shadow">
       
-      <header className="bg-black p-4 text-[#fcfcfc] flex justify-between items-center border-b-2 border-[#fb9418]">
-        <div>
-          <h4 className="font-extrabold text-xl leading-none text-[#fb9418]">
-            #{visitor.queue_number}
-          </h4>
-          <span className="text-[10px] opacity-70 uppercase tracking-widest text-gray-300">Antrian</span>
+      <header className="relative bg-black pt-5 pb-5 px-4 text-center border-b-2 border-[#fb9418]">
+        {/* Badge jam & antrian ke-N, di pojok agar nomor tiket jadi fokus utama */}
+        <div className="absolute top-2 right-2 flex flex-col items-end gap-1">
+          <span className="text-[10px] bg-[#1a1a1a] border border-gray-800 px-2 py-0.5 rounded shadow-inner font-mono text-gray-300">
+            {new Date(visitor.created_at).toLocaleTimeString([], {
+              hour: "2-digit",
+              minute: "2-digit",
+            })}
+          </span>
+          <span className="text-[9px] opacity-60 uppercase tracking-widest text-gray-400">
+            Ke-{visitor.queue_number} hari ini
+          </span>
         </div>
-        <span className="text-xs bg-[#1a1a1a] border border-gray-800 px-2 py-1 rounded shadow-inner font-mono text-gray-300">
-          {new Date(visitor.created_at).toLocaleTimeString([], {
-            hour: "2-digit",
-            minute: "2-digit",
-          })}
-        </span>
+
+        <h2 className="text-[#fcfcfc] text-[10px] font-light mb-2 tracking-[0.25em] uppercase opacity-80">
+          Nomor Tiket
+        </h2>
+        <div className="text-xl sm:text-2xl font-extrabold text-[#fb9418] tracking-widest leading-none whitespace-nowrap">
+          {visitor.ticket_code}
+        </div>
       </header>
 
       <div className="p-4 flex-1 flex flex-col bg-[#fcfcfc]">
@@ -306,8 +316,11 @@ const AdminDashboard: React.FC = () => {
 
   const filteredVisitors = useMemo(() => {
     if (!searchQuery.trim()) return visitors;
-    const query = searchQuery.trim();
-    return visitors.filter((v) => v.queue_number.toString().includes(query));
+    const query = searchQuery.trim().toLowerCase();
+    return visitors.filter((v) =>
+      v.ticket_code.toLowerCase().includes(query) ||
+      v.queue_number.toString().includes(query)
+    );
   }, [visitors, searchQuery]);
 
   const handlePaymentConfirmation = async (id: string) => {
@@ -330,7 +343,7 @@ const AdminDashboard: React.FC = () => {
       setVisitors((prev) => prev.filter((v) => v.id !== id));
 
       if (currentTx) {
-        setSuccessMessage(`Antrian #${currentTx.queue_number} Berhasil Dikonfirmasi`);
+        setSuccessMessage(`Tiket ${currentTx.ticket_code} Berhasil Dikonfirmasi`);
         setTimeout(() => setSuccessMessage(null), 3000);
       }
     } catch (err: any) {
@@ -378,13 +391,14 @@ const AdminDashboard: React.FC = () => {
 
   const handleDeleteTransaction = async (id: string) => {
     try {
+      const currentTx = visitors.find(v => v.id === id);
       const response = await fetch(`/api/v1/transactions/${id}`, {
         method: "DELETE",
         headers: getAuthHeaders(),
       });
       if (!response.ok) throw new Error("Gagal hapus data.");
       setVisitors((prev) => prev.filter((v) => v.id !== id));
-      setSuccessMessage("Antrian Telah Dihapus");
+      setSuccessMessage(currentTx ? `Tiket ${currentTx.ticket_code} Telah Dihapus` : "Antrian Telah Dihapus");
       setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err: any) {
       setError("Gagal menghapus data.");
@@ -436,7 +450,7 @@ const AdminDashboard: React.FC = () => {
             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
               <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
             </div>
-            <input type="text" placeholder="Cari No. Antrian..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#fb9418] focus:border-[#fb9418] outline-none text-sm transition-shadow bg-white" />
+            <input type="text" placeholder="Cari Kode Tiket / No. Antrian..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#fb9418] focus:border-[#fb9418] outline-none text-sm transition-shadow bg-white" />
           </div>
 
           <div className="flex gap-2 w-full sm:w-auto">
@@ -452,7 +466,7 @@ const AdminDashboard: React.FC = () => {
         </div>
       ) : filteredVisitors.length === 0 ? (
         <div className="flex-1 bg-white border border-dashed border-gray-300 rounded-2xl p-12 flex items-center justify-center shadow-sm">
-          <p className="text-gray-500 text-center">Antrian <span className="font-bold text-black">"{searchQuery}"</span> tidak ditemukan.</p>
+          <p className="text-gray-500 text-center">Tiket <span className="font-bold text-black">"{searchQuery}"</span> tidak ditemukan.</p>
         </div>
       ) : (
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 pb-12">
