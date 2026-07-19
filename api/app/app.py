@@ -240,7 +240,7 @@ async def create_transaction(
             sequence_number = max_queue + 1
             
             # Format %Y%m%d menghasilkan YYYYMMDD (contoh: 20260709)
-            date_prefix = now_wib.strftime("%Y%m%d")
+            date_prefix = now_wib.strftime("%m%d")
             
             # Gabungkan dengan nomor urut (zfill(3) untuk format 001, 002, dst)
             formatted_ticket_code = f"{date_prefix}-{str(sequence_number).zfill(3)}"
