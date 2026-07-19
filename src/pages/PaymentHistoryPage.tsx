@@ -4,6 +4,8 @@
  * Main page integrating the PaymentHistoryComponent.
  * Diperbarui dengan identitas visual Galeria Sophilia (Putih/Hitam/Oranye).
  * UPDATE: Menambahkan Filter Sesi Waktu Global (Otomatis & Manual).
+ * UPDATE: Menambahkan kolom "Kode Tiket" pada export Excel, konsisten
+ * dengan tampilan ticket_code di tabel riwayat transaksi.
  */
 
 import React, { useEffect, useState, useCallback, useMemo } from "react";
@@ -66,11 +68,37 @@ const PaymentHistoryPage: React.FC = () => {
     handleUnauthorized();
   };
 
+  // --- Helper: Mencari tanggal kejadian TERAKHIR dari suatu hari (0=Minggu, 6=Sabtu) ---
+  // Contoh: hari ini Minggu 19 Juli, cari "Sabtu terdekat" -> Sabtu 18 Juli (bukan minggu depan)
+  const getMostRecentDateForWeekday = (targetDayOfWeek: number): string => {
+    const d = new Date();
+    const currentDay = d.getDay();
+    let diff = currentDay - targetDayOfWeek;
+    if (diff < 0) diff += 7;
+    d.setDate(d.getDate() - diff);
+
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+    return `${yyyy}-${mm}-${dd}`;
+  };
+
   // --- Handlers Sesi Waktu ---
-  const handleSessionSelect = (sessionName: string, start: string, end: string) => {
+  // targetDayOfWeek: 0 = Minggu, 6 = Sabtu. Saat sesi dipilih, tanggal filter
+  // otomatis disesuaikan ke kejadian terakhir dari hari tersebut, supaya
+  // filter tanggal & filter sesi tidak saling membatalkan (tidak jadi kosong).
+  const handleSessionSelect = (
+    sessionName: string,
+    start: string,
+    end: string,
+    targetDayOfWeek?: number
+  ) => {
     setActiveSession(sessionName);
     setStartTimeStr(start);
     setEndTimeStr(end);
+    if (targetDayOfWeek !== undefined) {
+      setDateFilter(getMostRecentDateForWeekday(targetDayOfWeek));
+    }
   };
 
   const handleManualTimeChange = (type: "start" | "end", value: string) => {
@@ -239,6 +267,7 @@ const PaymentHistoryPage: React.FC = () => {
       const worksheet = workbook.addWorksheet("Riwayat Transaksi");
 
       worksheet.columns = [
+        { header: "Kode Tiket", key: "ticket_code", width: 18 },
         { header: "No. Antrian", key: "queue_number", width: 15 },
         { header: "ID Transaksi", key: "id", width: 40 },
         { header: "Tanggal", key: "date", width: 20 },
@@ -290,7 +319,7 @@ const PaymentHistoryPage: React.FC = () => {
         else if (tx.payment_method) pmStr = tx.payment_method.toUpperCase();
 
         const row = worksheet.addRow({
-          queue_number: tx.queue_number, id: tx.id, date: dateStr, time: timeStr, floors: uniqueFloors,
+          ticket_code: tx.ticket_code, queue_number: tx.queue_number, id: tx.id, date: dateStr, time: timeStr, floors: uniqueFloors,
           child: uniqueCounts.child, student: uniqueCounts.student, adult: uniqueCounts.adult,
           payment_method: pmStr, total_price: tx.total_price, status: statusMap[tx.status] || tx.status,
         });
@@ -426,7 +455,7 @@ const PaymentHistoryPage: React.FC = () => {
               
               <div className="flex flex-wrap items-center gap-2">
                 <button
-                  onClick={() => handleSessionSelect('minggu_pagi', '09:00', '10:45')}
+                  onClick={() => handleSessionSelect('minggu_pagi', '09:00', '10:45', 0)}
                   className={`px-3 py-1.5 text-xs font-bold rounded-lg border transition-all ${
                     activeSession === 'minggu_pagi'
                       ? 'bg-black text-white border-black shadow-md'
@@ -436,7 +465,7 @@ const PaymentHistoryPage: React.FC = () => {
                   Minggu Pagi (09.00 - 10.45)
                 </button>
                 <button
-                  onClick={() => handleSessionSelect('minggu_siang', '12:00', '15:00')}
+                  onClick={() => handleSessionSelect('minggu_siang', '12:00', '15:00', 0)}
                   className={`px-3 py-1.5 text-xs font-bold rounded-lg border transition-all ${
                     activeSession === 'minggu_siang'
                       ? 'bg-black text-white border-black shadow-md'
@@ -446,7 +475,7 @@ const PaymentHistoryPage: React.FC = () => {
                   Minggu Siang (12.00 - 15.00)
                 </button>
                 <button
-                  onClick={() => handleSessionSelect('sabtu', '13:30', '16:30')}
+                  onClick={() => handleSessionSelect('sabtu', '13:30', '16:30', 6)}
                   className={`px-3 py-1.5 text-xs font-bold rounded-lg border transition-all ${
                     activeSession === 'sabtu'
                       ? 'bg-black text-white border-black shadow-md'

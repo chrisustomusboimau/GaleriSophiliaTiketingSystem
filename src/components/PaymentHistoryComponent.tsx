@@ -5,6 +5,8 @@
  * Diperbarui dengan warna Galeria Sophilia (Hitam/Oranye) dan dukungan confirmed_at.
  * Update: Menerapkan Tema Warna Lantai yang konsisten dengan AdminDashboard.
  * Update: Memperbaiki logika kategori usia agar tidak menghitung ganda jika membeli banyak lantai.
+ * Update: Menampilkan ticket_code (format YYYYMMDD-001) sebagai identitas utama tiket
+ * pada kolom "No. Antrian", konsisten dengan AdminDashboard dan QueueDisplay.
  */
 
 import React from "react";
@@ -29,6 +31,7 @@ export interface TransactionOrigin {
 export interface Transaction {
   id: string;
   queue_number: number;
+  ticket_code: string;
   created_at: string;
   confirmed_at: string | null; 
   total_price: number;
@@ -156,11 +159,13 @@ const PaymentHistoryComponent: React.FC<PaymentHistoryComponentProps> = ({
               return (
                 <tr key={tx.id} className="hover:bg-orange-50/50 transition-colors">
                   
-                  {/* KOLOM: ANTRIAN */}
+                  {/* KOLOM: ANTRIAN (Kode Tiket sebagai identitas utama) */}
                   <td className="p-4 align-top">
-                    <div className="font-extrabold text-black text-lg">#{tx.queue_number}</div>
-                    <div className="text-[10px] font-medium text-gray-400 font-mono mt-1 uppercase tracking-wider">
-                      {tx.id.substring(0, 8)}...
+                    <div className="font-extrabold text-black text-base tracking-widest whitespace-nowrap">
+                      {tx.ticket_code}
+                    </div>
+                    <div className="text-[10px] font-medium text-gray-400 mt-1 uppercase tracking-wider">
+                      Ke-{tx.queue_number} hari ini
                     </div>
                   </td>
                   
