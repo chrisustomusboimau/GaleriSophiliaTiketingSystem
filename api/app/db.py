@@ -1,15 +1,39 @@
 # app/db.py
 # ==========================================================
 # DATABASE SETUP
-# Semua konfigurasi kini dibaca dari app.config.settings.
+# Skema baru: Master Tiket, Sesi Operasional, Tiket per Sesi,
+# Audit Tiket Fisik Kasir, Nama Pemesan, dan Multi-item Transaction.
+# Semua konfigurasi dibaca dari app.config.settings.
+#
+# UPDATE (perbaikan bug FK saat hapus Master Tiket / Sub-Kategori):
+# Ditambahkan kolom `is_active` pada `TicketMaster` & `TicketSubCategory`
+# untuk mendukung SOFT DELETE. Sebelumnya, menghapus `TicketSubCategory`
+# yang masih direferensikan oleh `TransactionItem` (FK `ondelete="RESTRICT"`
+# di bawah) akan gagal dengan `ForeignKeyViolationError`. Sekarang endpoint
+# "hapus" di main.py hanya mengubah `is_active = False`, tidak pernah lagi
+# menjalankan `DELETE FROM` pada baris yang mungkin punya riwayat transaksi
+# — riwayat lama & laporan keuangan/audit tetap konsisten selamanya.
+#
+# ⚠️ MIGRASI MANUAL DIBUTUHKAN: `create_db_and_tables()` di bawah cuma
+# menjalankan `Base.metadata.create_all()`, yang HANYA membuat tabel yang
+# belum ada — TIDAK menambahkan kolom baru ke tabel yang sudah eksis.
+# Kalau database Anda sudah pernah dijalankan sebelumnya, jalankan SQL ini
+# SEKALI secara manual (lihat juga `backend/MIGRATE.sql` di paket ini):
+#
+#   ALTER TABLE ticket_masters       ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT TRUE;
+#   ALTER TABLE ticket_sub_categories ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT TRUE;
+#
+# Untuk instalasi BARU (database kosong), `create_all()` akan membuat kedua
+# tabel ini lengkap dengan kolom `is_active` dari awal — tidak perlu migrasi.
 # ==========================================================
 
 from collections.abc import AsyncGenerator
 import uuid
+from datetime import datetime
 
 from sqlalchemy import (
     Column, String, Integer, DateTime, ForeignKey,
-    Uuid, Date, UniqueConstraint
+    Uuid, Date, Time, UniqueConstraint, CheckConstraint, Boolean
 )
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase, relationship
@@ -22,7 +46,7 @@ from app.config import settings
 
 
 # ==========================================
-# ORM MODELS
+# BASE & USER MODEL
 # ==========================================
 
 class Base(DeclarativeBase):
@@ -31,35 +55,203 @@ class Base(DeclarativeBase):
 
 class User(SQLAlchemyBaseUserTableUUID, Base):
     """
-    Model user untuk staff internal.
-    Public visitors do not have accounts,
-    so transactions do not require a user_id.
+    Model user untuk staff internal (admin, kasir, checker).
+    Pengunjung publik tidak memiliki akun — transaksi tidak butuh user_id.
     """
-    # TAMBAHAN: Kolom role untuk membedakan admin, kasir, dan checker
     role = Column(String, nullable=False, default="kasir")
 
 
+# ==========================================
+# MASTER DATA (DIKELOLA ADMIN)
+# ==========================================
+
+class TicketMaster(Base):
+    """
+    Master lokasi/area tiket (contoh: "Tiket Lantai 11", "Tiket Lantai 12").
+    """
+    __tablename__ = "ticket_masters"
+
+    id          = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name        = Column(String, nullable=False, unique=True)   # e.g., "Tiket Lantai 11"
+    description = Column(String, nullable=True)
+
+    # BARU — soft delete. "Menghapus" master tiket dari UI tidak lagi
+    # menjalankan DELETE FROM; cukup menonaktifkannya di sini. Master yang
+    # is_active=False otomatis hilang dari daftar pilihan tiket baru
+    # (GET /ticket-masters default), tapi tetap ada di database sehingga
+    # sesi & transaksi lama yang mereferensikannya tidak rusak.
+    is_active = Column(Boolean, nullable=False, default=True, server_default="true")
+
+    sub_categories = relationship(
+        "TicketSubCategory",
+        back_populates="ticket_master",
+        cascade="all, delete-orphan",
+        lazy="selectin"
+    )
+
+
+class TicketSubCategory(Base):
+    """
+    Sub-kategori tiket berdasarkan rentang usia & harga.
+    Contoh: Remaja (17-21 thn) -> Rp50.000, Dewasa (22+ thn) -> Rp75.000
+    """
+    __tablename__ = "ticket_sub_categories"
+
+    id               = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    ticket_master_id = Column(
+        Uuid(as_uuid=True),
+        ForeignKey("ticket_masters.id", ondelete="CASCADE"),
+        nullable=False
+    )
+    name    = Column(String, nullable=False)     # e.g., "Remaja", "Dewasa"
+    min_age = Column(Integer, nullable=False, default=0)
+    max_age = Column(Integer, nullable=True)     # NULL = tanpa batas atas (misal 22+)
+    price   = Column(Integer, nullable=False)    # Harga dasar tiket
+
+    # BARU — soft delete. Lihat penjelasan di TicketMaster.is_active di atas.
+    # Ini yang menyelesaikan bug ForeignKeyViolationError: baris di tabel ini
+    # TIDAK PERNAH dihapus lagi lewat endpoint "hapus sub-kategori", jadi FK
+    # `transaction_items_ticket_sub_category_id_fkey` (ondelete="RESTRICT")
+    # tidak akan pernah dilanggar oleh alur normal aplikasi lagi.
+    is_active = Column(Boolean, nullable=False, default=True, server_default="true")
+
+    __table_args__ = (
+        CheckConstraint("max_age IS NULL OR max_age >= min_age", name="ck_age_range_valid"),
+    )
+
+    # lazy="selectin" agar snapshot nama tiket ("Tiket Lantai 11 - Dewasa") bisa
+    # dibentuk tanpa lazy-load tersembunyi di dalam async session
+    ticket_master = relationship("TicketMaster", back_populates="sub_categories", lazy="selectin")
+
+    session_tickets = relationship(
+        "SessionTicket",
+        back_populates="sub_category",
+        cascade="all, delete-orphan"
+    )
+
+
+# ==========================================
+# SESI OPERASIONAL & AUDIT KASIR
+# ==========================================
+
+class OperationalSession(Base):
+    """
+    Jadwal sesi operasional yang dibuat Admin (contoh: Sesi Siang 12.00–16.00).
+    """
+    __tablename__ = "operational_sessions"
+
+    id         = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name       = Column(String, nullable=False)          # e.g., "Sesi Siang"
+    date       = Column(Date, nullable=False, index=True) # Tanggal sesi berlaku
+    start_time = Column(Time, nullable=False)             # e.g., 12:00:00
+    end_time   = Column(Time, nullable=False)             # e.g., 16:00:00
+    status     = Column(String, nullable=False, default="draft")  # draft, opened, closed
+
+    __table_args__ = (
+        CheckConstraint("status IN ('draft','opened','closed')", name="ck_session_status_valid"),
+    )
+
+    # Tiket yang diaktifkan pada sesi ini
+    active_tickets = relationship(
+        "SessionTicket",
+        back_populates="session",
+        cascade="all, delete-orphan",
+        lazy="selectin"
+    )
+    # Transaksi yang masuk di sesi ini
+    transactions = relationship("TransactionEntry", back_populates="session")
+
+
+class SessionTicket(Base):
+    """
+    Tabel junction yang menentukan tiket mana saja yang dijual/aktif pada suatu sesi.
+    """
+    __tablename__ = "session_tickets"
+
+    id         = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    session_id = Column(
+        Uuid(as_uuid=True),
+        ForeignKey("operational_sessions.id", ondelete="CASCADE"),
+        nullable=False
+    )
+    ticket_sub_category_id = Column(
+        Uuid(as_uuid=True),
+        ForeignKey("ticket_sub_categories.id", ondelete="CASCADE"),
+        nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint("session_id", "ticket_sub_category_id", name="uq_ticket_per_session"),
+    )
+
+    session      = relationship("OperationalSession", back_populates="active_tickets")
+    sub_category = relationship("TicketSubCategory", back_populates="session_tickets", lazy="selectin")
+    audit        = relationship(
+        "SessionTicketAudit",
+        back_populates="session_ticket",
+        uselist=False,
+        cascade="all, delete-orphan",
+        lazy="selectin"
+    )
+
+
+class SessionTicketAudit(Base):
+    """
+    Pencatatan kontrol & audit nomor tiket fisik oleh Kasir (Awal & Akhir Sesi).
+    """
+    __tablename__ = "session_ticket_audits"
+
+    id                = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    session_ticket_id = Column(
+        Uuid(as_uuid=True),
+        ForeignKey("session_tickets.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True
+    )
+
+    # Input Kasir/Admin — boleh diisi & diedit kapan saja selama sesi induk
+    # berstatus 'draft' atau 'opened' (divalidasi di main.py, bukan di sini).
+    start_ticket_number = Column(Integer, nullable=True)
+    # Input Kasir/Admin — boleh diisi & diedit kapan saja selama sesi induk
+    # berstatus 'opened' (divalidasi di main.py).
+    end_ticket_number   = Column(Integer, nullable=True)
+
+    session_ticket = relationship("SessionTicket", back_populates="audit")
+
+
+# ==========================================
+# TRANSAKSI & DETAIL PEMESANAN
+# ==========================================
+
 class TransactionEntry(Base):
+    """
+    Header Transaksi. Terikat ke OperationalSession dan memiliki nama pemesan.
+    """
     __tablename__ = "transactions"
 
-    id            = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    queue_number  = Column(Integer, nullable=False, index=True)
-    
-    # --- TAMBAHAN BARU: Kolom untuk menyimpan format tiket (cth: 20260709-001) ---
-    ticket_code   = Column(String, nullable=False, unique=True, index=True)
-    
-    total_price   = Column(Integer, nullable=False)
-    status        = Column(String,  nullable=False, default="pending")
+    id         = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    session_id = Column(
+        Uuid(as_uuid=True),
+        ForeignKey("operational_sessions.id", ondelete="RESTRICT"),
+        nullable=False
+    )
+
+    queue_number = Column(Integer, nullable=False, index=True)
+    ticket_code  = Column(String, nullable=False, unique=True, index=True)
+
+    # MANDATORI: Nama Pemesan / Pengunjung
+    customer_name = Column(String, nullable=False)
+
+    total_price    = Column(Integer, nullable=False)
+    status         = Column(String, nullable=False, default="pending")   # pending, confirmed, paid, cancelled
     payment_method = Column(String, nullable=False, default="qris")
 
     # Immutable — diisi otomatis saat pertama kali dibuat
-    # Menggunakan settings.timezone agar konsisten dengan konfigurasi terpusat
-    created_at  = Column(
+    created_at = Column(
         DateTime(timezone=True),
         nullable=False,
-        default=lambda: __import__("datetime").datetime.now(settings.timezone)
+        default=lambda: datetime.now(settings.timezone)
     )
-
     # Nullable — diisi oleh API saat status berubah ke "confirmed" / "paid"
     confirmed_at = Column(DateTime(timezone=True), nullable=True, default=None)
 
@@ -70,7 +262,7 @@ class TransactionEntry(Base):
         UniqueConstraint("queue_number", "date_only", name="uq_queue_per_day"),
     )
 
-    # Relationships — lazy="selectin" agar data termuat otomatis tanpa query N+1
+    session = relationship("OperationalSession", back_populates="transactions")
     items   = relationship(
         "TransactionItem",
         back_populates="transaction",
@@ -88,7 +280,15 @@ class TransactionEntry(Base):
 class TransactionItem(Base):
     """
     Menyimpan setiap jenis tiket yang dipilih dalam satu transaksi.
-    Contoh: 2 Adult untuk Floor 6, 1 Child untuk Floor 1.
+    Terikat ke TicketSubCategory dengan snapshot nama & harga agar riwayat
+    tidak berubah jika master tiket diubah admin di kemudian hari.
+
+    CATATAN: FK ke ticket_sub_categories sengaja `ondelete="RESTRICT"` —
+    inilah yang memicu ForeignKeyViolationError kalau ticket_sub_categories
+    di-hard-delete selagi masih direferensikan baris di sini. Sejak
+    penerapan soft delete (lihat TicketSubCategory.is_active), baris di
+    tabel ini tidak akan pernah lagi memblokir proses "hapus" dari sisi
+    admin, karena sisi TicketSubCategory tidak pernah benar-benar dihapus.
     """
     __tablename__ = "transaction_items"
 
@@ -98,12 +298,18 @@ class TransactionItem(Base):
         ForeignKey("transactions.id", ondelete="CASCADE"),
         nullable=False
     )
-    floor          = Column(String,  nullable=False)        # e.g., "Floor 1", "Floor 5", "Floor 6/7"
-    age_category   = Column(String,  nullable=False)        # e.g., "adult", "student", "child"
-    quantity       = Column(Integer, nullable=False, default=1)
-    unit_price     = Column(Integer, nullable=False)        # Harga saat pembelian (price snapshot)
+    ticket_sub_category_id = Column(
+        Uuid(as_uuid=True),
+        ForeignKey("ticket_sub_categories.id", ondelete="RESTRICT"),
+        nullable=False
+    )
 
-    transaction = relationship("TransactionEntry", back_populates="items")
+    ticket_name_snapshot = Column(String, nullable=False)   # e.g., "Tiket Lantai 11 - Dewasa"
+    quantity   = Column(Integer, nullable=False, default=1)
+    unit_price = Column(Integer, nullable=False)             # Harga saat pembelian (price snapshot)
+
+    transaction  = relationship("TransactionEntry", back_populates="items")
+    sub_category = relationship("TicketSubCategory", lazy="selectin")
 
 
 class TransactionOriginEntry(Base):
@@ -120,7 +326,7 @@ class TransactionOriginEntry(Base):
         nullable=False
     )
     country_code = Column(String(2), nullable=False)  # e.g., 'id', 'us', 'jp'
-    count        = Column(Integer,   nullable=False, default=1)
+    count        = Column(Integer, nullable=False, default=1)
 
     transaction = relationship("TransactionEntry", back_populates="origins")
 
@@ -129,8 +335,6 @@ class TransactionOriginEntry(Base):
 # DATABASE ENGINE & SESSION
 # ==========================================
 
-# URL sudah dinormalisasi ke format asyncpg oleh settings.database_url_async
-# Semua parameter engine juga berasal dari settings — tidak ada hardcode di sini
 engine = create_async_engine(
     settings.database_url_async,
     pool_pre_ping=settings.db_pool_pre_ping,
@@ -151,6 +355,10 @@ async def create_db_and_tables():
     """
     Membuat semua tabel jika belum ada.
     Untuk production, pertimbangkan menggunakan Alembic untuk migrasi.
+
+    ⚠️ Ini TIDAK menambahkan kolom baru ke tabel yang sudah eksis (lihat
+    catatan migrasi manual di bagian atas file ini) — hanya membuat tabel
+    yang belum ada sama sekali.
     """
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
