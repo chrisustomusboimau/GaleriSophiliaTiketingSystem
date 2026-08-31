@@ -15,19 +15,71 @@
  *
  * RBAC: semua staf (admin/kasir/checker) bisa melihat; hanya admin
  * yang bisa membuat/mengubah/menonaktifkan/mengaktifkan kembali.
+ *
+ * UPDATE (nama multi-bahasa): nama master & nama varian sekarang diisi
+ * per bahasa. Bahasa Indonesia dan English WAJIB; Mandarin opsional
+ * (pengunjung berbahasa Mandarin otomatis melihat versi English kalau
+ * dikosongkan). HARGA TETAP SATU NILAI UNIVERSAL — tidak ada harga
+ * per-bahasa, dan tidak boleh ada.
+ *
+ * Daftar di bawah menampilkan nama English sebagai subteks di bawah nama
+ * Indonesia. Itu disengaja: setelah migrasi, baris lama terisi nama
+ * English "placeholder" yang identik dengan nama Indonesianya, dan
+ * subteks inilah cara tercepat admin menemukan mana yang belum
+ * diterjemahkan sungguhan.
  */
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { apiGet, apiPost, apiPatch, apiDelete, ApiError } from "../../api/client";
-import { TicketMaster, TicketMasterPayload, TicketSubCategory, TicketSubCategoryPayload, UserRole } from "../../types";
+import {
+  LocaleCode,
+  LocalizedNameInput,
+  TicketMaster,
+  TicketMasterPayload,
+  TicketSubCategory,
+  TicketSubCategoryPayload,
+  UserRole,
+} from "../../types";
 import { formatCurrency } from "../../utils/formatters";
+
+/** Definisi kolom input nama per bahasa — satu sumber untuk kedua modal. */
+const NAME_FIELDS: { locale: LocaleCode; label: string; required: boolean; placeholderMaster: string; placeholderSub: string }[] = [
+  { locale: "id", label: "Bahasa Indonesia", required: true,  placeholderMaster: 'Contoh: "Tiket Lantai 1"',  placeholderSub: "Contoh: Dewasa, Remaja, Anak" },
+  { locale: "en", label: "English",          required: true,  placeholderMaster: 'Contoh: "Floor 1 Ticket"',  placeholderSub: "Contoh: Adult, Teen, Child" },
+  { locale: "zh", label: "中文 (opsional)",   required: false, placeholderMaster: 'Contoh: "1层门票"',          placeholderSub: "Contoh: 成人、青少年、儿童" },
+];
+
+const emptyName: LocalizedNameInput = { id: "", en: "", zh: "" };
+
+/**
+ * Memvalidasi nama multi-bahasa sebelum dikirim. Backend tetap menjadi
+ * gerbang sebenarnya (membalas 422 lewat app/i18n.py) — pemeriksaan di
+ * sini semata-mata supaya admin dapat umpan balik langsung tanpa
+ * menunggu perjalanan ke server.
+ *
+ * Mengembalikan pesan error, atau null kalau lolos.
+ */
+function validateName(name: LocalizedNameInput): string | null {
+  if (!name.id?.trim()) return "Nama dalam Bahasa Indonesia wajib diisi.";
+  if (!name.en?.trim()) return "Nama dalam Bahasa Inggris (English) wajib diisi.";
+  return null;
+}
+
+/** Membuang locale kosong sebelum dikirim (mis. `zh` yang tidak diisi). */
+function cleanName(name: LocalizedNameInput): LocalizedNameInput {
+  return Object.fromEntries(
+    Object.entries(name)
+      .map(([locale, value]) => [locale, (value ?? "").trim()])
+      .filter(([, value]) => value !== "")
+  ) as LocalizedNameInput;
+}
 
 interface TicketMasterManagerProps {
   role: UserRole | null;
 }
 
-const emptyMasterForm: TicketMasterPayload = { name: "", description: "" };
-const emptySubForm: TicketSubCategoryPayload = { name: "", min_age: 0, max_age: null, price: 0 };
+const emptyMasterForm: TicketMasterPayload = { name_i18n: { ...emptyName }, description: "" };
+const emptySubForm: TicketSubCategoryPayload = { name_i18n: { ...emptyName }, min_age: 0, max_age: null, price: 0 };
 
 const TicketMasterManager: React.FC<TicketMasterManagerProps> = ({ role }) => {
   const isAdmin = role === "admin";
@@ -82,23 +134,30 @@ const TicketMasterManager: React.FC<TicketMasterManagerProps> = ({ role }) => {
 
   const openEditMaster = (m: TicketMaster) => {
     setEditingMaster(m);
-    setMasterForm({ name: m.name, description: m.description || "" });
+    setMasterForm({
+      // Sebar di atas emptyName supaya field bahasa yang belum pernah diisi
+      // tetap jadi string kosong (bukan undefined) — input terkendali React.
+      name_i18n: { ...emptyName, ...(m.name_i18n || { id: m.name, en: m.name }) },
+      description: m.description || "",
+    });
     setMasterError(null);
     setIsMasterModalOpen(true);
   };
 
   const handleSaveMaster = async () => {
-    if (!masterForm.name.trim()) {
-      setMasterError("Nama master tiket wajib diisi.");
+    const nameError = validateName(masterForm.name_i18n);
+    if (nameError) {
+      setMasterError(nameError);
       return;
     }
+    const payload = { ...masterForm, name_i18n: cleanName(masterForm.name_i18n) };
     try {
       setMasterSaving(true);
       setMasterError(null);
       if (editingMaster) {
-        await apiPatch(`/ticket-masters/${editingMaster.id}`, masterForm);
+        await apiPatch(`/ticket-masters/${editingMaster.id}`, payload);
       } else {
-        await apiPost("/ticket-masters", { ...masterForm, sub_categories: [] });
+        await apiPost("/ticket-masters", { ...payload, sub_categories: [] });
       }
       setIsMasterModalOpen(false);
       await loadMasters();
@@ -142,14 +201,20 @@ const TicketMasterManager: React.FC<TicketMasterManagerProps> = ({ role }) => {
   const openEditSub = (masterId: string, sub: TicketSubCategory) => {
     setSubMasterId(masterId);
     setEditingSub(sub);
-    setSubForm({ name: sub.name, min_age: sub.min_age, max_age: sub.max_age, price: sub.price });
+    setSubForm({
+      name_i18n: { ...emptyName, ...(sub.name_i18n || { id: sub.name, en: sub.name }) },
+      min_age: sub.min_age,
+      max_age: sub.max_age,
+      price: sub.price,
+    });
     setSubError(null);
     setIsSubModalOpen(true);
   };
 
   const handleSaveSub = async () => {
-    if (!subForm.name.trim()) {
-      setSubError("Nama varian wajib diisi.");
+    const nameError = validateName(subForm.name_i18n);
+    if (nameError) {
+      setSubError(nameError);
       return;
     }
     if (subForm.max_age !== null && subForm.max_age !== undefined && subForm.max_age < subForm.min_age) {
@@ -160,13 +225,14 @@ const TicketMasterManager: React.FC<TicketMasterManagerProps> = ({ role }) => {
       setSubError("Harga tidak boleh negatif.");
       return;
     }
+    const payload = { ...subForm, name_i18n: cleanName(subForm.name_i18n) };
     try {
       setSubSaving(true);
       setSubError(null);
       if (editingSub) {
-        await apiPatch(`/ticket-sub-categories/${editingSub.id}`, subForm);
+        await apiPatch(`/ticket-sub-categories/${editingSub.id}`, payload);
       } else if (subMasterId) {
-        await apiPost(`/ticket-masters/${subMasterId}/sub-categories`, subForm);
+        await apiPost(`/ticket-masters/${subMasterId}/sub-categories`, payload);
       }
       setIsSubModalOpen(false);
       await loadMasters();
@@ -252,6 +318,13 @@ const TicketMasterManager: React.FC<TicketMasterManagerProps> = ({ role }) => {
                         </span>
                       )}
                     </p>
+                    {/* Nama English sebagai subteks — cara tercepat melihat
+                        mana yang masih memakai placeholder hasil migrasi
+                        (nama English identik dengan nama Indonesia). */}
+                    <p className="text-xs text-gray-500 mt-0.5 font-medium">
+                      EN: {m.name_i18n?.en || <span className="text-red-500 italic">belum diisi</span>}
+                      {m.name_i18n?.zh && <span className="text-gray-400"> · 中文: {m.name_i18n.zh}</span>}
+                    </p>
                     {m.description && <p className="text-xs text-gray-500 mt-0.5">{m.description}</p>}
                     <p className="text-[11px] text-gray-400 mt-1 uppercase tracking-wide font-bold">
                       {m.sub_categories.length} varian
@@ -320,6 +393,10 @@ const TicketMasterManager: React.FC<TicketMasterManagerProps> = ({ role }) => {
                                   </span>
                                 )}
                               </span>
+                              <span className="block text-[11px] font-medium text-gray-500 mt-0.5">
+                                EN: {sc.name_i18n?.en || <span className="text-red-500 italic">belum diisi</span>}
+                                {sc.name_i18n?.zh && <span className="text-gray-400"> · 中文: {sc.name_i18n.zh}</span>}
+                              </span>
                             </td>
                             <td className="py-2.5 text-gray-600">
                               {sc.min_age}
@@ -370,8 +447,8 @@ const TicketMasterManager: React.FC<TicketMasterManagerProps> = ({ role }) => {
       {/* MODAL MASTER */}
       {isMasterModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-          <div className="bg-[#fcfcfc] rounded-xl shadow-2xl w-full max-w-md overflow-hidden border border-gray-200">
-            <header className="bg-black border-b-4 border-[#fb9418] p-5 flex justify-between items-center">
+          <div className="bg-[#fcfcfc] rounded-xl shadow-2xl w-full max-w-md overflow-hidden border border-gray-200 flex flex-col max-h-[90vh]">
+            <header className="bg-black border-b-4 border-[#fb9418] p-5 flex justify-between items-center shrink-0">
               <h3 className="text-lg font-bold text-[#fcfcfc] uppercase tracking-wider">
                 {editingMaster ? "Edit Master Tiket" : "Master Tiket Baru"}
               </h3>
@@ -379,17 +456,33 @@ const TicketMasterManager: React.FC<TicketMasterManagerProps> = ({ role }) => {
                 ✕
               </button>
             </header>
-            <div className="p-6 space-y-4">
+            <div className="p-6 space-y-4 overflow-y-auto custom-scrollbar">
               {masterError && <div className="p-3 bg-red-50 text-red-700 text-sm border-l-4 border-red-500 rounded-r">{masterError}</div>}
-              <div>
-                <label className="block text-[11px] font-extrabold text-gray-500 uppercase tracking-wider mb-2">Nama Master Tiket</label>
-                <input
-                  type="text"
-                  value={masterForm.name}
-                  onChange={(e) => setMasterForm((p) => ({ ...p, name: e.target.value }))}
-                  placeholder='Contoh: "Tiket Lantai 1"'
-                  className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#fb9418] focus:border-[#fb9418] outline-none bg-white text-sm text-black shadow-sm"
-                />
+              <div className="space-y-3">
+                <p className="text-[11px] font-extrabold text-gray-500 uppercase tracking-wider">
+                  Nama Master Tiket
+                  <span className="normal-case font-medium text-gray-400"> — diisi per bahasa yang dilihat pengunjung</span>
+                </p>
+                {NAME_FIELDS.map((field) => (
+                  <div key={field.locale}>
+                    <label className="block text-[11px] font-bold text-gray-500 mb-1.5">
+                      {field.label}
+                      {field.required && <span className="text-red-500 ml-1">*</span>}
+                    </label>
+                    <input
+                      type="text"
+                      value={masterForm.name_i18n[field.locale] ?? ""}
+                      onChange={(e) =>
+                        setMasterForm((p) => ({
+                          ...p,
+                          name_i18n: { ...p.name_i18n, [field.locale]: e.target.value },
+                        }))
+                      }
+                      placeholder={field.placeholderMaster}
+                      className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#fb9418] focus:border-[#fb9418] outline-none bg-white text-sm text-black shadow-sm"
+                    />
+                  </div>
+                ))}
               </div>
               <div>
                 <label className="block text-[11px] font-extrabold text-gray-500 uppercase tracking-wider mb-2">Deskripsi (opsional)</label>
@@ -401,7 +494,7 @@ const TicketMasterManager: React.FC<TicketMasterManagerProps> = ({ role }) => {
                 />
               </div>
             </div>
-            <div className="p-5 border-t border-gray-200 flex justify-end gap-3">
+            <div className="p-5 border-t border-gray-200 flex justify-end gap-3 shrink-0">
               <button onClick={() => setIsMasterModalOpen(false)} className="px-5 py-2.5 border border-gray-300 bg-white text-gray-700 hover:bg-gray-100 font-bold rounded-lg">
                 Batal
               </button>
@@ -420,24 +513,40 @@ const TicketMasterManager: React.FC<TicketMasterManagerProps> = ({ role }) => {
       {/* MODAL SUB-KATEGORI */}
       {isSubModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-          <div className="bg-[#fcfcfc] rounded-xl shadow-2xl w-full max-w-md overflow-hidden border border-gray-200">
-            <header className="bg-black border-b-4 border-[#fb9418] p-5 flex justify-between items-center">
+          <div className="bg-[#fcfcfc] rounded-xl shadow-2xl w-full max-w-md overflow-hidden border border-gray-200 flex flex-col max-h-[90vh]">
+            <header className="bg-black border-b-4 border-[#fb9418] p-5 flex justify-between items-center shrink-0">
               <h3 className="text-lg font-bold text-[#fcfcfc] uppercase tracking-wider">{editingSub ? "Edit Varian" : "Varian Baru"}</h3>
               <button onClick={() => setIsSubModalOpen(false)} className="text-gray-400 hover:text-white text-2xl font-bold px-2">
                 ✕
               </button>
             </header>
-            <div className="p-6 space-y-4">
+            <div className="p-6 space-y-4 overflow-y-auto custom-scrollbar">
               {subError && <div className="p-3 bg-red-50 text-red-700 text-sm border-l-4 border-red-500 rounded-r">{subError}</div>}
-              <div>
-                <label className="block text-[11px] font-extrabold text-gray-500 uppercase tracking-wider mb-2">Nama Varian</label>
-                <input
-                  type="text"
-                  value={subForm.name}
-                  onChange={(e) => setSubForm((p) => ({ ...p, name: e.target.value }))}
-                  placeholder="Contoh: Dewasa, Remaja, Anak"
-                  className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#fb9418] focus:border-[#fb9418] outline-none bg-white text-sm text-black shadow-sm"
-                />
+              <div className="space-y-3">
+                <p className="text-[11px] font-extrabold text-gray-500 uppercase tracking-wider">
+                  Nama Varian
+                  <span className="normal-case font-medium text-gray-400"> — diisi per bahasa yang dilihat pengunjung</span>
+                </p>
+                {NAME_FIELDS.map((field) => (
+                  <div key={field.locale}>
+                    <label className="block text-[11px] font-bold text-gray-500 mb-1.5">
+                      {field.label}
+                      {field.required && <span className="text-red-500 ml-1">*</span>}
+                    </label>
+                    <input
+                      type="text"
+                      value={subForm.name_i18n[field.locale] ?? ""}
+                      onChange={(e) =>
+                        setSubForm((p) => ({
+                          ...p,
+                          name_i18n: { ...p.name_i18n, [field.locale]: e.target.value },
+                        }))
+                      }
+                      placeholder={field.placeholderSub}
+                      className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#fb9418] focus:border-[#fb9418] outline-none bg-white text-sm text-black shadow-sm"
+                    />
+                  </div>
+                ))}
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -474,7 +583,7 @@ const TicketMasterManager: React.FC<TicketMasterManagerProps> = ({ role }) => {
                 />
               </div>
             </div>
-            <div className="p-5 border-t border-gray-200 flex justify-end gap-3">
+            <div className="p-5 border-t border-gray-200 flex justify-end gap-3 shrink-0">
               <button onClick={() => setIsSubModalOpen(false)} className="px-5 py-2.5 border border-gray-300 bg-white text-gray-700 hover:bg-gray-100 font-bold rounded-lg">
                 Batal
               </button>

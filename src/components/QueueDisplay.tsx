@@ -1,17 +1,23 @@
 /**
  * QueueDisplay.tsx
  * ----------------------------------------------------
- * Component to display the generated queue ticket.
- * Tampilan ultra-minimalis & rapi:
- * - Nomor antrian satu baris dengan ukuran font lebih kecil.
- * - Ringkasan lantai yang dikunjungi dibuat list ke bawah (vertikal).
- * - Ringkasan jumlah kategori (Anak/Remaja/Dewasa).
- * - Metode pembayaran teks murni tanpa ikon.
- * - Total Pembayaran diperkecil dan dikunci agar selalu 1 baris.
+ * Menampilkan tiket antrian yang baru dibuat.
+ *
+ * UPDATE TOTAL (selaras backend baru):
+ * - Tipe data disamakan dengan `TransactionEntry` sungguhan: item tiket
+ *   sekarang punya `ticket_name_snapshot` (mis. "Tiket Lantai 1 - Dewasa"),
+ *   bukan lagi `floor` + `age_category` terpisah. Dipecah lewat
+ *   `splitTicketSnapshot()` (sama seperti dipakai di dashboard kasir), dan
+ *   dikelompokkan per lantai lengkap dengan qty x harga per variannya
+ *   (lebih rinci dari sekadar hitungan per kategori usia seperti versi lama).
+ * - `customer_name` (nama pemesan) sekarang wajib ada di data & ditampilkan.
+ * - Metode pembayaran mendukung 3 pilihan (qris/card/cash), lengkap dengan
+ *   instruksi masing-masing — sebelumnya cuma qris/card, dan instruksinya
+ *   sendiri sebenarnya sudah ada terjemahannya tapi belum pernah dipakai.
  */
 
-import React, { useMemo } from 'react';
-import { formatCurrency } from '../utils/priceCalculator';
+import React, { useMemo } from "react";
+import { formatCurrency, resolveSnapshot } from "../utils/formatters";
 import { useLanguage } from "../contexts/LanguageContext";
 
 /* =====================================================
@@ -19,19 +25,23 @@ import { useLanguage } from "../contexts/LanguageContext";
 ===================================================== */
 
 export interface TransactionItem {
-  floor: string;
-  age_category: string;
+  ticket_sub_category_id: string;
+  /** Cermin Bahasa Indonesia (selalu ada, termasuk transaksi lama). */
+  ticket_name_snapshot: string;
+  /** Snapshot per bahasa; kosong untuk transaksi sebelum migrasi i18n. */
+  ticket_name_snapshot_i18n?: { id: string; en: string; zh?: string };
   quantity: number;
-  unit_price?: number;
+  unit_price: number;
 }
 
 export interface QueueDisplayVisitor {
-  id: string; 
+  id: string;
   queue_number: number;
-  ticket_code: string; 
+  ticket_code: string;
+  customer_name: string;
   total_price: number;
   created_at: string;
-  payment_method?: string; 
+  payment_method: "qris" | "card" | "cash" | string;
   items: TransactionItem[];
 }
 
@@ -46,116 +56,96 @@ interface QueueDisplayProps {
 const QueueDisplay: React.FC<QueueDisplayProps> = ({ visitor }) => {
   const { language, translations } = useLanguage();
 
-  // Helper untuk mendapatkan label usia dengan benar
-  const getCategoryLabel = (category: string) => {
-    switch (category.toLowerCase()) {
-      case 'child': return translations.childLabel[language];
-      case 'student': return translations.teenLabel[language];
-      case 'adult': return translations.adultLabel[language];
-      default: return category;
+  const paymentInfo = useMemo(() => {
+    switch (visitor.payment_method) {
+      case "card":
+        return { label: translations.creditDebitCard?.[language] || "Kartu Kredit/Debit", instruction: translations.cardInstruction[language] };
+      case "cash":
+        return { label: translations.cashPaymentLabel[language], instruction: translations.cashInstruction[language] };
+      default:
+        return { label: "QRIS", instruction: translations.qrisInstruction[language] };
     }
-  };
+  }, [visitor.payment_method, language, translations]);
 
-  const isCard = visitor.payment_method === 'card';
-  const paymentLabel = isCard 
-    ? (translations.creditDebitCard?.[language] || "KARTU KREDIT/DEBIT") 
-    : "QRIS";
+  // Kelompokkan item per lantai (master), lengkap dengan rincian varian +
+  // qty + harga — lebih rinci dari sekadar "jumlah per kategori usia".
+  const groupedByFloor = useMemo(() => {
+    const groups: Record<string, { name: string; quantity: number; unit_price: number }[]> = {};
+    visitor.items.forEach((item) => {
+      // Nama tiket di struk mengikuti bahasa yang dipakai pengunjung saat
+      // memilih tiket tadi. `resolveSnapshot` jatuh ke kolom cermin
+      // Bahasa Indonesia untuk transaksi lama yang belum punya snapshot
+      // per bahasa, jadi struk lama tetap tampil normal.
+      const { group, variant, full } = resolveSnapshot(item, language);
+      if (!groups[group]) groups[group] = [];
+      groups[group].push({ name: variant || full, quantity: item.quantity, unit_price: item.unit_price });
+    });
+    return groups;
+  }, [visitor.items, language]);
 
-  // =====================================================
-  // LOGIKA REKAPITULASI TIKET
-  // =====================================================
-  const ticketSummary = useMemo(() => {
-    if (!visitor.items || visitor.items.length === 0) {
-      return { floors: [], counts: {} };
-    }
-
-    // 1. Ambil daftar lantai unik yang dikunjungi sebagai Array
-    const uniqueFloors = Array.from(new Set(visitor.items.map(i => i.floor)));
-
-    // 2. Hitung jumlah pengunjung berdasarkan kategori usia
-    const counts = visitor.items.reduce((acc, item) => {
-      acc[item.age_category] = Math.max((acc[item.age_category] || 0), item.quantity);
-      return acc;
-    }, {} as Record<string, number>);
-
-    return { floors: uniqueFloors, counts };
-  }, [visitor.items]);
+  const floorNames = Object.keys(groupedByFloor);
 
   return (
     <div className="w-full max-w-md mx-auto bg-[#fcfcfc] rounded-2xl shadow-2xl border border-gray-200 overflow-hidden">
-      
-      {/* Header: Nomor Antrian Satu Baris */}
+      {/* Header: Nomor Antrian */}
       <header className="bg-black pt-10 pb-10 px-6 text-center border-b-[6px] border-[#fb9418]">
-        <h2 className="text-[#fcfcfc] text-sm md:text-base font-light mb-3 tracking-[0.25em] uppercase">
-          {translations.queueNumberLabel[language]}
-        </h2>
-        
-        {/* Ukuran font diperkecil (text-2xl / 3xl / 4xl) agar tidak terlalu penuh */}
+        <h2 className="text-[#fcfcfc] text-sm md:text-base font-light mb-3 tracking-[0.25em] uppercase">{translations.queueNumberLabel[language]}</h2>
         <div className="text-2xl sm:text-3xl md:text-4xl font-extrabold text-[#fb9418] tracking-widest leading-none whitespace-nowrap">
           {visitor.ticket_code}
         </div>
+        {visitor.customer_name && (
+          <p className="text-gray-300 text-sm font-medium mt-3 truncate">
+            {translations.orderedByLabel[language]}: <span className="text-white font-bold">{visitor.customer_name}</span>
+          </p>
+        )}
       </header>
 
       {/* Body Area */}
-      <div className="p-6 md:p-8 bg-[#fcfcfc]">
-        
-        {/* Main Box - Menyatukan seluruh informasi */}
-        <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
-          
-          <div className="mb-5 space-y-3">
-            
-            {/* Lantai yang Dikunjungi (List ke bawah) */}
-            <div className="flex justify-between items-start text-sm sm:text-base border-b border-gray-100 pb-3 mb-2">
-              <span className="text-gray-500 font-bold uppercase text-xs sm:text-sm tracking-widest mt-0.5">
-                Lantai Dikunjungi
-              </span>
-              <div className="flex flex-col items-end gap-1">
-                {ticketSummary.floors.length > 0 ? (
-                  ticketSummary.floors.map((floor, idx) => (
-                    <span key={idx} className="text-black font-extrabold text-right">
-                      {floor}
-                    </span>
-                  ))
-                ) : (
-                  <span className="text-black font-extrabold text-right">-</span>
-                )}
-              </div>
+      <div className="p-6 md:p-8 bg-[#fcfcfc] space-y-4">
+        {/* Rincian Tiket per Lantai */}
+        <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
+          <p className="text-gray-500 font-bold uppercase text-xs sm:text-sm tracking-widest mb-3">{translations.ticketDetails[language]}</p>
+
+          {floorNames.length === 0 ? (
+            <p className="text-sm text-gray-400 italic">{translations.noTicketData[language]}</p>
+          ) : (
+            <div className="space-y-4">
+              {floorNames.map((floorName) => (
+                <div key={floorName}>
+                  <p className="text-black font-extrabold text-sm mb-1.5">{floorName}</p>
+                  <div className="space-y-1">
+                    {groupedByFloor[floorName].map((v, idx) => (
+                      <div key={idx} className="flex justify-between items-center text-sm">
+                        <span className="text-gray-700">
+                          {v.quantity} × {v.name}
+                        </span>
+                        <span className="text-black font-bold">{formatCurrency(v.quantity * v.unit_price)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
             </div>
-            
-            {/* Rincian Kategori Usia */}
-            {Object.entries(ticketSummary.counts).map(([cat, count], idx) => (
-              <div key={idx} className="flex justify-between items-center text-sm sm:text-base border-b border-gray-50 pb-2 last:border-0 last:pb-0">
-                <span className="text-gray-700 font-medium capitalize">
-                  {getCategoryLabel(cat).replace('\n', ' ')}
-                </span>
-                <span className="text-black font-bold whitespace-nowrap">
-                  {count} orang
-                </span>
-              </div>
-            ))}
-          </div>
-
-          {/* Metode Pembayaran (Teks Saja) */}
-          <div className="flex justify-between items-center border-t border-gray-200 border-dashed pt-4 pb-4">
-            <span className="font-bold text-gray-500 uppercase tracking-widest text-xs sm:text-sm">
-              Metode
-            </span>
-            <span className="font-extrabold text-black uppercase text-sm sm:text-base text-right">
-              {paymentLabel}
-            </span>
-          </div>
-
-          {/* Total Pembayaran (1 Baris Penuh) */}
-          <div className="flex justify-between items-center border-t-2 border-black pt-4 mt-1">
-            <span className="font-bold text-black uppercase tracking-wide text-xs sm:text-sm mr-2">
-              {translations.totalPayment[language]}
-            </span>
-            <span className="font-extrabold text-xl sm:text-2xl text-[#fb9418] whitespace-nowrap">
-              {formatCurrency(visitor.total_price)}
-            </span>
-          </div>
-          
+          )}
         </div>
+
+        {/* Metode Pembayaran + Instruksi */}
+        <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
+          <div className="flex justify-between items-center mb-2">
+            <span className="font-bold text-gray-500 uppercase tracking-widest text-xs sm:text-sm">{translations.yourPaymentMethod[language]}</span>
+            <span className="font-extrabold text-black uppercase text-sm sm:text-base text-right">{paymentInfo.label}</span>
+          </div>
+          <p className="text-xs sm:text-sm text-gray-600 leading-relaxed">{paymentInfo.instruction}</p>
+        </div>
+
+        {/* Total Pembayaran */}
+        <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm flex justify-between items-center">
+          <span className="font-bold text-black uppercase tracking-wide text-xs sm:text-sm mr-2">{translations.totalPayment[language]}</span>
+          <span className="font-extrabold text-xl sm:text-2xl text-[#fb9418] whitespace-nowrap">{formatCurrency(visitor.total_price)}</span>
+        </div>
+
+        {/* Instruksi umum */}
+        <p className="text-center text-xs sm:text-sm text-gray-500 leading-relaxed px-2">{translations.queueInstruction[language]}</p>
       </div>
     </div>
   );

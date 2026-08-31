@@ -35,6 +35,7 @@ from sqlalchemy import (
     Column, String, Integer, DateTime, ForeignKey,
     Uuid, Date, Time, UniqueConstraint, CheckConstraint, Boolean
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase, relationship
 
@@ -43,6 +44,7 @@ from fastapi import Depends
 
 # Satu-satunya sumber konfigurasi — tidak ada lagi os.getenv() di sini
 from app.config import settings
+from app.i18n import resolve_name
 
 
 # ==========================================
@@ -72,7 +74,22 @@ class TicketMaster(Base):
     __tablename__ = "ticket_masters"
 
     id          = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    # KOLOM CERMIN (Bahasa Indonesia). Selalu ditulis ulang dari
+    # name_i18n["id"] setiap kali master dibuat/diubah — JANGAN pernah diisi
+    # sendiri tanpa memperbarui name_i18n. Sengaja dipertahankan supaya:
+    #   1) UNIQUE constraint di bawah tetap menjaga duplikasi nama,
+    #   2) seluruh layar & laporan staf (Ringkasan, Riwayat, ekspor CSV)
+    #      yang berbahasa Indonesia tidak perlu diubah sama sekali.
     name        = Column(String, nullable=False, unique=True)   # e.g., "Tiket Lantai 11"
+
+    # BARU — nama multi-bahasa yang dilihat pengunjung.
+    # {"id": "Tiket Lantai 11", "en": "Floor 11 Ticket", "zh": "11层门票"}
+    # `id` & `en` wajib (divalidasi app/i18n.py + CheckConstraint di bawah),
+    # `zh` opsional. HARGA tidak ada di sini — harga tetap satu nilai
+    # universal di TicketSubCategory.price.
+    name_i18n   = Column(JSONB, nullable=False, server_default="{}")
+
     description = Column(String, nullable=True)
 
     # BARU — soft delete. "Menghapus" master tiket dari UI tidak lagi
@@ -81,6 +98,16 @@ class TicketMaster(Base):
     # (GET /ticket-masters default), tapi tetap ada di database sehingga
     # sesi & transaksi lama yang mereferensikannya tidak rusak.
     is_active = Column(Boolean, nullable=False, default=True, server_default="true")
+
+    __table_args__ = (
+        # Menegakkan "ID & EN wajib" di level database, bukan cuma di
+        # Pydantic — memakai ->> (bukan operator ?) supaya tidak bentrok
+        # dengan paramstyle SQLAlchemy.
+        CheckConstraint(
+            "btrim(coalesce(name_i18n->>'id','')) <> '' AND btrim(coalesce(name_i18n->>'en','')) <> ''",
+            name="ck_ticket_master_name_i18n_required",
+        ),
+    )
 
     sub_categories = relationship(
         "TicketSubCategory",
@@ -103,7 +130,12 @@ class TicketSubCategory(Base):
         ForeignKey("ticket_masters.id", ondelete="CASCADE"),
         nullable=False
     )
+    # KOLOM CERMIN (Bahasa Indonesia) — lihat penjelasan di TicketMaster.name.
     name    = Column(String, nullable=False)     # e.g., "Remaja", "Dewasa"
+
+    # BARU — nama varian multi-bahasa: {"id": "Dewasa", "en": "Adult", ...}
+    name_i18n = Column(JSONB, nullable=False, server_default="{}")
+
     min_age = Column(Integer, nullable=False, default=0)
     max_age = Column(Integer, nullable=True)     # NULL = tanpa batas atas (misal 22+)
     price   = Column(Integer, nullable=False)    # Harga dasar tiket
@@ -117,11 +149,45 @@ class TicketSubCategory(Base):
 
     __table_args__ = (
         CheckConstraint("max_age IS NULL OR max_age >= min_age", name="ck_age_range_valid"),
+        CheckConstraint(
+            "btrim(coalesce(name_i18n->>'id','')) <> '' AND btrim(coalesce(name_i18n->>'en','')) <> ''",
+            name="ck_sub_category_name_i18n_required",
+        ),
     )
 
     # lazy="selectin" agar snapshot nama tiket ("Tiket Lantai 11 - Dewasa") bisa
     # dibentuk tanpa lazy-load tersembunyi di dalam async session
     ticket_master = relationship("TicketMaster", back_populates="sub_categories", lazy="selectin")
+
+    @property
+    def ticket_master_name(self) -> str | None:
+        """
+        BARU — properti komputasi (BUKAN kolom database, tidak perlu migrasi).
+
+        `TicketSubCategoryRead` yang dikirim ke klien PUBLIK (mis. lewat
+        `GET /sessions/active`, dipakai halaman pemilihan tiket pengunjung)
+        sebelumnya tidak pernah membawa nama master induknya ("Tiket Lantai
+        1") — cuma `ticket_master_id` (UUID). Endpoint publik itu TIDAK
+        boleh memanggil `GET /ticket-masters` (khusus staf), jadi frontend
+        publik tidak pernah bisa menampilkan nama lantai yang benar.
+
+        Karena relasi `ticket_master` di atas sudah `lazy="selectin"` (selalu
+        ikut termuat saat sub-kategori ini dimuat, transitif lewat rantai
+        selectin dari SessionTicket/OperationalSession), properti ini bisa
+        diakses tanpa I/O tambahan. Pydantic (`from_attributes=True`) otomatis
+        memetakan properti Python biasa sama seperti kolom lewat `getattr`.
+        """
+        return self.ticket_master.name if self.ticket_master else None
+
+    @property
+    def ticket_master_name_i18n(self) -> dict | None:
+        """
+        Versi multi-bahasa dari `ticket_master_name` di atas — inilah yang
+        dipakai halaman pemilihan tiket pengunjung untuk menampilkan nama
+        lantai sesuai bahasa aktif. Sama seperti properti di atas, gratis
+        secara I/O karena relasi `ticket_master` sudah lazy="selectin".
+        """
+        return self.ticket_master.name_i18n if self.ticket_master else None
 
     session_tickets = relationship(
         "SessionTicket",
@@ -150,6 +216,33 @@ class OperationalSession(Base):
     __table_args__ = (
         CheckConstraint("status IN ('draft','opened','closed')", name="ck_session_status_valid"),
     )
+
+    @property
+    def is_live(self) -> bool:
+        """
+        BARU — properti komputasi (BUKAN kolom database, tidak perlu migrasi).
+
+        True HANYA untuk sesi yang benar-benar sedang berjalan saat ini:
+        sudah dibuka admin, tanggalnya hari ini, dan jam dinding sekarang
+        ada di dalam rentangnya. Inilah satu-satunya sesi yang boleh
+        melayani pembelian tiket, dan yang diberi label "Berlangsung" di
+        panel admin.
+
+        Rentang bersifat HALF-OPEN [start, end): pada detik tepat di
+        `end_time`, sesi ini sudah TIDAK live lagi. Itu yang membuat dua
+        sesi bersebelahan (12:00–16:00 dan 16:00–20:00) tidak pernah
+        dua-duanya live di pukul 16:00.
+
+        Karena Pydantic `from_attributes=True` memetakan properti Python
+        seperti kolom biasa, SEMUA endpoint yang mengembalikan sesi
+        otomatis ikut membawa flag ini tanpa perubahan apa pun di sana.
+        """
+        now = datetime.now(settings.timezone)
+        return (
+            self.status == "opened"
+            and self.date == now.date()
+            and self.start_time <= now.time() < self.end_time
+        )
 
     # Tiket yang diaktifkan pada sesi ini
     active_tickets = relationship(
@@ -304,7 +397,16 @@ class TransactionItem(Base):
         nullable=False
     )
 
+    # KOLOM CERMIN (Bahasa Indonesia) — dipakai seluruh laporan & ekspor
+    # CSV staf apa adanya, jadi sengaja tidak diubah formatnya.
     ticket_name_snapshot = Column(String, nullable=False)   # e.g., "Tiket Lantai 11 - Dewasa"
+
+    # BARU — snapshot nama multi-bahasa, dibekukan saat transaksi dibuat:
+    # {"id": "Tiket Lantai 11 - Dewasa", "en": "Floor 11 Ticket - Adult"}
+    # Dipakai layar antrean/struk pengunjung supaya bahasanya konsisten
+    # dengan katalog yang barusan mereka lihat.
+    ticket_name_snapshot_i18n = Column(JSONB, nullable=False, server_default="{}")
+
     quantity   = Column(Integer, nullable=False, default=1)
     unit_price = Column(Integer, nullable=False)             # Harga saat pembelian (price snapshot)
 

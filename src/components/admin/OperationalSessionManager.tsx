@@ -31,6 +31,8 @@ import {
   toTimeInputValue,
   SESSION_STATUS_LABEL,
   SESSION_STATUS_BADGE,
+  SESSION_LIVE_LABEL,
+  SESSION_LIVE_BADGE,
 } from "../../utils/formatters";
 import SessionAuditForm from "./SessionAuditForm";
 
@@ -134,13 +136,43 @@ const OperationalSessionManager: React.FC<OperationalSessionManagerProps> = ({ r
     }));
   };
 
+  /**
+   * Pemeriksaan tumpang-tindih di sisi klien — HANYA untuk umpan balik
+   * cepat. Gerbang sebenarnya tetap di backend
+   * (`_assert_no_session_overlap` di api/app/app.py), karena daftar sesi
+   * di layar ini bisa saja terfilter tanggal/status atau sudah basi.
+   *
+   * Aturannya identik dengan backend: dua rentang bertabrakan hanya kalau
+   * benar-benar beririsan (half-open), jadi jadwal bersambung persis
+   * seperti 12:00–16:00 lalu 16:00–20:00 tidak dianggap bentrok.
+   */
+  const findLocalOverlap = (date: string, start: string, end: string) =>
+    sessions.find(
+      (s) =>
+        s.date === date &&
+        toTimeInputValue(s.start_time) < end &&
+        toTimeInputValue(s.end_time) > start
+    );
+
   const handleCreateSession = async () => {
     if (!createForm.name.trim() || !createForm.date || !createForm.start_time || !createForm.end_time) {
       setCreateError("Nama, tanggal, jam mulai, dan jam selesai wajib diisi.");
       return;
     }
+    if (createForm.end_time <= createForm.start_time) {
+      setCreateError("Jam selesai harus lebih besar dari jam mulai.");
+      return;
+    }
     if (createForm.ticket_sub_category_ids.length === 0) {
       setCreateError("Pilih setidaknya satu varian tiket yang dijual pada sesi ini.");
+      return;
+    }
+    const clash = findLocalOverlap(createForm.date, createForm.start_time, createForm.end_time);
+    if (clash) {
+      setCreateError(
+        `Jadwal bertabrakan dengan sesi "${clash.name}" ` +
+          `(${toTimeInputValue(clash.start_time)}–${toTimeInputValue(clash.end_time)}) pada tanggal yang sama.`
+      );
       return;
     }
     const payload: OperationalSessionPayload = {
@@ -293,9 +325,22 @@ const OperationalSessionManager: React.FC<OperationalSessionManagerProps> = ({ r
                     {toTimeInputValue(s.start_time)} - {toTimeInputValue(s.end_time)}
                   </td>
                   <td className="px-4 py-3">
-                    <span className={`text-[11px] font-bold px-2 py-1 rounded-full border ${SESSION_STATUS_BADGE[s.status]}`}>
-                      {SESSION_STATUS_LABEL[s.status]}
-                    </span>
+                    {/* Dua badge terpisah dan sengaja tidak digabung:
+                        "Dibuka" itu STATUS (admin sudah membukanya), sedang
+                        "Berlangsung" itu WAKTU (jam sekarang ada di dalam
+                        rentang sesi). Sesi bisa Dibuka tapi jadwalnya baru
+                        mulai nanti — hanya yang Berlangsung yang melayani
+                        pembelian pengunjung. */}
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className={`text-[11px] font-bold px-2 py-1 rounded-full border ${SESSION_STATUS_BADGE[s.status]}`}>
+                        {SESSION_STATUS_LABEL[s.status]}
+                      </span>
+                      {s.is_live && (
+                        <span className={`text-[11px] px-2 py-1 rounded-full border ${SESSION_LIVE_BADGE}`}>
+                          ● {SESSION_LIVE_LABEL}
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="px-4 py-3 text-gray-600">{s.active_tickets.length}</td>
                   <td className="px-4 py-3 text-right">
@@ -439,6 +484,11 @@ const OperationalSessionManager: React.FC<OperationalSessionManagerProps> = ({ r
                 <span className={`text-xs font-bold px-3 py-1.5 rounded-full border ${SESSION_STATUS_BADGE[detailSession.status]}`}>
                   {SESSION_STATUS_LABEL[detailSession.status]}
                 </span>
+                {detailSession.is_live && (
+                  <span className={`text-xs px-3 py-1.5 rounded-full border ${SESSION_LIVE_BADGE}`}>
+                    ● {SESSION_LIVE_LABEL}
+                  </span>
+                )}
                 {canManageSession && detailSession.status === "draft" && (
                   <button
                     onClick={handleOpenSession}

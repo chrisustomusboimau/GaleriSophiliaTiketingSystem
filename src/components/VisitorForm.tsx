@@ -4,10 +4,17 @@
  * Form utama input data pengunjung museum.
  * UPDATE (selaras backend baru): sudah tidak ada lagi tabel harga
  * hardcoded per lantai (`calculateAggregatePrices` / `calculateTotalPrice`
- * versi lama). Harga & varian tiket sekarang diambil langsung dari
- * SESI OPERASIONAL yang sedang aktif (`GET /sessions/active` — endpoint
- * publik, tidak butuh login), persis seperti alur di ManualEntryModal
- * sisi admin.
+ * versi lama). Harga & varian tiket sekarang berasal dari SESI OPERASIONAL
+ * yang sedang berjalan.
+ *
+ * UPDATE (multi-bahasa & gerbang sesi):
+ * - Sesi TIDAK lagi diambil di file ini; dibaca dari `ActiveSessionContext`
+ *   yang sudah mengambilnya sekali untuk seluruh alur pembelian.
+ * - Label varian dirender sesuai bahasa aktif, tapi pengelompokan &
+ *   state jumlah pengunjung tetap memakai kunci Bahasa Indonesia yang
+ *   stabil — lihat catatan panjang di `variantGroups` di bawah.
+ * - Kalau sesi keburu berakhir selagi form diisi, `POST /transactions`
+ *   akan ditolak 403 dan pengunjung diantar ke `/tickets-unavailable`.
  *
  * CATATAN PENTING (lihat balasan chat untuk detail):
  * `selectedFloors` yang dikirim dari TicketSelectionPage sekarang
@@ -19,10 +26,11 @@
 import React, { useEffect, useMemo, useState, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { getData } from "country-list";
-import { apiGet, apiPost, ApiError } from "../api/client";
-import { OperationalSession, TransactionEntry, TransactionItemInput, PaymentMethod } from "../types";
-import { formatCurrency } from "../utils/formatters";
+import { apiPost, ApiError } from "../api/client";
+import { TransactionEntry, TransactionItemInput, PaymentMethod } from "../types";
+import { formatCurrency, resolveName } from "../utils/formatters";
 import { useLanguage } from "../contexts/LanguageContext";
+import { useActiveSession } from "../contexts/ActiveSessionContext";
 
 /* =====================================================
    CONSTANTS & HELPERS
@@ -90,9 +98,21 @@ interface CountryVisitor {
 }
 
 interface VariantGroup {
-  /** Nama varian usia (mis. "Dewasa"), diambil apa adanya dari Master Data. */
+  /**
+   * KUNCI STABIL — nama varian versi Bahasa Indonesia (`name_i18n.id`),
+   * BUKAN nama yang sedang ditampilkan. Dipakai untuk mengelompokkan varian
+   * lintas lantai dan sebagai kunci state `counts`.
+   *
+   * KENAPA BUKAN NAMA TAMPILAN: kalau kunci ikut berubah saat pengunjung
+   * mengganti bahasa, React akan melihat kumpulan grup yang sama sekali
+   * baru — jumlah yang sudah diisi pengunjung hilang, dan untuk sesaat
+   * bisa muncul grup ganda ("Dewasa" dan "Adult" berdampingan).
+   */
   name: string;
-  /** Harga gabungan: dijumlahkan dari setiap lantai terpilih yang punya varian ini. */
+  /** Nama yang DITAMPILKAN, mengikuti bahasa aktif (jatuh ke EN kalau perlu). */
+  displayName: string;
+  /** Harga gabungan: dijumlahkan dari setiap lantai terpilih yang punya varian ini.
+   *  Satu nilai universal — harga tidak pernah ikut diterjemahkan. */
   price: number;
   /** Satu ticket_sub_category_id per lantai terpilih yang memiliki varian ini. */
   subCategoryIds: string[];
@@ -278,9 +298,12 @@ const VisitorForm: React.FC = () => {
   const selectedFloors: string[] = location.state?.selectedFloors || [];
 
   // --- Sesi operasional aktif (sumber kebenaran tiket & harga) ---
-  const [activeSession, setActiveSession] = useState<OperationalSession | null>(null);
-  const [isLoadingSession, setIsLoadingSession] = useState(true);
-  const [sessionError, setSessionError] = useState<string | null>(null);
+  // Sesi dibaca dari provider bersama — tidak ada lagi fetch kedua di sini.
+  const {
+    session: activeSession,
+    isLoading: isLoadingSession,
+    error: sessionError,
+  } = useActiveSession();
 
   const [counts, setCounts] = useState<Record<string, number | string>>({});
   const [customerName, setCustomerName] = useState("");
@@ -321,32 +344,6 @@ const VisitorForm: React.FC = () => {
     }
   }, [language, navigate, selectedFloors.length]);
 
-  // --- Ambil sesi operasional aktif (endpoint publik) ---
-  useEffect(() => {
-    let cancelled = false;
-
-    const loadActiveSession = async () => {
-      setIsLoadingSession(true);
-      setSessionError(null);
-      try {
-        const session = await apiGet<OperationalSession>("/sessions/active", { skipAuthRedirect: true });
-        if (!cancelled) setActiveSession(session);
-      } catch (err) {
-        if (!cancelled) {
-          setSessionError(err instanceof ApiError ? err.message : t.noActiveSession);
-        }
-      } finally {
-        if (!cancelled) setIsLoadingSession(false);
-      }
-    };
-
-    loadActiveSession();
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   // --- Tiket aktif yang cocok dengan lantai yang dipilih pengunjung ---
   // Catatan: form publik ini TIDAK bisa memanggil GET /ticket-masters
   // (endpoint staf), jadi pencocokan hanya lewat `ticket_master_id`.
@@ -367,14 +364,28 @@ const VisitorForm: React.FC = () => {
     relevantTickets.forEach((st) => {
       const sub = st.sub_category;
       if (!sub) return;
-      const key = sub.name.trim();
-      if (!map.has(key)) map.set(key, { name: key, price: 0, subCategoryIds: [] });
+
+      // Kunci pengelompokan SELALU nama Bahasa Indonesia (kolom cermin
+      // `name`, isinya sama dengan `name_i18n.id`) — stabil terhadap
+      // pergantian bahasa. Yang berubah saat bahasa diganti hanyalah
+      // `displayName`, sehingga jumlah yang sudah diisi pengunjung aman.
+      const key = (sub.name_i18n?.id || sub.name || "").trim();
+      if (!key) return;
+
+      if (!map.has(key)) {
+        map.set(key, {
+          name: key,
+          displayName: resolveName(sub.name_i18n, language, sub.name),
+          price: 0,
+          subCategoryIds: [],
+        });
+      }
       const group = map.get(key)!;
       group.price += sub.price;
       group.subCategoryIds.push(sub.id);
     });
     return Array.from(map.values());
-  }, [relevantTickets]);
+  }, [relevantTickets, language]);
 
   // Inisialisasi/selaraskan state counts setiap kali daftar varian berubah,
   // tanpa mereset nilai yang sudah diisi pengunjung.
@@ -493,6 +504,17 @@ const VisitorForm: React.FC = () => {
       navigate(`/queue/${data.id}`, { state: responseState, replace: true });
     } catch (err: any) {
       console.error("Submission error:", err);
+
+      // 403 dari POST /transactions berarti backend menyatakan tidak ada
+      // sesi yang sedang berjalan — hampir selalu karena sesi keburu
+      // berakhir selagi pengunjung mengisi formulir ini. Menampilkan pesan
+      // error merah di tengah form akan membingungkan (tidak ada yang bisa
+      // mereka perbaiki), jadi antar langsung ke halaman penjelasan.
+      if (err instanceof ApiError && err.status === 403) {
+        navigate("/tickets-unavailable", { replace: true });
+        return;
+      }
+
       setError(err instanceof ApiError ? err.message : err?.message || "Terjadi kesalahan. Silakan coba lagi.");
     } finally {
       setIsSubmitting(false);
@@ -562,7 +584,15 @@ const VisitorForm: React.FC = () => {
 
       {/* Age/Variant Category Inputs — sepenuhnya dinamis dari Master Data */}
       {variantGroups.map((g) => (
-        <CounterInput key={g.name} label={g.name} price={g.price} value={counts[g.name] ?? 0} onChange={(v) => updateCount(g.name, v)} />
+        // `key` & state pakai g.name (kunci stabil), yang DITAMPILKAN
+        // g.displayName (mengikuti bahasa aktif).
+        <CounterInput
+          key={g.name}
+          label={g.displayName}
+          price={g.price}
+          value={counts[g.name] ?? 0}
+          onChange={(v) => updateCount(g.name, v)}
+        />
       ))}
 
       {/* Multi-Country Input Section */}

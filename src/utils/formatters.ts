@@ -7,7 +7,59 @@
  * File ini hanya berisi fungsi format & helper murni (tanpa state).
  */
 
-import { FlatSubCategory, TransactionItemInput, TicketMaster } from "../types";
+import {
+  FlatSubCategory,
+  LocaleCode,
+  LocalizedName,
+  TransactionItemInput,
+  TicketMaster,
+} from "../types";
+
+/* =====================================================
+   NAMA MULTI-BAHASA
+===================================================== */
+
+/**
+ * Urutan bahasa cadangan. Dibaca kiri ke kanan; entri pertama yang ada
+ * isinya yang dipakai. Ini KEMBARAN dari FALLBACK_CHAIN di
+ * `api/app/i18n.py` — kalau salah satu diubah, ubah keduanya, kalau tidak
+ * nama yang sama bisa tampil berbeda antara katalog (dibaca dari
+ * name_i18n) dan struk (dibaca dari snapshot yang dibentuk backend).
+ */
+const FALLBACK_CHAIN: Record<LocaleCode, LocaleCode[]> = {
+  id: ["id", "en"],
+  en: ["en", "id"],
+  zh: ["zh", "en", "id"],
+};
+
+/**
+ * Mengambil nama tiket untuk satu bahasa.
+ *
+ * Nama Mandarin bersifat opsional bagi admin, jadi pengunjung berbahasa
+ * Mandarin otomatis melihat versi English — tidak pernah label kosong.
+ * Argumen `names` sengaja boleh undefined supaya layar tetap hidup kalau
+ * backend belum sempat dimigrasi.
+ */
+export function resolveName(
+  names: LocalizedName | Partial<Record<LocaleCode, string>> | null | undefined,
+  lang: LocaleCode,
+  fallback = ""
+): string {
+  if (!names) return fallback;
+
+  for (const locale of FALLBACK_CHAIN[lang] ?? FALLBACK_CHAIN.id) {
+    const text = (names as Record<string, string | undefined>)[locale]?.trim();
+    if (text) return text;
+  }
+
+  // Jaring pengaman terakhir: bahasa apa pun yang kebetulan terisi.
+  for (const text of Object.values(names as Record<string, string | undefined>)) {
+    const trimmed = text?.trim();
+    if (trimmed) return trimmed;
+  }
+
+  return fallback;
+}
 
 /** Format angka menjadi Rupiah, contoh: 150000 -> "Rp150.000" */
 export function formatCurrency(amount: number | null | undefined): string {
@@ -110,6 +162,26 @@ export function splitTicketSnapshot(snapshot: string): { group: string; variant:
   return { group: snapshot.slice(0, idx), variant: snapshot.slice(idx + 3) };
 }
 
+/**
+ * Versi multi-bahasa dari `splitTicketSnapshot` untuk layar PENGUNJUNG
+ * (struk / halaman antrean). Memilih snapshot sesuai bahasa aktif lalu
+ * memakai parser yang sama persis di atas.
+ *
+ * Kalau item lama belum punya snapshot i18n (transaksi sebelum migrasi),
+ * otomatis jatuh ke kolom cermin `ticket_name_snapshot` — layar tidak
+ * pernah kosong.
+ *
+ * Layar STAF sengaja tetap memanggil `splitTicketSnapshot` langsung:
+ * laporan, ringkasan, dan ekspor CSV memang selalu Bahasa Indonesia.
+ */
+export function resolveSnapshot(
+  item: { ticket_name_snapshot: string; ticket_name_snapshot_i18n?: LocalizedName },
+  lang: LocaleCode
+): { group: string; variant: string; full: string } {
+  const full = resolveName(item.ticket_name_snapshot_i18n, lang, item.ticket_name_snapshot);
+  return { ...splitTicketSnapshot(full), full };
+}
+
 export const SESSION_STATUS_LABEL: Record<string, string> = {
   draft: "Draft",
   opened: "Dibuka",
@@ -121,6 +193,17 @@ export const SESSION_STATUS_BADGE: Record<string, string> = {
   opened: "bg-green-100 text-green-700 border-green-300",
   closed: "bg-red-100 text-red-700 border-red-300",
 };
+
+/**
+ * Label "sedang berjalan sekarang" — SENGAJA TERPISAH dari badge status di
+ * atas. "Dibuka" (status) dan "Berlangsung" (jam dinding ada di dalam
+ * rentang sesi) adalah dua hal berbeda: sesi bisa berstatus Dibuka tapi
+ * jadwalnya baru mulai nanti sore. Hanya sesi berlabel inilah yang
+ * melayani pembelian tiket pengunjung.
+ */
+export const SESSION_LIVE_LABEL = "Berlangsung";
+export const SESSION_LIVE_BADGE =
+  "bg-[#fb9418] text-black border-[#fb9418] font-black";
 
 export const TRANSACTION_STATUS_LABEL: Record<string, string> = {
   pending: "Pending",

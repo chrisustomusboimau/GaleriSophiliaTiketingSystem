@@ -22,7 +22,9 @@ from app.schema import (
     OperationalSessionCreate, OperationalSessionRead, OperationalSessionUpdate,
     SessionTicketAuditRead, SessionTicketAuditStartUpdate, SessionTicketAuditEndUpdate,
     SessionTicketAuditBulkUpdate,
+    ActiveSessionStatusRead,
 )
+from app.i18n import build_snapshot_i18n
 from app.db import (
     create_db_and_tables, get_async_session, User,
     TransactionEntry, TransactionOriginEntry, TransactionItem,
@@ -200,15 +202,37 @@ async def create_ticket_master(
     session: AsyncSession = Depends(get_async_session),
     admin: User = Depends(current_admin),
 ):
-    """ADMIN: Membuat master tiket baru beserta sub-kategorinya (opsional)."""
-    existing = await session.execute(select(TicketMaster).where(TicketMaster.name == payload.name))
+    """ADMIN: Membuat master tiket baru beserta sub-kategorinya (opsional).
+
+    Nama dikirim per bahasa lewat `name_i18n` (ID & EN wajib, ZH opsional —
+    divalidasi di app/schema.py). Kolom `name` diisi otomatis dari versi
+    Bahasa Indonesia sebagai CERMIN: itu yang menjaga UNIQUE constraint dan
+    yang dipakai seluruh laporan staf. Jangan pernah mengisi `name` tanpa
+    ikut mengisi `name_i18n`."""
+    id_name = payload.name_i18n["id"]
+
+    # Cek duplikat dilakukan pada cermin Bahasa Indonesia — sama seperti
+    # sebelum multi-bahasa; nama English tidak diwajibkan unik.
+    existing = await session.execute(select(TicketMaster).where(TicketMaster.name == id_name))
     if existing.scalars().first():
         raise HTTPException(status_code=400, detail="Nama master tiket sudah digunakan.")
 
+    # Konstruksi eksplisit (bukan **sc.dict()) karena setiap baris butuh
+    # DUA field turunan: name_i18n dan cerminnya, name.
     new_master = TicketMaster(
-        name=payload.name,
+        name=id_name,
+        name_i18n=payload.name_i18n,
         description=payload.description,
-        sub_categories=[TicketSubCategory(**sc.dict()) for sc in payload.sub_categories]
+        sub_categories=[
+            TicketSubCategory(
+                name=sc.name_i18n["id"],
+                name_i18n=sc.name_i18n,
+                min_age=sc.min_age,
+                max_age=sc.max_age,
+                price=sc.price,
+            )
+            for sc in payload.sub_categories
+        ],
     )
     session.add(new_master)
     try:
@@ -251,6 +275,8 @@ async def list_ticket_masters(
         TicketMasterRead(
             id=m.id,
             name=m.name,
+            name_i18n=m.name_i18n,      # tanpa ini, jalur "hanya yang aktif"
+                                        # akan mengembalikan nama kosong
             description=m.description,
             is_active=m.is_active,
             sub_categories=[
@@ -275,8 +301,10 @@ async def update_ticket_master(
     if not master:
         raise HTTPException(status_code=404, detail="Master tiket tidak ditemukan.")
 
-    if payload.name is not None:
-        master.name = payload.name
+    if payload.name_i18n is not None:
+        # Tulis keduanya bersamaan agar cermin tidak pernah menyimpang.
+        master.name_i18n = payload.name_i18n
+        master.name = payload.name_i18n["id"]
     if payload.description is not None:
         master.description = payload.description
     if payload.is_active is not None:
@@ -345,7 +373,14 @@ async def add_ticket_sub_category(
     if payload.max_age is not None and payload.max_age < payload.min_age:
         raise HTTPException(status_code=400, detail="max_age tidak boleh lebih kecil dari min_age.")
 
-    new_sub = TicketSubCategory(ticket_master_id=ticket_master_id, **payload.dict())
+    new_sub = TicketSubCategory(
+        ticket_master_id=ticket_master_id,
+        name=payload.name_i18n["id"],      # cermin Bahasa Indonesia
+        name_i18n=payload.name_i18n,
+        min_age=payload.min_age,
+        max_age=payload.max_age,
+        price=payload.price,
+    )
     session.add(new_sub)
     try:
         await session.commit()
@@ -371,8 +406,9 @@ async def update_ticket_sub_category(
     if not sub:
         raise HTTPException(status_code=404, detail="Sub-kategori tiket tidak ditemukan.")
 
-    if payload.name is not None:
-        sub.name = payload.name
+    if payload.name_i18n is not None:
+        sub.name_i18n = payload.name_i18n
+        sub.name = payload.name_i18n["id"]
     if payload.min_age is not None:
         sub.min_age = payload.min_age
     if payload.max_age is not None:
@@ -427,6 +463,56 @@ async def delete_ticket_sub_category(
 # OPERATIONAL SESSION (ADMIN membuat & mengelola siklus hidup sesi)
 # ==========================================
 
+async def _assert_no_session_overlap(
+    session: AsyncSession,
+    session_date: date,
+    start_time,
+    end_time,
+    exclude_id: Optional[uuid.UUID] = None,
+) -> None:
+    """
+    Menolak jadwal sesi yang bertabrakan dengan sesi lain di TANGGAL YANG SAMA.
+
+    Ini adalah SATU-SATUNYA tempat aturan anti-tumpang-tindih ditegakkan —
+    endpoint pembuatan/perubahan sesi apa pun di masa depan harus memanggil
+    fungsi ini (dengan `exclude_id` diisi saat mengedit sesi yang sudah ada).
+
+    Dua aturan yang menentukan hasilnya:
+
+    1) SEMUA STATUS ikut dihitung (draft, opened, maupun closed). Sesi draft
+       bisa dibuka kapan saja, dan sesi closed tetap "memakai" slot waktunya
+       di jadwal hari itu — jadi keduanya tetap memblokir jadwal baru.
+
+    2) Rentang bersifat HALF-OPEN [start, end): sesi bersebelahan persis
+       (12:00–16:00 lalu 16:00–20:00) DIPERBOLEHKAN. Dua rentang dianggap
+       bertabrakan hanya kalau benar-benar beririsan:
+           existing.start < new.end  AND  existing.end > new.start
+       Aturan half-open yang sama dipakai `OperationalSession.is_live` dan
+       `_get_active_session()`, sehingga pada pukul 16:00 tepat hanya ada
+       SATU sesi yang aktif.
+    """
+    query = select(OperationalSession).where(
+        OperationalSession.date == session_date,
+        OperationalSession.start_time < end_time,
+        OperationalSession.end_time > start_time,
+    )
+    if exclude_id is not None:
+        query = query.where(OperationalSession.id != exclude_id)
+
+    result = await session.execute(query)
+    conflict = result.scalars().first()
+    if conflict:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Jadwal bertabrakan dengan sesi '{conflict.name}' "
+                f"({conflict.start_time.strftime('%H:%M')}–{conflict.end_time.strftime('%H:%M')}) "
+                f"pada tanggal yang sama. Sesi tidak boleh tumpang-tindih; "
+                f"jadwal yang bersambung persis (mis. 12:00–16:00 lalu 16:00–20:00) diperbolehkan."
+            ),
+        )
+
+
 @app.post(f"{PREFIX}/sessions", response_model=OperationalSessionRead, status_code=201, tags=["sessions"])
 async def create_operational_session(
     payload: OperationalSessionCreate,
@@ -436,6 +522,8 @@ async def create_operational_session(
     """ADMIN: Membuat sesi operasional & mengaktifkan daftar tiket yang dijual pada sesi tersebut."""
     if payload.end_time <= payload.start_time:
         raise HTTPException(status_code=400, detail="end_time harus lebih besar dari start_time.")
+
+    await _assert_no_session_overlap(session, payload.date, payload.start_time, payload.end_time)
 
     session_tickets = []
     for sub_id in payload.ticket_sub_category_ids:
@@ -507,18 +595,36 @@ async def list_operational_sessions(
     return result.scalars().unique().all()
 
 
-async def _get_active_session(session: AsyncSession) -> OperationalSession:
-    """Helper: mengambil sesi operasional yang berstatus 'opened' & sedang berjalan saat ini (WIB)."""
+async def _find_active_session(session: AsyncSession) -> Optional[OperationalSession]:
+    """
+    Mengambil sesi yang sedang berjalan saat ini (WIB), atau None.
+
+    Sesi dianggap berjalan kalau SUDAH DIBUKA admin ('opened'), tanggalnya
+    hari ini, dan jam sekarang ada di dalam rentangnya.
+
+    PERBAIKAN: batas akhir sekarang EKSKLUSIF (`end_time > now`), dulu
+    inklusif (`>=`). Dengan dua sesi bersebelahan 12:00–16:00 dan
+    16:00–20:00, versi lama membuat KEDUANYA cocok tepat pukul 16:00 dan
+    `.first()` memilih salah satu secara sembarang. Sekarang persis satu
+    sesi yang cocok kapan pun. Aturan half-open ini identik dengan
+    `OperationalSession.is_live` dan `_assert_no_session_overlap`.
+    """
     now_wib = datetime.now(WIB)
     result = await session.execute(
         select(OperationalSession).where(
             OperationalSession.date == now_wib.date(),
             OperationalSession.status == "opened",
             OperationalSession.start_time <= now_wib.time(),
-            OperationalSession.end_time >= now_wib.time(),
+            OperationalSession.end_time > now_wib.time(),
         )
     )
-    active = result.scalars().first()
+    return result.scalars().first()
+
+
+async def _get_active_session(session: AsyncSession) -> OperationalSession:
+    """Sama seperti `_find_active_session`, tapi melempar 403 kalau tidak ada.
+    Dipakai jalur yang memang harus gagal (mis. pembuatan transaksi)."""
+    active = await _find_active_session(session)
     if not active:
         raise HTTPException(
             status_code=403,
@@ -531,8 +637,35 @@ async def _get_active_session(session: AsyncSession) -> OperationalSession:
 async def get_active_operational_session(
     session: AsyncSession = Depends(get_async_session),
 ):
-    """PUBLIC: Mengambil sesi yang sedang berjalan & 'opened' saat ini (untuk halaman checkout)."""
+    """PUBLIC: Mengambil sesi yang sedang berjalan & 'opened' saat ini (untuk halaman checkout).
+
+    Membalas 403 kalau tidak ada sesi berjalan. Dipertahankan apa adanya
+    untuk kompatibilitas; klien baru sebaiknya memakai
+    `GET /sessions/active/status` di bawah."""
     return await _get_active_session(session)
+
+
+# CATATAN URUTAN RUTE: endpoint ini WAJIB dideklarasikan sebelum
+# `GET /sessions/{session_id}`, kalau tidak "active" akan dicoba diurai
+# sebagai UUID oleh rute tersebut.
+@app.get(f"{PREFIX}/sessions/active/status", response_model=ActiveSessionStatusRead, tags=["sessions"])
+async def get_active_session_status(
+    session: AsyncSession = Depends(get_async_session),
+):
+    """PUBLIC: Apakah ada sesi yang sedang berjalan sekarang?
+
+    SELALU 200 — "galeri sedang tutup" adalah kondisi normal, bukan error,
+    jadi tidak disampaikan lewat 403 seperti endpoint di atas. Inilah yang
+    dipakai penjaga rute frontend (`RequireActiveSession`) untuk memutuskan
+    apakah pengunjung boleh masuk ke halaman pembelian atau dialihkan ke
+    halaman "belum bisa membeli tiket"."""
+    active = await _find_active_session(session)
+    return ActiveSessionStatusRead(
+        has_active=active is not None,
+        server_time=datetime.now(WIB),
+        # Konversi eksplisit dari objek ORM ke skema respons.
+        session=OperationalSessionRead.model_validate(active) if active else None,
+    )
 
 
 @app.get(f"{PREFIX}/sessions/{{session_id}}", response_model=OperationalSessionRead, tags=["sessions"])
@@ -860,14 +993,27 @@ async def create_transaction(
                 item_total = sub_category.price * item.quantity
                 total_price += item_total
 
+                # Snapshot nama dibekukan di sini supaya struk & riwayat
+                # lama tidak ikut berubah kalau admin mengganti nama tiket
+                # besok. Dua bentuk disimpan berdampingan:
+                #   - `ticket_name_snapshot`      : cermin Bahasa Indonesia,
+                #     dipakai apa adanya oleh seluruh laporan & ekspor staf.
+                #   - `ticket_name_snapshot_i18n` : per bahasa, dipakai layar
+                #     antrean/struk pengunjung agar bahasanya konsisten
+                #     dengan katalog yang barusan mereka lihat.
+                master = sub_category.ticket_master
                 snapshot_name = (
-                    f"{sub_category.ticket_master.name} - {sub_category.name}"
-                    if sub_category.ticket_master else sub_category.name
+                    f"{master.name} - {sub_category.name}" if master else sub_category.name
+                )
+                snapshot_i18n = build_snapshot_i18n(
+                    master.name_i18n if master else None,
+                    sub_category.name_i18n,
                 )
 
                 transaction_items.append(TransactionItem(
                     ticket_sub_category_id=sub_category.id,
                     ticket_name_snapshot=snapshot_name,
+                    ticket_name_snapshot_i18n=snapshot_i18n,
                     quantity=item.quantity,
                     unit_price=sub_category.price
                 ))
@@ -1048,15 +1194,25 @@ async def edit_transaction_data(
                 raise HTTPException(status_code=400, detail="Sub-kategori tiket tidak ditemukan.")
 
             total_price += sub_category.price * item.quantity
+
+            # Item yang diganti kasir juga di-snapshot ulang dalam kedua
+            # bentuk — kalau hanya cermin Bahasa Indonesia yang diperbarui,
+            # struk pengunjung untuk transaksi yang pernah diedit akan
+            # kehilangan versi bahasanya (i18n kosong).
+            master = sub_category.ticket_master
             snapshot_name = (
-                f"{sub_category.ticket_master.name} - {sub_category.name}"
-                if sub_category.ticket_master else sub_category.name
+                f"{master.name} - {sub_category.name}" if master else sub_category.name
+            )
+            snapshot_i18n = build_snapshot_i18n(
+                master.name_i18n if master else None,
+                sub_category.name_i18n,
             )
 
             new_items.append(TransactionItem(
                 transaction_id=transaction_id,
                 ticket_sub_category_id=sub_category.id,
                 ticket_name_snapshot=snapshot_name,
+                ticket_name_snapshot_i18n=snapshot_i18n,
                 quantity=item.quantity,
                 unit_price=sub_category.price
             ))

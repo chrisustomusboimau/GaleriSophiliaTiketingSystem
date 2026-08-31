@@ -35,6 +35,8 @@ import {
   TRANSACTION_STATUS_LABEL,
   SESSION_STATUS_LABEL,
   SESSION_STATUS_BADGE,
+  SESSION_LIVE_LABEL,
+  SESSION_LIVE_BADGE,
   ROLE_LABEL,
 } from "../utils/formatters";
 import Header from "../components/Header";
@@ -424,6 +426,14 @@ const SessionDetailPage: React.FC = () => {
           ) : session ? (
             <div className="flex flex-wrap items-center gap-3">
               <h1 className="text-[#fcfcfc] font-bold text-lg">{session.name}</h1>
+              {/* "Berlangsung" (jam dinding di dalam rentang sesi) sengaja
+                  tampil terpisah dari status — lihat catatan di
+                  OperationalSessionManager.tsx. */}
+              {session.is_live && (
+                <span className={`text-[11px] px-2.5 py-1 rounded-full border mr-1.5 ${SESSION_LIVE_BADGE}`}>
+                  ● {SESSION_LIVE_LABEL}
+                </span>
+              )}
               <span className={`text-[11px] font-bold px-2.5 py-1 rounded-full border ${SESSION_STATUS_BADGE[session.status]}`}>
                 {SESSION_STATUS_LABEL[session.status]}
               </span>

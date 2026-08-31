@@ -13,6 +13,27 @@
 
 export type UserRole = "admin" | "kasir" | "checker";
 
+/** Kode bahasa yang dikenal aplikasi — selaras dengan `Language` di
+ *  contexts/LanguageContext.tsx dan SUPPORTED_LOCALES di api/app/i18n.py. */
+export type LocaleCode = "id" | "en" | "zh";
+
+/**
+ * Nama multi-bahasa untuk Master Tiket & Sub-Kategori.
+ * `id` & `en` WAJIB (ditegakkan backend lewat Pydantic + CHECK constraint),
+ * `zh` opsional — kalau kosong, pembaca jatuh ke `en` lewat `resolveName()`.
+ *
+ * HARGA TIDAK ADA DI SINI: harga tetap satu nilai universal di
+ * `TicketSubCategory.price`, apapun bahasa yang sedang aktif.
+ */
+export interface LocalizedName {
+  id: string;
+  en: string;
+  zh?: string;
+}
+
+/** Bentuk longgar untuk payload form admin yang masih diketik separuh. */
+export type LocalizedNameInput = Partial<Record<LocaleCode, string>>;
+
 export type SessionStatus = "draft" | "opened" | "closed";
 
 export type TransactionStatus = "pending" | "confirmed" | "cancelled" | "paid";
@@ -55,17 +76,43 @@ export interface UserRegisterPayload {
 export interface TicketSubCategory {
   id: string;
   ticket_master_id: string;
+  /**
+   * Cermin Bahasa Indonesia dari `name_i18n.id`, ditulis ulang backend
+   * setiap kali varian disimpan. Dipakai layar & laporan STAF (yang memang
+   * berbahasa Indonesia) dan sebagai kunci pengelompokan yang stabil —
+   * JANGAN dipakai untuk layar pengunjung, pakai `name_i18n`.
+   */
   name: string;
+  /** Nama per bahasa yang dilihat pengunjung. */
+  name_i18n: LocalizedName;
   min_age: number;
   max_age: number | null;
   price: number;
   /** Soft delete — false berarti sudah "dihapus" (dinonaktifkan) admin. */
   is_active: boolean;
+  /**
+   * Nama master induk (mis. "Tiket Lantai 1"), BARU disertakan backend lewat
+   * properti komputasi `TicketSubCategory.ticket_master_name` — utamanya
+   * dipakai endpoint publik (`GET /sessions/active`) supaya halaman
+   * pemilihan tiket pengunjung bisa menampilkan nama lantai tanpa memanggil
+   * `GET /ticket-masters` (khusus staf). Selalu ada di respons staf juga,
+   * tapi biasanya sudah redundan di sana karena sudah dikelompokkan per
+   * master oleh `flattenTicketMasters()`.
+   */
+  ticket_master_name?: string | null;
+  /**
+   * Versi multi-bahasa dari `ticket_master_name`. Inilah yang dipakai
+   * halaman pemilihan tiket pengunjung untuk menampilkan nama lantai
+   * sesuai bahasa aktif.
+   */
+  ticket_master_name_i18n?: LocalizedName | null;
 }
 
 export interface TicketMaster {
   id: string;
+  /** Cermin Bahasa Indonesia — lihat catatan di TicketSubCategory.name. */
   name: string;
+  name_i18n: LocalizedName;
   description: string | null;
   /** Soft delete — false berarti sudah "dihapus" (dinonaktifkan) admin. */
   is_active: boolean;
@@ -73,7 +120,8 @@ export interface TicketMaster {
 }
 
 export interface TicketSubCategoryPayload {
-  name: string;
+  /** ID & EN wajib; backend membalas 422 kalau salah satunya kosong. */
+  name_i18n: LocalizedNameInput;
   min_age: number;
   max_age?: number | null;
   price: number;
@@ -82,7 +130,8 @@ export interface TicketSubCategoryPayload {
 }
 
 export interface TicketMasterPayload {
-  name: string;
+  /** ID & EN wajib; backend membalas 422 kalau salah satunya kosong. */
+  name_i18n: LocalizedNameInput;
   description?: string | null;
   /** Kirim true untuk mengaktifkan kembali master yang dinonaktifkan. */
   is_active?: boolean;
@@ -92,18 +141,27 @@ export interface TicketMasterPayload {
 // Dipakai di UI (dropdown, checklist sesi, editor transaksi) supaya
 // tidak perlu terus-menerus melakukan nested lookup.
 export interface FlatSubCategory extends TicketSubCategory {
+  /** Nama master versi Bahasa Indonesia (layar staf). */
   master_name: string;
+  /** Nama master per bahasa (kalau perlu ditampilkan ke pengunjung). */
+  master_name_i18n: LocalizedName;
 }
 
 export function flattenTicketMasters(masters: TicketMaster[]): FlatSubCategory[] {
   return masters.flatMap((m) =>
-    m.sub_categories.map((sc) => ({ ...sc, master_name: m.name }))
+    m.sub_categories.map((sc) => ({ ...sc, master_name: m.name, master_name_i18n: m.name_i18n }))
   );
 }
 
 // ==========================================
 // OPERATIONAL SESSION & AUDIT
 // ==========================================
+
+export interface ActiveSessionStatus {
+  has_active: boolean;
+  server_time: string;
+  session: OperationalSession | null;
+}
 
 export interface SessionTicketAudit {
   id: string;
@@ -133,6 +191,13 @@ export interface OperationalSession {
   start_time: string; // HH:MM:SS
   end_time: string; // HH:MM:SS
   status: SessionStatus;
+  /**
+   * True HANYA untuk sesi yang sudah dibuka admin DAN jam dinding sekarang
+   * ada di dalam rentangnya (half-open: `start <= now < end`). Dihitung
+   * backend, bukan di browser, supaya tidak bergantung pada jam perangkat
+   * pengunjung yang bisa salah. Ini yang memberi label "Berlangsung".
+   */
+  is_live: boolean;
   active_tickets: SessionTicket[];
 }
 
@@ -163,7 +228,10 @@ export interface SessionTicketAuditBulkPayload {
 export interface TransactionItem {
   id?: string;
   ticket_sub_category_id: string;
+  /** Cermin Bahasa Indonesia — dipakai laporan & ekspor CSV staf. */
   ticket_name_snapshot: string;
+  /** Snapshot per bahasa, dibekukan saat transaksi dibuat (layar pengunjung). */
+  ticket_name_snapshot_i18n?: LocalizedName;
   quantity: number;
   unit_price: number;
 }

@@ -14,6 +14,9 @@ import GalleryInfoPage from "./pages/GalleryInfoPage";
 import UserManagementPage from "./pages/UserManagementPage";
 import SessionsListPage from "./pages/SessionsListPage";
 import SessionDetailPage from "./pages/SessionDetailPage";
+import TicketsUnavailablePage from "./pages/TicketsUnavailablePage";
+import { ActiveSessionProvider } from "./contexts/ActiveSessionContext";
+import RequireActiveSession from "./components/RequireActiveSession";
 
 /**
  * Root application component.
@@ -24,7 +27,17 @@ import SessionDetailPage from "./pages/SessionDetailPage";
  * /ticket-selection  → Ticket category selection (TicketSelectionPage)
  * /visitor-form      → Visitor details and origin form (VisitorFormPage)
  * /queue/:id         → Queue number confirmation screen (QueuePage)
+ * /tickets-unavailable → Fallback saat tidak ada sesi berjalan
  * /login             → Admin/Staff login screen (LoginPage)
+ *
+ * GERBANG SESI (BARU): `/ticket-selection` & `/visitor-form` dibungkus
+ * `RequireActiveSession` — pengunjung hanya bisa masuk kalau ada sesi
+ * penjualan yang sedang berjalan tepat saat ini; kalau tidak, mereka
+ * dialihkan ke `/tickets-unavailable`.
+ *
+ * `/queue/:id` SENGAJA DI LUAR gerbang itu: pengunjung harus tetap bisa
+ * membuka kembali nomor antriannya setelah sesi berakhir. Begitu juga `/`
+ * dan `/info` yang murni informasi.
  *
  * PROTECTED (token wajib ada & profil user berhasil dimuat — lihat
  * ProtectedRoute + AuthContext):
@@ -65,13 +78,23 @@ export function App() {
         <AuthProvider>
           <div className="w-full min-h-screen bg-slate-50">
             <Routes>
-              {/* Public routes */}
+              {/* Public routes — bebas diakses kapan saja */}
               <Route path="/" element={<ScanPage />} />
               <Route path="/info" element={<GalleryInfoPage />} />
-              <Route path="/ticket-selection" element={<TicketSelectionPage />} />
-              <Route path="/visitor-form" element={<VisitorFormPage />} />
               <Route path="/queue/:id" element={<QueuePage />} />
               <Route path="/login" element={<LoginPage />} />
+
+              {/* Alur pembelian — status sesi diambil SEKALI di provider,
+                  lalu dipakai bersama oleh penjaga rute & halamannya.
+                  Halaman fallback ikut di dalam provider supaya tombol
+                  "Periksa Lagi" bisa memuat ulang status yang sama. */}
+              <Route element={<ActiveSessionProvider />}>
+                <Route path="/tickets-unavailable" element={<TicketsUnavailablePage />} />
+                <Route element={<RequireActiveSession />}>
+                  <Route path="/ticket-selection" element={<TicketSelectionPage />} />
+                  <Route path="/visitor-form" element={<VisitorFormPage />} />
+                </Route>
+              </Route>
 
               {/* Protected routes — ProtectedRoute checks token + loads user profile */}
               <Route element={<ProtectedRoute />}>

@@ -312,6 +312,76 @@ ticketingTitle: {
     en: "Back to Home", 
     zh: "返回首页" 
   },
+
+  // --- BARU: TicketSelectionPage dinamis (sesuai sesi operasional aktif) ---
+  loadingTickets: {
+    id: "Memuat tiket yang tersedia...",
+    en: "Loading available tickets...",
+    zh: "正在加载可购票种...",
+  },
+  noActiveSessionMessage: {
+    id: "Tidak ada sesi penjualan tiket yang sedang dibuka saat ini. Silakan coba lagi nanti.",
+    en: "There is no open ticket session right now. Please try again later.",
+    zh: "目前没有开放的售票场次，请稍后再试。",
+  },
+  noTicketsAvailable: {
+    id: "Belum ada tiket yang tersedia untuk dipilih saat ini.",
+    en: "No tickets are available to select right now.",
+    zh: "目前没有可供选择的门票。",
+  },
+  retryButton: {
+    id: "Coba Lagi",
+    en: "Try Again",
+    zh: "重试",
+  },
+  perPersonLabel: {
+    id: "per orang",
+    en: "per person",
+    zh: "每人",
+  },
+
+  // --- BARU: nama pemesan & metode tunai di QueueDisplay ---
+  orderedByLabel: {
+    id: "Dipesan atas nama",
+    en: "Ordered by",
+    zh: "订购人",
+  },
+  cashPaymentLabel: {
+    id: "Tunai",
+    en: "Cash",
+    zh: "现金",
+  },
+  // --- BARU: halaman "belum bisa membeli tiket" (tidak ada sesi berjalan) ---
+  // Teks ID & EN di bawah adalah salinan PERSIS dari spesifikasi — jangan
+  // diubah tanpa persetujuan. Versi ZH ditambahkan agar konsisten dengan
+  // seluruh kunci lain di file ini (spesifikasi hanya memberi ID & EN);
+  // MOHON DIPERIKSA penutur asli sebelum dipakai di produksi.
+  ticketsUnavailableTitle: {
+    id: "Pembelian Tiket Belum Tersedia",
+    en: "Ticket Purchase Unavailable",
+    zh: "暂时无法购票",
+  },
+  ticketsUnavailableMessage: {
+    id: "Mohon maaf saat ini Anda belum bisa membeli tiket. Untuk informasi lebih lanjut, silakan tanyakan kepada petugas yang berjaga di loket.",
+    en: "We apologize, you cannot purchase tickets at this time. For more information, please ask the staff at the ticket counter.",
+    zh: "非常抱歉，您目前无法购买门票。如需了解更多信息，请咨询售票处的工作人员。",
+  },
+  checkAgainButton: {
+    id: "Periksa Lagi",
+    en: "Check Again",
+    zh: "重新查询",
+  },
+  checkingSession: {
+    id: "Memeriksa sesi penjualan...",
+    en: "Checking ticket session...",
+    zh: "正在查询售票场次...",
+  },
+
+  cashInstruction: {
+    id: "Tunjukkan nomor antrian ke kasir dan siapkan uang tunai pas untuk proses pembayaran.",
+    en: "Show your queue number to the cashier and prepare exact cash for payment.",
+    zh: "请向收银员出示排队号，并准备好现金以完成付款。",
+  },
 };
 
 /**
