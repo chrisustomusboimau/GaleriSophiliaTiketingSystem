@@ -6,21 +6,41 @@
  * `ticket_name_snapshot` (mis. "Tiket Lantai 1 - Dewasa") yang
  * datang langsung dari backend, bukan lagi field floor/age_category
  * statis. Nama pemesan (`customer_name`) juga ditampilkan.
+ *
+ * UPDATE v2:
+ * - Tombol "Konfirmasi" tidak lagi langsung menandai lunas. Ia membuka
+ *   `ConfirmPaymentModal`, tempat kasir memilih TERMINAL yang benar-benar
+ *   dipakai menagih — itulah yang mengisi Metode Pembayaran Detail.
+ * - Transaksi yang sudah di-approve Checker terkunci untuk kasir: tombol
+ *   Edit mati dengan penjelasan, bukan hilang diam-diam (kasir perlu tahu
+ *   KENAPA ia tidak bisa mengedit, bukan sekadar kehilangan tombolnya).
  */
 
 import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { apiGet, apiPatch, apiDelete, ApiError } from "../../api/client";
 import { TransactionEntry, TransactionUpdatePayload, UserRole } from "../../types";
-import { formatCurrency, getMasterColorTheme, splitTicketSnapshot, PAYMENT_METHOD_LABEL } from "../../utils/formatters";
+import {
+  formatCurrency,
+  getMasterColorTheme,
+  splitTicketSnapshot,
+  PAYMENT_METHOD_LABEL,
+  VERIFICATION_STATUS_LABEL,
+  VERIFICATION_STATUS_BADGE,
+} from "../../utils/formatters";
+import { useCashierSession } from "../../contexts/CashierSessionContext";
 import EditTransactionModal from "./EditTransactionModal";
 import ManualEntryModal from "./ManualEntryModal";
 import SuccessQueueModal from "./SuccessQueueModal";
+import ConfirmPaymentModal from "./ConfirmPaymentModal";
+import { PaymentSelection } from "./TerminalPicker";
 
 interface VisitorCardProps {
   visitor: TransactionEntry;
   isProcessing: boolean;
   canConfirm: boolean;
-  onConfirmPayment: (id: string) => void;
+  /** True kalau role yang login terkunci dari transaksi yang sudah di-approve. */
+  isLockedForRole: boolean;
+  onConfirmPayment: (visitor: TransactionEntry) => void;
   onEdit: (visitor: TransactionEntry) => void;
 }
 
@@ -45,7 +65,14 @@ const Toast: React.FC<{ message: string; type: "success" | "error" }> = ({ messa
   </div>
 );
 
-const VisitorCard: React.FC<VisitorCardProps> = ({ visitor, isProcessing, canConfirm, onConfirmPayment, onEdit }) => {
+const VisitorCard: React.FC<VisitorCardProps> = ({
+  visitor,
+  isProcessing,
+  canConfirm,
+  isLockedForRole,
+  onConfirmPayment,
+  onEdit,
+}) => {
   const groupedByMaster = useMemo(() => {
     const groups: Record<string, { name: string; quantity: number; unit_price: number }[]> = {};
     visitor.items.forEach((item) => {
@@ -72,6 +99,15 @@ const VisitorCard: React.FC<VisitorCardProps> = ({ visitor, isProcessing, canCon
         </div>
         {visitor.customer_name && (
           <p className="text-gray-300 text-xs font-medium mt-2 truncate max-w-[85%] mx-auto">{visitor.customer_name}</p>
+        )}
+        {visitor.verification_status === "approved" && (
+          <span
+            className={`inline-block mt-2 text-[9px] font-bold px-2 py-0.5 rounded-full border uppercase tracking-wide ${
+              VERIFICATION_STATUS_BADGE[visitor.verification_status]
+            }`}
+          >
+            {VERIFICATION_STATUS_LABEL[visitor.verification_status]}
+          </span>
         )}
       </header>
 
@@ -121,6 +157,11 @@ const VisitorCard: React.FC<VisitorCardProps> = ({ visitor, isProcessing, canCon
               >
                 {PAYMENT_METHOD_LABEL[visitor.payment_method] || visitor.payment_method}
               </span>
+              {visitor.payment_method_detail && (
+                <span className="block text-[10px] font-bold text-gray-500 mt-1 truncate max-w-[140px]">
+                  {visitor.payment_method_detail}
+                </span>
+              )}
             </div>
             <span className="text-2xl font-black text-black leading-none">{formatCurrency(visitor.total_price)}</span>
           </div>
@@ -128,16 +169,26 @@ const VisitorCard: React.FC<VisitorCardProps> = ({ visitor, isProcessing, canCon
           <div className="flex gap-2">
             <button
               onClick={() => onEdit(visitor)}
-              disabled={isProcessing}
-              className="flex-1 py-3 px-2 rounded-xl font-bold text-sm transition-all border border-gray-300 text-black bg-white hover:bg-gray-100 active:scale-95 disabled:opacity-50 shadow-sm"
+              disabled={isProcessing || isLockedForRole}
+              title={
+                isLockedForRole
+                  ? "Transaksi sudah diverifikasi Checker dan terkunci. Hubungi Checker atau Admin."
+                  : undefined
+              }
+              className="flex-1 py-3 px-2 rounded-xl font-bold text-sm transition-all border border-gray-300 text-black bg-white hover:bg-gray-100 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed shadow-sm"
             >
               Edit
             </button>
             {canConfirm && (
               <button
-                onClick={() => onConfirmPayment(visitor.id)}
-                disabled={isProcessing}
-                className="flex-[2] py-3 px-4 rounded-xl font-bold text-sm transition-all bg-[#fb9418] text-[#fcfcfc] hover:bg-orange-500 active:scale-95 shadow-md shadow-orange-200 disabled:bg-gray-300"
+                onClick={() => onConfirmPayment(visitor)}
+                disabled={isProcessing || isLockedForRole}
+                title={
+                  isLockedForRole
+                    ? "Transaksi sudah diverifikasi Checker dan terkunci. Hubungi Checker atau Admin."
+                    : undefined
+                }
+                className="flex-[2] py-3 px-4 rounded-xl font-bold text-sm transition-all bg-[#fb9418] text-[#fcfcfc] hover:bg-orange-500 active:scale-95 shadow-md shadow-orange-200 disabled:bg-gray-300 disabled:cursor-not-allowed"
               >
                 {isProcessing ? "Memproses..." : "Konfirmasi"}
               </button>
@@ -167,9 +218,21 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ role, sessionId }) => {
   const [selectedVisitor, setSelectedVisitor] = useState<TransactionEntry | null>(null);
   const [isManualEntryOpen, setIsManualEntryOpen] = useState(false);
   const [successTransaction, setSuccessTransaction] = useState<TransactionEntry | null>(null);
+  const [confirmingVisitor, setConfirmingVisitor] = useState<TransactionEntry | null>(null);
+
+  const { terminals } = useCashierSession();
 
   const canConfirm = role === "admin" || role === "kasir";
-  const canDelete = role === "admin";
+  /**
+   * Transaksi yang sudah di-approve Checker terkunci untuk KASIR saja.
+   * Admin & checker tetap bisa meng-override — aturan yang sama persis
+   * ditegakkan ulang backend di `_assert_can_mutate`, layar ini hanya
+   * mencerminkannya lebih awal supaya kasir tidak menabrak 403.
+   */
+  const isLockedFor = useCallback(
+    (tx: TransactionEntry) => role === "kasir" && tx.verification_status === "approved",
+    [role]
+  );
 
   const loadVisitors = useCallback(async () => {
     try {
@@ -198,23 +261,39 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ role, sessionId }) => {
     );
   }, [visitors, searchQuery]);
 
-  const handlePaymentConfirmation = async (id: string) => {
+  /**
+   * Dipanggil dari `ConfirmPaymentModal` setelah kasir memilih terminal.
+   * Terminal & status dikirim dalam SATU permintaan supaya tidak ada
+   * jendela waktu di mana transaksi sudah "Lunas" tapi belum punya
+   * detail metode pembayaran.
+   */
+  const handlePaymentConfirmation = async (id: string, selection: PaymentSelection) => {
     try {
       setProcessingId(id);
       setError(null);
       const currentTx = visitors.find((v) => v.id === id);
 
-      await apiPatch(`/transactions/${id}/status`, { status: "confirmed" });
+      await apiPatch(`/transactions/${id}/status`, {
+        status: "confirmed",
+        ...(selection.terminalId
+          ? { payment_terminal_id: selection.terminalId }
+          : { payment_method: selection.category }),
+      });
 
       setVisitors((prev) => prev.filter((v) => v.id !== id));
+      setConfirmingVisitor(null);
 
       if (currentTx) {
         setSuccessMessage(`Tiket ${currentTx.ticket_code} Berhasil Dikonfirmasi`);
         setTimeout(() => setSuccessMessage(null), 3000);
       }
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Gagal mengonfirmasi transaksi.");
+      const message = err instanceof ApiError ? err.message : "Gagal mengonfirmasi transaksi.";
+      setError(message);
       setTimeout(() => setError(null), 3000);
+      // Dilempar ulang supaya modal menahan dirinya tetap terbuka dan
+      // menampilkan pesannya — kasir bisa langsung memilih terminal lain.
+      throw new Error(message);
     } finally {
       setProcessingId(null);
     }
@@ -338,7 +417,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ role, sessionId }) => {
               visitor={visitor}
               isProcessing={processingId === visitor.id}
               canConfirm={canConfirm}
-              onConfirmPayment={handlePaymentConfirmation}
+              isLockedForRole={isLockedFor(visitor)}
+              onConfirmPayment={setConfirmingVisitor}
               onEdit={handleEditClick}
             />
           ))}
@@ -351,13 +431,21 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ role, sessionId }) => {
         transaction={selectedVisitor}
         onSave={handleSaveEdit}
         onDelete={handleDeleteTransaction}
-        canDelete={canDelete}
+        role={role}
       />
       <ManualEntryModal
         isOpen={isManualEntryOpen}
         onClose={() => setIsManualEntryOpen(false)}
         onSuccess={handleManualEntrySuccess}
         sessionId={sessionId}
+      />
+      <ConfirmPaymentModal
+        isOpen={confirmingVisitor !== null}
+        transaction={confirmingVisitor}
+        terminals={terminals}
+        isProcessing={processingId === confirmingVisitor?.id}
+        onClose={() => setConfirmingVisitor(null)}
+        onConfirm={handlePaymentConfirmation}
       />
       <SuccessQueueModal isOpen={successTransaction !== null} transaction={successTransaction} onClose={handleCloseSuccessModal} />
     </div>

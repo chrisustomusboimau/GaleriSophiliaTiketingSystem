@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException, Depends, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from contextlib import asynccontextmanager
@@ -15,6 +16,10 @@ from app.config import settings
 
 from app.schema import (
     UserCreate, UserRead, UserUpdate,
+    PaymentTerminalCreate, PaymentTerminalRead, PaymentTerminalUpdate,
+    AgeCategoryCreate, AgeCategoryRead, AgeCategoryUpdate,
+    CashierSessionCreate, CashierSessionRead, CashierSessionStatusRead,
+    TransactionVerificationUpdate,
     TransactionCreate, TransactionResponse, TransactionStatusUpdate,
     TransactionUpdateData,
     TicketMasterCreate, TicketMasterRead, TicketMasterUpdate,
@@ -28,18 +33,30 @@ from app.i18n import build_snapshot_i18n
 from app.db import (
     create_db_and_tables, get_async_session, User,
     TransactionEntry, TransactionOriginEntry, TransactionItem,
-    TicketMaster, TicketSubCategory,
+    TicketMaster, TicketSubCategory, AgeCategory, PaymentTerminal,
     OperationalSession, SessionTicket, SessionTicketAudit,
+    CashierSession, CashierSessionTerminal,
 )
 
-from app.users import auth_backend, fastapi_users, require_role
+from app.users import (
+    auth_backend, fastapi_users, require_role, get_user_manager, UserManager,
+    optional_current_user,
+)
 
 # ----------------------------------------------------------
 # INISIALISASI PENJAGA PINTU
 # ----------------------------------------------------------
-current_admin   = require_role(["admin"])
-current_kasir   = require_role(["admin", "kasir"])
-current_checker = require_role(["admin", "kasir", "checker"])
+# CATATAN PENAMAAN (diperbaiki di v2): penjaga ketiga dulu bernama
+# `current_checker` padahal isinya SEMUA staf (admin+kasir+checker), dan
+# namanya menutupi `current_checker` di app/users.py yang artinya berbeda
+# (admin+checker). Begitu aturan approval Checker masuk, nama lama itu
+# jadi jebakan. Sekarang dipisah tegas:
+#   current_staff    = siapa pun yang punya akun staf (baca data)
+#   current_verifier = yang berwenang mem-verifikasi & meng-override
+current_admin    = require_role(["admin"])
+current_kasir    = require_role(["admin", "kasir"])
+current_staff    = require_role(["admin", "kasir", "checker"])
+current_verifier = require_role(["admin", "checker"])
 
 
 PREFIX = settings.api_prefix   # "/api/v1"
@@ -69,6 +86,46 @@ app.add_middleware(
 # ==========================================
 # AUTHENTICATION ROUTERS
 # ==========================================
+
+@app.post(f"{PREFIX}/auth/jwt/login", tags=["auth"])
+async def login_with_active_check(
+    credentials: OAuth2PasswordRequestForm = Depends(),
+    user_manager: UserManager = Depends(get_user_manager),
+    strategy=Depends(auth_backend.get_strategy),
+):
+    """
+    PUBLIC — login staf. MENGGANTIKAN rute login bawaan fastapi-users.
+
+    KENAPA DITULIS ULANG: router bawaan membalas `LOGIN_BAD_CREDENTIALS`
+    yang sama persis untuk dua keadaan yang sangat berbeda — password
+    salah, DAN akun yang sengaja dinonaktifkan admin. Kasir yang akunnya
+    baru saja dinonaktifkan jadi mengira dirinya salah ketik password dan
+    mencoba berkali-kali, alih-alih menghubungi admin.
+
+    Rute ini WAJIB dideklarasikan SEBELUM `include_router(...auth_router)`
+    di bawah: keduanya mendaftarkan path yang sama, dan Starlette memakai
+    rute PERTAMA yang cocok sesuai urutan pendaftaran.
+
+    `user_manager.authenticate()` sendiri TIDAK memeriksa `is_active`
+    (pemeriksaan itu ada di router bawaan yang kita lewati), jadi urutan
+    di bawah aman: kredensial diverifikasi dulu, baru status akun —
+    dengan begitu endpoint ini tidak bisa dipakai menebak-nebak email
+    mana yang terdaftar tanpa tahu passwordnya.
+    """
+    user = await user_manager.authenticate(credentials)
+
+    if user is None:
+        raise HTTPException(status_code=400, detail="LOGIN_BAD_CREDENTIALS")
+
+    if not user.is_active:
+        raise HTTPException(
+            status_code=403,
+            detail="Akun Anda non-aktif. Silakan hubungi Admin."
+        )
+
+    return await auth_backend.login(strategy, user)
+
+
 # 1. PUBLIC: Login & Reset Password bisa diakses siapa saja
 app.include_router(fastapi_users.get_auth_router(auth_backend), prefix=f"{PREFIX}/auth/jwt", tags=["auth"])
 app.include_router(fastapi_users.get_reset_password_router(),   prefix=f"{PREFIX}/auth",     tags=["auth"])
@@ -193,8 +250,282 @@ async def list_all_users(
 
 
 # ==========================================
+# PAYMENT TERMINAL (ADMIN) — BARU v2
+# ==========================================
+
+@app.get(f"{PREFIX}/payment-terminals", response_model=List[PaymentTerminalRead], tags=["payment-terminals"])
+async def list_payment_terminals(
+    include_inactive: bool = Query(
+        False,
+        description="Jika true, sertakan juga terminal yang sudah dinonaktifkan. "
+                    "Dipakai halaman manajemen admin; pemilihan terminal saat "
+                    "kasir membuka sesi selalu default false."
+    ),
+    session: AsyncSession = Depends(get_async_session),
+    user: User = Depends(current_staff),
+):
+    """STAFF: Daftar terminal pembayaran (EDC 1, QRIS Meja 2, ...).
+    Default HANYA yang masih aktif, supaya terminal yang sudah ditarik dari
+    peredaran tidak lagi muncul sebagai pilihan sesi kasir baru."""
+    query = select(PaymentTerminal).order_by(PaymentTerminal.category.asc(), PaymentTerminal.name.asc())
+    if not include_inactive:
+        query = query.where(PaymentTerminal.is_active.is_(True))
+    result = await session.execute(query)
+    return result.scalars().all()
+
+
+@app.post(f"{PREFIX}/payment-terminals", response_model=PaymentTerminalRead, status_code=201, tags=["payment-terminals"])
+async def create_payment_terminal(
+    payload: PaymentTerminalCreate,
+    session: AsyncSession = Depends(get_async_session),
+    admin: User = Depends(current_admin),
+):
+    """ADMIN: Mendaftarkan terminal pembayaran baru."""
+    name = payload.name.strip()
+    existing = await session.execute(select(PaymentTerminal).where(PaymentTerminal.name == name))
+    if existing.scalars().first():
+        raise HTTPException(status_code=400, detail=f"Terminal dengan nama '{name}' sudah terdaftar.")
+
+    terminal = PaymentTerminal(name=name, category=payload.category.value)
+    session.add(terminal)
+    try:
+        await session.commit()
+        await session.refresh(terminal)
+        return terminal
+    except Exception as e:
+        await session.rollback()
+        raise HTTPException(status_code=500, detail=f"Gagal membuat terminal pembayaran: {e}")
+
+
+@app.patch(f"{PREFIX}/payment-terminals/{{terminal_id}}", response_model=PaymentTerminalRead, tags=["payment-terminals"])
+async def update_payment_terminal(
+    terminal_id: uuid.UUID,
+    payload: PaymentTerminalUpdate,
+    session: AsyncSession = Depends(get_async_session),
+    admin: User = Depends(current_admin),
+):
+    """ADMIN: Mengubah nama/kategori terminal, atau mengaktifkannya kembali
+    (`is_active: true`) setelah sebelumnya dinonaktifkan."""
+    result = await session.execute(select(PaymentTerminal).where(PaymentTerminal.id == terminal_id))
+    terminal = result.scalars().first()
+    if not terminal:
+        raise HTTPException(status_code=404, detail="Terminal pembayaran tidak ditemukan.")
+
+    if payload.name is not None:
+        name = payload.name.strip()
+        if name != terminal.name:
+            existing = await session.execute(select(PaymentTerminal).where(PaymentTerminal.name == name))
+            if existing.scalars().first():
+                raise HTTPException(status_code=400, detail=f"Terminal dengan nama '{name}' sudah terdaftar.")
+            terminal.name = name
+    if payload.category is not None:
+        terminal.category = payload.category.value
+    if payload.is_active is not None:
+        terminal.is_active = payload.is_active
+
+    try:
+        await session.commit()
+        await session.refresh(terminal)
+        return terminal
+    except Exception as e:
+        await session.rollback()
+        raise HTTPException(status_code=500, detail=f"Gagal mengubah terminal pembayaran: {e}")
+
+
+@app.delete(f"{PREFIX}/payment-terminals/{{terminal_id}}", tags=["payment-terminals"])
+async def delete_payment_terminal(
+    terminal_id: uuid.UUID,
+    session: AsyncSession = Depends(get_async_session),
+    admin: User = Depends(current_admin),
+):
+    """ADMIN: Menonaktifkan (SOFT DELETE) terminal pembayaran.
+
+    TIDAK PERNAH menjalankan DELETE FROM — alasannya sama persis dengan
+    master tiket: transaksi lama menyimpan `payment_terminal_id`, dan
+    riwayat pembayaran tidak boleh kehilangan jejak alat yang dipakai.
+    Terminal yang dinonaktifkan langsung hilang dari pilihan sesi kasir
+    baru, tapi tetap tampil apa adanya pada transaksi lama."""
+    result = await session.execute(select(PaymentTerminal).where(PaymentTerminal.id == terminal_id))
+    terminal = result.scalars().first()
+    if not terminal:
+        raise HTTPException(status_code=404, detail="Terminal pembayaran tidak ditemukan.")
+
+    terminal.is_active = False
+    try:
+        await session.commit()
+        return {"success": True, "message": f"Terminal '{terminal.name}' berhasil dinonaktifkan."}
+    except Exception as e:
+        await session.rollback()
+        raise HTTPException(status_code=500, detail=f"Gagal menonaktifkan terminal: {e}")
+
+
+# ==========================================
+# AGE CATEGORY — MASTER VARIAN USIA (ADMIN) — BARU v2
+# ==========================================
+
+@app.get(f"{PREFIX}/age-categories", response_model=List[AgeCategoryRead], tags=["age-categories"])
+async def list_age_categories(
+    include_inactive: bool = Query(False, description="Sertakan varian usia yang sudah dinonaktifkan."),
+    session: AsyncSession = Depends(get_async_session),
+    user: User = Depends(current_staff),
+):
+    """STAFF: Master varian kategori usia (Anak, Remaja, Dewasa, ...).
+    Diurutkan menurut usia minimum supaya urutannya di form pembuatan
+    master tiket selalu wajar (Anak → Remaja → Dewasa), bukan alfabetis."""
+    query = select(AgeCategory).order_by(AgeCategory.min_age.asc(), AgeCategory.name.asc())
+    if not include_inactive:
+        query = query.where(AgeCategory.is_active.is_(True))
+    result = await session.execute(query)
+    return result.scalars().all()
+
+
+@app.post(f"{PREFIX}/age-categories", response_model=AgeCategoryRead, status_code=201, tags=["age-categories"])
+async def create_age_category(
+    payload: AgeCategoryCreate,
+    session: AsyncSession = Depends(get_async_session),
+    admin: User = Depends(current_admin),
+):
+    """ADMIN: Membuat varian kategori usia baru.
+
+    Varian yang dibuat di sini otomatis tersedia untuk SEMUA master tiket —
+    admin tinggal mengisi harganya per master (lihat POST /ticket-masters)."""
+    if payload.max_age is not None and payload.max_age < payload.min_age:
+        raise HTTPException(status_code=400, detail="Usia maksimum tidak boleh lebih kecil dari usia minimum.")
+
+    id_name = payload.name_i18n["id"]
+    existing = await session.execute(select(AgeCategory).where(AgeCategory.name == id_name))
+    if existing.scalars().first():
+        raise HTTPException(status_code=400, detail=f"Varian usia '{id_name}' sudah ada.")
+
+    category = AgeCategory(
+        name=id_name,                   # cermin Bahasa Indonesia
+        name_i18n=payload.name_i18n,
+        min_age=payload.min_age,
+        max_age=payload.max_age,
+    )
+    session.add(category)
+    try:
+        await session.commit()
+        await session.refresh(category)
+        return category
+    except Exception as e:
+        await session.rollback()
+        raise HTTPException(status_code=500, detail=f"Gagal membuat varian usia: {e}")
+
+
+@app.patch(f"{PREFIX}/age-categories/{{age_category_id}}", response_model=AgeCategoryRead, tags=["age-categories"])
+async def update_age_category(
+    age_category_id: uuid.UUID,
+    payload: AgeCategoryUpdate,
+    session: AsyncSession = Depends(get_async_session),
+    admin: User = Depends(current_admin),
+):
+    """ADMIN: Mengubah nama/rentang usia varian, atau mengaktifkannya kembali.
+
+    CATATAN PENTING: perubahan di sini TIDAK menulis ulang sub-kategori
+    tiket yang sudah ada — kolom nama & rentang usia di sana adalah
+    SNAPSHOT (lihat app/db.py). Ini disengaja: sesi yang sedang berjalan
+    dan laporan yang sudah dicetak tidak boleh berubah diam-diam. Master
+    tiket yang dibuat SETELAH perubahan ini yang memakai nilai baru."""
+    result = await session.execute(select(AgeCategory).where(AgeCategory.id == age_category_id))
+    category = result.scalars().first()
+    if not category:
+        raise HTTPException(status_code=404, detail="Varian usia tidak ditemukan.")
+
+    new_min = payload.min_age if payload.min_age is not None else category.min_age
+    new_max = payload.max_age if payload.max_age is not None else category.max_age
+    if new_max is not None and new_max < new_min:
+        raise HTTPException(status_code=400, detail="Usia maksimum tidak boleh lebih kecil dari usia minimum.")
+
+    if payload.name_i18n is not None:
+        category.name_i18n = payload.name_i18n
+        category.name = payload.name_i18n["id"]      # cermin, jangan sampai menyimpang
+    if payload.min_age is not None:
+        category.min_age = payload.min_age
+    if payload.max_age is not None:
+        category.max_age = payload.max_age
+    if payload.is_active is not None:
+        category.is_active = payload.is_active
+
+    try:
+        await session.commit()
+        await session.refresh(category)
+        return category
+    except Exception as e:
+        await session.rollback()
+        raise HTTPException(status_code=500, detail=f"Gagal mengubah varian usia: {e}")
+
+
+@app.delete(f"{PREFIX}/age-categories/{{age_category_id}}", tags=["age-categories"])
+async def delete_age_category(
+    age_category_id: uuid.UUID,
+    session: AsyncSession = Depends(get_async_session),
+    admin: User = Depends(current_admin),
+):
+    """ADMIN: Menonaktifkan (SOFT DELETE) varian usia.
+
+    Sub-kategori tiket yang sudah terlanjur memakainya TIDAK ikut
+    dinonaktifkan — master tiket & sesi yang sedang berjalan tetap utuh.
+    Yang berubah: varian ini tidak lagi ditawarkan saat membuat master
+    tiket baru."""
+    result = await session.execute(select(AgeCategory).where(AgeCategory.id == age_category_id))
+    category = result.scalars().first()
+    if not category:
+        raise HTTPException(status_code=404, detail="Varian usia tidak ditemukan.")
+
+    category.is_active = False
+    try:
+        await session.commit()
+        return {"success": True, "message": f"Varian usia '{category.name}' berhasil dinonaktifkan."}
+    except Exception as e:
+        await session.rollback()
+        raise HTTPException(status_code=500, detail=f"Gagal menonaktifkan varian usia: {e}")
+
+
+# ==========================================
 # TICKET MASTER (ADMIN)
 # ==========================================
+
+async def _load_active_age_category(session: AsyncSession, age_category_id: uuid.UUID) -> AgeCategory:
+    """
+    Mengambil satu varian usia dari MASTER, memastikan ia masih aktif.
+
+    Satu-satunya pintu masuk pembuatan sub-kategori tiket sejak v2: nama &
+    rentang usia TIDAK BOLEH lagi datang dari body request, hanya dari
+    baris master ini. Itulah yang menjamin "Dewasa" di Lantai 1 dan
+    "Dewasa" di Lantai 2 benar-benar varian yang sama, bukan dua ketikan
+    yang kebetulan mirip.
+    """
+    result = await session.execute(select(AgeCategory).where(AgeCategory.id == age_category_id))
+    category = result.scalars().first()
+    if not category:
+        raise HTTPException(status_code=400, detail=f"Varian usia {age_category_id} tidak ditemukan.")
+    if not category.is_active:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Varian usia '{category.name}' sudah dinonaktifkan dan tidak bisa dipakai lagi."
+        )
+    return category
+
+
+def _sub_category_from_age(category: AgeCategory, price: int, **extra) -> TicketSubCategory:
+    """
+    Membentuk `TicketSubCategory` dengan nama & rentang usia DISALIN dari
+    master varian. Salinan ini adalah SNAPSHOT yang disengaja (lihat
+    catatan panjang di app/db.py): mengganti nama varian di master besok
+    tidak boleh mengubah sesi yang sedang berjalan maupun laporan yang
+    sudah dicetak.
+    """
+    return TicketSubCategory(
+        age_category_id=category.id,
+        name=category.name,                 # cermin Bahasa Indonesia
+        name_i18n=category.name_i18n,
+        min_age=category.min_age,
+        max_age=category.max_age,
+        price=price,
+        **extra,
+    )
+
 
 @app.post(f"{PREFIX}/ticket-masters", response_model=TicketMasterRead, status_code=201, tags=["ticket-master"])
 async def create_ticket_master(
@@ -202,13 +533,17 @@ async def create_ticket_master(
     session: AsyncSession = Depends(get_async_session),
     admin: User = Depends(current_admin),
 ):
-    """ADMIN: Membuat master tiket baru beserta sub-kategorinya (opsional).
+    """ADMIN: Membuat master tiket baru beserta harga per varian usia.
 
-    Nama dikirim per bahasa lewat `name_i18n` (ID & EN wajib, ZH opsional —
-    divalidasi di app/schema.py). Kolom `name` diisi otomatis dari versi
-    Bahasa Indonesia sebagai CERMIN: itu yang menjaga UNIQUE constraint dan
-    yang dipakai seluruh laporan staf. Jangan pernah mengisi `name` tanpa
-    ikut mengisi `name_i18n`."""
+    Nama master dikirim per bahasa lewat `name_i18n` (ID & EN wajib, ZH
+    opsional — divalidasi di app/schema.py). Kolom `name` diisi otomatis
+    dari versi Bahasa Indonesia sebagai CERMIN: itu yang menjaga UNIQUE
+    constraint dan yang dipakai seluruh laporan staf.
+
+    UBAH v2: `sub_categories` sekarang berisi `{age_category_id, price}` —
+    varian tidak lagi diketik bebas di sini, melainkan diambil dari MASTER
+    varian usia. Admin hanya menentukan harga masing-masing varian untuk
+    master tiket ini."""
     id_name = payload.name_i18n["id"]
 
     # Cek duplikat dilakukan pada cermin Bahasa Indonesia — sama seperti
@@ -217,22 +552,25 @@ async def create_ticket_master(
     if existing.scalars().first():
         raise HTTPException(status_code=400, detail="Nama master tiket sudah digunakan.")
 
-    # Konstruksi eksplisit (bukan **sc.dict()) karena setiap baris butuh
-    # DUA field turunan: name_i18n dan cerminnya, name.
+    # Validasi & muat SEMUA varian usia dulu sebelum menyentuh apa pun,
+    # supaya satu id yang salah tidak meninggalkan master setengah jadi.
+    seen_age_ids: set[uuid.UUID] = set()
+    sub_categories = []
+    for sc in payload.sub_categories:
+        if sc.age_category_id in seen_age_ids:
+            raise HTTPException(
+                status_code=400,
+                detail="Satu varian usia hanya boleh muncul sekali per master tiket."
+            )
+        seen_age_ids.add(sc.age_category_id)
+        category = await _load_active_age_category(session, sc.age_category_id)
+        sub_categories.append(_sub_category_from_age(category, sc.price))
+
     new_master = TicketMaster(
         name=id_name,
         name_i18n=payload.name_i18n,
         description=payload.description,
-        sub_categories=[
-            TicketSubCategory(
-                name=sc.name_i18n["id"],
-                name_i18n=sc.name_i18n,
-                min_age=sc.min_age,
-                max_age=sc.max_age,
-                price=sc.price,
-            )
-            for sc in payload.sub_categories
-        ],
+        sub_categories=sub_categories,
     )
     session.add(new_master)
     try:
@@ -252,7 +590,7 @@ async def list_ticket_masters(
                     "Dipakai halaman manajemen admin; pilihan tiket baru (sesi/kasir) selalu default false."
     ),
     session: AsyncSession = Depends(get_async_session),
-    user: User = Depends(current_checker),
+    user: User = Depends(current_staff),
 ):
     """STAFF: Melihat seluruh master tiket & sub-kategorinya.
     Default HANYA menampilkan yang masih aktif (is_active=True), supaya
@@ -364,23 +702,40 @@ async def add_ticket_sub_category(
     session: AsyncSession = Depends(get_async_session),
     admin: User = Depends(current_admin),
 ):
-    """ADMIN: Menambahkan varian usia & harga baru ke master tiket."""
+    """ADMIN: Menetapkan harga satu varian usia (dari MASTER varian) pada
+    master tiket ini.
+
+    UBAH v2: nama & rentang usia tidak lagi dikirim — cukup
+    `age_category_id` + `price`."""
     result = await session.execute(select(TicketMaster).where(TicketMaster.id == ticket_master_id))
     master = result.scalars().first()
     if not master:
         raise HTTPException(status_code=404, detail="Master tiket tidak ditemukan.")
 
-    if payload.max_age is not None and payload.max_age < payload.min_age:
-        raise HTTPException(status_code=400, detail="max_age tidak boleh lebih kecil dari min_age.")
+    category = await _load_active_age_category(session, payload.age_category_id)
 
-    new_sub = TicketSubCategory(
-        ticket_master_id=ticket_master_id,
-        name=payload.name_i18n["id"],      # cermin Bahasa Indonesia
-        name_i18n=payload.name_i18n,
-        min_age=payload.min_age,
-        max_age=payload.max_age,
-        price=payload.price,
+    # Cek duplikat di sini (bukan cuma mengandalkan UNIQUE constraint)
+    # supaya admin dapat pesan yang bisa ditindaklanjuti, bukan 500 dari
+    # IntegrityError. Termasuk varian yang pernah dinonaktifkan: yang
+    # benar adalah mengaktifkannya kembali, bukan membuat baris kembar.
+    dupe = await session.execute(
+        select(TicketSubCategory).where(
+            TicketSubCategory.ticket_master_id == ticket_master_id,
+            TicketSubCategory.age_category_id == category.id,
+        )
     )
+    existing_sub = dupe.scalars().first()
+    if existing_sub:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Varian '{category.name}' sudah ada pada master tiket ini"
+                + ("" if existing_sub.is_active else " (berstatus nonaktif — aktifkan kembali saja)")
+                + "."
+            ),
+        )
+
+    new_sub = _sub_category_from_age(category, payload.price, ticket_master_id=ticket_master_id)
     session.add(new_sub)
     try:
         await session.commit()
@@ -398,21 +753,17 @@ async def update_ticket_sub_category(
     session: AsyncSession = Depends(get_async_session),
     admin: User = Depends(current_admin),
 ):
-    """ADMIN: Mengubah nama/rentang usia/harga sub-kategori tiket, atau
-    mengaktifkan kembali (`is_active: true`) sub-kategori yang sebelumnya
-    dinonaktifkan."""
+    """ADMIN: Mengubah HARGA sub-kategori tiket, atau mengaktifkan kembali
+    (`is_active: true`) sub-kategori yang sebelumnya dinonaktifkan.
+
+    UBAH v2: nama & rentang usia TIDAK bisa diubah dari sini lagi — itu
+    milik master varian usia (`PATCH /age-categories/{id}`), satu tempat
+    untuk semua master tiket. Yang tersisa di sini murni urusan harga."""
     result = await session.execute(select(TicketSubCategory).where(TicketSubCategory.id == sub_category_id))
     sub = result.scalars().first()
     if not sub:
         raise HTTPException(status_code=404, detail="Sub-kategori tiket tidak ditemukan.")
 
-    if payload.name_i18n is not None:
-        sub.name_i18n = payload.name_i18n
-        sub.name = payload.name_i18n["id"]
-    if payload.min_age is not None:
-        sub.min_age = payload.min_age
-    if payload.max_age is not None:
-        sub.max_age = payload.max_age
     if payload.price is not None:
         sub.price = payload.price
     if payload.is_active is not None:
@@ -573,14 +924,14 @@ async def list_operational_sessions(
     date_filter: Optional[date] = Query(None, alias="date", description="Filter tanggal, format YYYY-MM-DD"),
     status: Optional[str] = Query(None, description="Filter status: draft, opened, closed"),
     session: AsyncSession = Depends(get_async_session),
-    user: User = Depends(current_checker),
+    user: User = Depends(current_staff),
 ):
     """STAFF: Daftar sesi operasional.
 
     CATATAN RBAC (ditegakkan di FRONTEND, bukan di sini): kasir & checker
     hanya diperlihatkan sesi berstatus 'opened' oleh UI (frontend selalu
     mengirim ?status=opened untuk mereka). Endpoint ini sendiri tetap bisa
-    menampilkan semua status untuk siapa pun yang lolos `current_checker`,
+    menampilkan semua status untuk siapa pun yang lolos `current_staff`,
     supaya tidak menduplikasi logika role di banyak tempat — kalau ingin
     proteksi ini digaris-bawahi juga di backend, beri tahu saya."""
     query = select(OperationalSession).order_by(
@@ -672,7 +1023,7 @@ async def get_active_session_status(
 async def get_operational_session(
     session_id: uuid.UUID,
     session: AsyncSession = Depends(get_async_session),
-    user: User = Depends(current_checker),
+    user: User = Depends(current_staff),
 ):
     """STAFF: Detail satu sesi operasional beserta tiket aktif & audit."""
     result = await session.execute(select(OperationalSession).where(OperationalSession.id == session_id))
@@ -945,15 +1296,318 @@ async def bulk_update_session_ticket_audit(
 
 
 # ==========================================
+# CASHIER SESSION (KASIR) — BARU v2
+# ==========================================
+
+async def _find_open_cashier_session(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    operational_session_id: Optional[uuid.UUID] = None,
+) -> Optional[CashierSession]:
+    """Sesi kasir yang masih terbuka milik user ini, atau None."""
+    query = select(CashierSession).where(
+        CashierSession.user_id == user_id,
+        CashierSession.closed_at.is_(None),
+    )
+    if operational_session_id is not None:
+        query = query.where(CashierSession.session_id == operational_session_id)
+    result = await session.execute(query)
+    return result.scalars().first()
+
+
+@app.post(f"{PREFIX}/cashier-sessions", response_model=CashierSessionRead, status_code=201, tags=["cashier-sessions"])
+async def open_cashier_session(
+    payload: CashierSessionCreate,
+    session: AsyncSession = Depends(get_async_session),
+    kasir: User = Depends(current_kasir),
+):
+    """ADMIN/KASIR: Membuka sesi kasir — "saya berjaga di sesi ini, dengan
+    terminal-terminal ini".
+
+    Terminal yang dipilih di sini adalah SATU-SATUNYA pilihan metode
+    pembayaran spesifik yang akan muncul di pop-up konfirmasi pembayaran
+    selama shift berlangsung. Kasir tidak bisa menagih lewat EDC yang
+    bukan di mejanya.
+
+    Kalau kasir ini masih punya sesi kasir terbuka (mis. lupa menutup shift
+    kemarin), sesi lama DITUTUP otomatis di sini — indeks parsial
+    `uq_one_open_cashier_session` di database hanya mengizinkan satu sesi
+    terbuka per kasir, dan memaksa kasir menutupnya manual dulu hanya akan
+    menghalangi orang bekerja tanpa alasan."""
+    result = await session.execute(
+        select(OperationalSession).where(OperationalSession.id == payload.session_id)
+    )
+    operational = result.scalars().first()
+    if not operational:
+        raise HTTPException(status_code=404, detail="Sesi operasional tidak ditemukan.")
+    if operational.status != "opened":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Sesi operasional berstatus '{operational.status}'. "
+                   f"Sesi kasir hanya bisa dibuka pada sesi yang sudah Dibuka."
+        )
+
+    # Validasi SEMUA terminal dulu, sebelum menyentuh apa pun.
+    terminals = []
+    seen: set[uuid.UUID] = set()
+    for terminal_id in payload.terminal_ids:
+        if terminal_id in seen:
+            continue                      # kiriman ganda dari UI — cukup diabaikan
+        seen.add(terminal_id)
+        t_result = await session.execute(
+            select(PaymentTerminal).where(PaymentTerminal.id == terminal_id)
+        )
+        terminal = t_result.scalars().first()
+        if not terminal:
+            raise HTTPException(status_code=400, detail=f"Terminal {terminal_id} tidak ditemukan.")
+        if not terminal.is_active:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Terminal '{terminal.name}' sudah dinonaktifkan dan tidak bisa dipakai."
+            )
+        terminals.append(terminal)
+
+    now_wib = datetime.now(WIB)
+
+    previous = await _find_open_cashier_session(session, kasir.id)
+    if previous:
+        previous.closed_at = now_wib
+
+    new_cashier_session = CashierSession(
+        session_id=payload.session_id,
+        user_id=kasir.id,
+        opened_at=now_wib,
+        terminals=[CashierSessionTerminal(payment_terminal_id=t.id) for t in terminals],
+    )
+    session.add(new_cashier_session)
+
+    try:
+        await session.commit()
+        # Re-query (bukan refresh) supaya rantai relasi selectin
+        # terminals -> terminal ikut termuat sebelum diserialisasi.
+        result = await session.execute(
+            select(CashierSession).where(CashierSession.id == new_cashier_session.id)
+        )
+        return _cashier_session_response(result.scalars().first())
+    except IntegrityError:
+        await session.rollback()
+        raise HTTPException(status_code=409, detail="Sesi kasir lain baru saja dibuka. Muat ulang halaman.")
+    except Exception as e:
+        await session.rollback()
+        raise HTTPException(status_code=500, detail=f"Gagal membuka sesi kasir: {e}")
+
+
+def _cashier_session_response(entry: CashierSession) -> CashierSessionRead:
+    """
+    Meratakan junction `CashierSessionTerminal` jadi daftar terminal utuh.
+
+    Frontend butuh nama & kategori terminal untuk merender pilihan di
+    pop-up konfirmasi; mengirim id-nya saja akan memaksa satu panggilan
+    `GET /payment-terminals` tambahan di setiap layar kasir.
+    """
+    return CashierSessionRead(
+        id=entry.id,
+        session_id=entry.session_id,
+        user_id=entry.user_id,
+        opened_at=entry.opened_at,
+        closed_at=entry.closed_at,
+        is_open=entry.is_open,
+        terminals=[
+            PaymentTerminalRead.model_validate(link.terminal)
+            for link in entry.terminals if link.terminal
+        ],
+    )
+
+
+@app.get(f"{PREFIX}/cashier-sessions/me/active", response_model=CashierSessionStatusRead, tags=["cashier-sessions"])
+async def get_my_active_cashier_session(
+    session_id: Optional[uuid.UUID] = Query(
+        None,
+        description="Batasi ke sesi operasional tertentu. Halaman detail sesi selalu mengirimnya, "
+                    "supaya sesi kasir milik sesi operasional LAIN tidak salah dianggap aktif di sini."
+    ),
+    session: AsyncSession = Depends(get_async_session),
+    kasir: User = Depends(current_kasir),
+):
+    """ADMIN/KASIR: Sesi kasir saya yang sedang terbuka, kalau ada.
+
+    SELALU 200 — "kasir belum membuka sesinya" adalah keadaan normal
+    (justru itulah yang memicu gerbang 'Buka Sesi Kasir' di frontend),
+    bukan error. Pola yang sama dengan `GET /sessions/active/status`."""
+    entry = await _find_open_cashier_session(session, kasir.id, session_id)
+    return CashierSessionStatusRead(
+        has_active=entry is not None,
+        cashier_session=_cashier_session_response(entry) if entry else None,
+    )
+
+
+@app.patch(f"{PREFIX}/cashier-sessions/{{cashier_session_id}}/close", response_model=CashierSessionRead, tags=["cashier-sessions"])
+async def close_cashier_session(
+    cashier_session_id: uuid.UUID,
+    session: AsyncSession = Depends(get_async_session),
+    kasir: User = Depends(current_kasir),
+):
+    """ADMIN/KASIR: Menutup sesi kasir. Kasir hanya boleh menutup sesinya
+    sendiri; admin boleh menutup sesi kasir siapa pun (mis. kasir pulang
+    tanpa menutup shift)."""
+    result = await session.execute(
+        select(CashierSession).where(CashierSession.id == cashier_session_id)
+    )
+    entry = result.scalars().first()
+    if not entry:
+        raise HTTPException(status_code=404, detail="Sesi kasir tidak ditemukan.")
+
+    if str(kasir.role) != "admin" and entry.user_id != kasir.id:
+        raise HTTPException(status_code=403, detail="Anda hanya bisa menutup sesi kasir milik Anda sendiri.")
+
+    if entry.closed_at is None:
+        entry.closed_at = datetime.now(WIB)
+
+    try:
+        await session.commit()
+        result = await session.execute(
+            select(CashierSession).where(CashierSession.id == cashier_session_id)
+        )
+        return _cashier_session_response(result.scalars().first())
+    except Exception as e:
+        await session.rollback()
+        raise HTTPException(status_code=500, detail=f"Gagal menutup sesi kasir: {e}")
+
+
+# ==========================================
+# ATURAN METODE PEMBAYARAN & PENGUNCIAN DATA (BARU v2)
+# ==========================================
+
+async def _resolve_terminal(
+    session: AsyncSession,
+    terminal_id: uuid.UUID,
+    actor: Optional[User],
+) -> tuple[str, str, Optional[uuid.UUID]]:
+    """
+    Memvalidasi terminal pembayaran, lalu mengembalikan
+    `(kategori, nama_snapshot, cashier_session_id)`.
+
+    Dua aturan yang ditegakkan di sini:
+
+    1) KATEGORI DITURUNKAN DARI TERMINAL, bukan dari body request. Kalau
+       klien boleh mengirim keduanya secara terpisah, cepat atau lambat
+       akan ada transaksi berkategori "QRIS" dengan detail "EDC 1" —
+       laporan rekonsiliasi langsung tidak bisa dipercaya.
+
+    2) KASIR HANYA BOLEH MEMAKAI TERMINAL DI MEJANYA, yaitu yang dipilih
+       saat membuka sesi kasir. Admin dikecualikan (peran override yang
+       sama seperti di seluruh sistem ini) dan boleh memakai terminal aktif
+       mana pun tanpa sesi kasir.
+    """
+    result = await session.execute(
+        select(PaymentTerminal).where(PaymentTerminal.id == terminal_id)
+    )
+    terminal = result.scalars().first()
+    if not terminal:
+        raise HTTPException(status_code=400, detail="Terminal pembayaran tidak ditemukan.")
+    if not terminal.is_active:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Terminal '{terminal.name}' sudah dinonaktifkan dan tidak bisa dipakai."
+        )
+
+    if actor is None:
+        # Alur pengunjung publik. Mereka tidak punya terminal — detailnya
+        # memang baru terisi saat kasir menekan Konfirmasi.
+        raise HTTPException(
+            status_code=403,
+            detail="Metode pembayaran detail hanya bisa ditetapkan oleh kasir."
+        )
+
+    if str(actor.role) == "admin":
+        return terminal.category, terminal.name, None
+
+    cashier_session = await _find_open_cashier_session(session, actor.id)
+    if not cashier_session:
+        raise HTTPException(
+            status_code=400,
+            detail="Anda belum membuka sesi kasir. Buka sesi kasir dan pilih terminal terlebih dahulu."
+        )
+
+    allowed = {link.payment_terminal_id for link in cashier_session.terminals}
+    if terminal.id not in allowed:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Terminal '{terminal.name}' tidak termasuk terminal yang Anda pilih "
+                   f"saat membuka sesi kasir."
+        )
+
+    return terminal.category, terminal.name, cashier_session.id
+
+
+def _assert_can_mutate(entry: TransactionEntry, user: User, *, for_delete: bool = False) -> None:
+    """
+    Gerbang tunggal penguncian data (Approval & Data Locking).
+
+    Aturannya:
+      - Admin  : selalu boleh.
+      - Kasir  : boleh selama transaksi BELUM diverifikasi Checker; tidak
+                 pernah boleh menghapus (penghapusan tetap hak admin).
+      - Checker: hanya menyentuh transaksi yang SUDAH ia setujui — perannya
+                 memverifikasi & meng-override, bukan mengoperasikan kasir.
+
+    Dipanggil di awal SETIAP jalur tulis transaksi (status, edit, delete)
+    supaya aturannya tidak pernah bercabang per-endpoint.
+    """
+    role = str(user.role)
+    if role == "admin":
+        return
+
+    is_approved = entry.verification_status == "approved"
+
+    if role == "kasir":
+        if is_approved:
+            raise HTTPException(
+                status_code=403,
+                detail="Transaksi sudah diverifikasi Checker dan terkunci. "
+                       "Hanya Checker atau Admin yang bisa mengubah atau menghapusnya."
+            )
+        if for_delete:
+            raise HTTPException(
+                status_code=403,
+                detail="Kasir tidak berwenang menghapus transaksi. Hubungi Admin."
+            )
+        return
+
+    if role == "checker":
+        if not is_approved:
+            raise HTTPException(
+                status_code=403,
+                detail="Checker hanya bisa mengubah transaksi yang sudah berstatus "
+                       "Approved. Setujui transaksinya terlebih dahulu."
+            )
+        return
+
+    raise HTTPException(status_code=403, detail="Akses ditolak.")
+
+
+# ==========================================
 # TRANSACTION / QUEUE ROUTERS
 # ==========================================
 
 @app.post(f"{PREFIX}/transactions", response_model=TransactionResponse, status_code=201)
 async def create_transaction(
     payload: TransactionCreate,
-    session: AsyncSession = Depends(get_async_session)
+    session: AsyncSession = Depends(get_async_session),
+    # Dependensi OPSIONAL — endpoint ini tetap publik. Pengunjung tanpa
+    # token lolos dengan `actor = None`; kasir/admin yang memakai layar
+    # "Tambah Manual" terdeteksi di sini, dan hanya merekalah yang boleh
+    # menetapkan terminal pembayaran.
+    actor: Optional[User] = Depends(optional_current_user),
 ):
-    """PUBLIC: Pengunjung membuat antrian transaksi baru pada sesi operasional yang sedang berjalan."""
+    """PUBLIC: Pengunjung membuat antrian transaksi baru pada sesi operasional yang sedang berjalan.
+
+    Metode pembayaran punya dua tingkat:
+      - KATEGORI (`payment_method`): EDC / QRIS / Tunai — selalu terisi.
+      - DETAIL (`payment_method_detail`): terminal fisik ("EDC 1") — hanya
+        terisi kalau kasir yang membuat transaksinya. Untuk pesanan
+        pengunjung, detail sengaja dibiarkan kosong sampai kasir menekan
+        Konfirmasi dan memilih terminal yang benar-benar dipakai menagih."""
     for attempt in range(settings.max_queue_retry):
         try:
             active_session = await _get_active_session(session)
@@ -1018,6 +1672,15 @@ async def create_transaction(
                     unit_price=sub_category.price
                 ))
 
+            # --- Metode pembayaran: kategori + detail ---
+            payment_category   = payload.payment_method.value
+            payment_detail     = None
+            cashier_session_id = None
+            if payload.payment_terminal_id is not None:
+                payment_category, payment_detail, cashier_session_id = await _resolve_terminal(
+                    session, payload.payment_terminal_id, actor
+                )
+
             now_wib = datetime.now(WIB)
             start_of_today_wib    = datetime(now_wib.year, now_wib.month, now_wib.day, tzinfo=WIB)
             start_of_tomorrow_wib = start_of_today_wib + timedelta(days=1)
@@ -1048,7 +1711,10 @@ async def create_transaction(
                 date_only=now_wib.date(),
                 total_price=total_price,
                 status="pending",
-                payment_method=payload.payment_method.value,
+                payment_method=payment_category,
+                payment_terminal_id=payload.payment_terminal_id,
+                payment_method_detail=payment_detail,
+                cashier_session_id=cashier_session_id,
                 items=transaction_items,
                 origins=[TransactionOriginEntry(**o.dict()) for o in payload.origins]
             )
@@ -1072,7 +1738,7 @@ async def create_transaction(
 async def list_today_transactions(
     status: Optional[str] = Query(None, description="Filter by payment status (e.g., 'pending')"),
     session: AsyncSession = Depends(get_async_session),
-    user: User = Depends(current_checker) # <-- PENJAGA PINTU: ADMIN, KASIR, CHECKER
+    user: User = Depends(current_staff) # <-- PENJAGA PINTU: ADMIN, KASIR, CHECKER
 ):
     """STAFF: Lists transactions FOR TODAY ONLY."""
     try:
@@ -1099,7 +1765,7 @@ async def list_today_transactions(
 async def list_all_transactions(
     status: Optional[str] = Query(None, description="Filter by payment status (e.g., 'pending')"),
     session: AsyncSession = Depends(get_async_session),
-    user: User = Depends(current_checker) # <-- PENJAGA PINTU: ADMIN, KASIR, CHECKER
+    user: User = Depends(current_staff) # <-- PENJAGA PINTU: ADMIN, KASIR, CHECKER
 ):
     """STAFF: Lists ALL historical transactions."""
     try:
@@ -1139,9 +1805,17 @@ async def update_transaction_status(
     transaction_id: uuid.UUID,
     payload: TransactionStatusUpdate,
     session: AsyncSession = Depends(get_async_session),
-    user: User = Depends(current_kasir) # <-- PENJAGA PINTU: HANYA ADMIN & KASIR (Checker Ditolak)
+    # PENJAGA PINTU: semua staf lolos di sini, lalu `_assert_can_mutate`
+    # yang memutuskan per-transaksi — checker perlu bisa meng-override
+    # transaksi yang sudah ia setujui, tapi tidak boleh mengoperasikan
+    # antrean kasir sehari-hari.
+    user: User = Depends(current_staff)
 ):
-    """STAFF: Updates the payment status of a ticket."""
+    """STAFF: Mengubah status pembayaran tiket.
+
+    Inilah jalur "pop-up konfirmasi pembayaran": saat kasir menekan
+    Konfirmasi, ia sekalian memilih TERMINAL yang dipakai menagih, dan
+    terminal itulah yang menetapkan kategori + detail metode pembayaran."""
     try:
         result = await session.execute(
             select(TransactionEntry).where(TransactionEntry.id == transaction_id)
@@ -1149,6 +1823,27 @@ async def update_transaction_status(
         entry = result.scalars().first()
         if not entry:
             raise HTTPException(status_code=404, detail="Ticket not found")
+
+        _assert_can_mutate(entry, user)
+
+        # Kategori diproses lebih dulu supaya terminal (kalau ada) selalu
+        # menang — lihat catatan di `_resolve_terminal`.
+        if payload.payment_method is not None:
+            entry.payment_method        = payload.payment_method.value
+            entry.payment_terminal_id   = None
+            entry.payment_method_detail = None
+
+        if payload.payment_terminal_id is not None:
+            category, detail, cashier_session_id = await _resolve_terminal(
+                session, payload.payment_terminal_id, user
+            )
+            entry.payment_method        = category
+            entry.payment_terminal_id   = payload.payment_terminal_id
+            entry.payment_method_detail = detail
+            # Jangan menimpa jejak sesi kasir yang sudah ada (mis. saat
+            # admin mengoreksi transaksi milik kasir lain).
+            if cashier_session_id is not None:
+                entry.cashier_session_id = cashier_session_id
 
         entry.status = payload.status.value
         if payload.status.value in ["confirmed", "paid"]:
@@ -1164,18 +1859,70 @@ async def update_transaction_status(
         raise HTTPException(status_code=500, detail=f"Failed to update status {e}")
 
 
+@app.patch(
+    f"{PREFIX}/transactions/{{transaction_id}}/verification",
+    response_model=TransactionResponse,
+    tags=["transactions"]
+)
+async def update_transaction_verification(
+    transaction_id: uuid.UUID,
+    payload: TransactionVerificationUpdate,
+    session: AsyncSession = Depends(get_async_session),
+    # HANYA Checker & Admin. Kasir tidak boleh menyetujui pekerjaannya
+    # sendiri — itu inti dari kontrol ini.
+    verifier: User = Depends(current_verifier),
+):
+    """CHECKER/ADMIN: Menandai transaksi sebagai 'Approved by Checker',
+    atau menariknya kembali ke 'Pending'.
+
+    Begitu 'approved', transaksi otomatis TERKUNCI dari kasir: tombol
+    edit & hapus miliknya mati, dan backend menolak permintaannya lewat
+    `_assert_can_mutate`. Menarik kembali ke 'pending' membuka kuncinya
+    lagi dan menghapus jejak siapa yang menyetujui, supaya tidak ada
+    transaksi berlabel "pernah disetujui X" yang isinya sudah berubah."""
+    result = await session.execute(
+        select(TransactionEntry).where(TransactionEntry.id == transaction_id)
+    )
+    entry = result.scalars().first()
+    if not entry:
+        raise HTTPException(status_code=404, detail="Transaksi tidak ditemukan.")
+
+    entry.verification_status = payload.verification_status.value
+    if payload.verification_status.value == "approved":
+        entry.verified_by_id = verifier.id
+        entry.verified_at    = datetime.now(WIB)
+    else:
+        entry.verified_by_id = None
+        entry.verified_at    = None
+
+    try:
+        await session.commit()
+        await session.refresh(entry)
+        return entry
+    except Exception as e:
+        await session.rollback()
+        raise HTTPException(status_code=500, detail=f"Gagal memperbarui status verifikasi: {e}")
+
+
 @app.patch(f"{PREFIX}/transactions/{{transaction_id}}/edit", response_model=TransactionResponse, tags=["transactions"])
 async def edit_transaction_data(
     transaction_id: uuid.UUID,
     payload: TransactionUpdateData,
     session: AsyncSession = Depends(get_async_session),
-    user: User = Depends(current_kasir) # <-- PENJAGA PINTU: HANYA ADMIN & KASIR (Checker Ditolak)
+    # Lihat catatan penjaga pintu di endpoint /status di atas.
+    user: User = Depends(current_staff)
 ):
-    """STAFF: Updates customer name, items, origins, status, or payment method."""
+    """STAFF: Mengubah nama pemesan, rincian tiket, asal negara, status,
+    atau metode pembayaran (kategori & terminal).
+
+    Transaksi yang sudah diverifikasi Checker TERKUNCI untuk kasir —
+    lihat `_assert_can_mutate`."""
     result = await session.execute(select(TransactionEntry).where(TransactionEntry.id == transaction_id))
     entry = result.scalars().first()
     if not entry:
         raise HTTPException(status_code=404, detail="Ticket not found")
+
+    _assert_can_mutate(entry, user)
 
     if payload.customer_name is not None:
         entry.customer_name = payload.customer_name
@@ -1238,8 +1985,21 @@ async def edit_transaction_data(
         if payload.status.value in ["confirmed", "paid"]:
             entry.confirmed_at = datetime.now(WIB)
 
+    # Terminal diproses SEBELUM `payment_method` mentah, lalu menang atas
+    # keduanya: kategori selalu diturunkan dari terminal supaya kategori &
+    # detail tidak pernah saling bertentangan.
     if payload.payment_method is not None:
         entry.payment_method = payload.payment_method.value
+
+    if payload.payment_terminal_id is not None:
+        category, detail, cashier_session_id = await _resolve_terminal(
+            session, payload.payment_terminal_id, user
+        )
+        entry.payment_method        = category
+        entry.payment_terminal_id   = payload.payment_terminal_id
+        entry.payment_method_detail = detail
+        if cashier_session_id is not None:
+            entry.cashier_session_id = cashier_session_id
 
     try:
         await session.commit()
@@ -1256,9 +2016,13 @@ async def edit_transaction_data(
 async def delete_transaction_entry(
     transaction_id: uuid.UUID,
     session: AsyncSession = Depends(get_async_session),
-    user: User = Depends(current_admin) # <-- PENJAGA PINTU: HANYA ADMIN BISA MENGHAPUS
+    user: User = Depends(current_staff)
 ):
-    """ADMIN: Deletes a specific transaction from the queue."""
+    """ADMIN (atau CHECKER untuk transaksi yang sudah Approved): Menghapus
+    transaksi dari antrean.
+
+    Kasir TIDAK PERNAH bisa menghapus, baik sebelum maupun sesudah
+    verifikasi — lihat `_assert_can_mutate(..., for_delete=True)`."""
     try:
         result = await session.execute(
             select(TransactionEntry).where(TransactionEntry.id == transaction_id)
@@ -1266,6 +2030,8 @@ async def delete_transaction_entry(
         entry = result.scalars().first()
         if not entry:
             raise HTTPException(status_code=404, detail="Queue entry not found")
+
+        _assert_can_mutate(entry, user, for_delete=True)
 
         await session.delete(entry)
         await session.commit()

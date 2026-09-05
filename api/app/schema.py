@@ -10,6 +10,15 @@
 #   yang sama (tidak perlu endpoint baru).
 # - BARU: SessionTicketAuditBulkItem / SessionTicketAuditBulkUpdate untuk
 #   mekanisme "satu tombol Simpan" di halaman Detail Audit.
+#
+# UPDATE v2:
+# - PaymentTerminal*  : master terminal pembayaran (EDC 1, QRIS Meja 2, ...).
+# - AgeCategory*      : master varian kategori usia yang terpusat.
+# - CashierSession*   : shift kasir + terminal yang dipakainya.
+# - TicketSubCategoryCreate/Update TIDAK LAGI menerima nama & rentang usia —
+#   keduanya diturunkan dari AgeCategory; admin hanya mengisi harga.
+# - Transaksi membawa metode pembayaran DETAIL (terminal) di samping
+#   KATEGORI yang sudah ada, plus status verifikasi Checker.
 # ==========================================================
 
 import uuid
@@ -50,9 +59,25 @@ class RoleEnum(str, Enum):
 
 
 class PaymentMethodEnum(str, Enum):
+    """
+    KATEGORI metode pembayaran. `card` ADALAH kategori EDC — nilainya
+    sengaja tidak diganti jadi "edc" supaya tidak ada satu pun baris
+    transaksi lama yang perlu ditulis ulang; yang berubah hanya labelnya
+    di layar (PAYMENT_METHOD_LABEL di frontend).
+
+    Dipakai juga sebagai kategori `PaymentTerminal` — daftar nilainya
+    memang harus identik, karena kategori transaksi diturunkan langsung
+    dari kategori terminal yang dipilih kasir.
+    """
     qris = "qris"
     cash = "cash"
     card = "card"
+
+
+class VerificationStatusEnum(str, Enum):
+    """Status verifikasi Checker. `approved` mengunci transaksi dari kasir."""
+    pending  = "pending"
+    approved = "approved"
 
 
 class TransactionStatus(str, Enum):
@@ -89,25 +114,91 @@ class UserUpdate(schemas.BaseUserUpdate):
 
 
 # ==========================================
+# 2b. MASTER VARIAN KATEGORI USIA (ADMIN) — BARU v2
+# ==========================================
+
+class AgeCategoryCreate(BaseModel):
+    # Nama per bahasa: {"id": "Dewasa", "en": "Adult", "zh": "成人"} — `zh`
+    # opsional, aturan & validatornya sama persis dengan varian tiket lama.
+    name_i18n: LocalizedName
+    min_age: int = Field(default=0, ge=0)
+    max_age: Optional[int] = Field(default=None, ge=0)
+
+
+class AgeCategoryUpdate(BaseModel):
+    name_i18n: Optional[LocalizedName] = None
+    min_age: Optional[int] = Field(default=None, ge=0)
+    max_age: Optional[int] = Field(default=None, ge=0)
+    # Kirim `is_active: true` untuk mengaktifkan kembali varian yang
+    # sebelumnya dinonaktifkan — pola yang sama dengan master tiket.
+    is_active: Optional[bool] = None
+
+
+class AgeCategoryRead(BaseModel):
+    id: uuid.UUID
+    name: str
+    name_i18n: LocalizedNameRead = {}
+    min_age: int
+    max_age: Optional[int] = None
+    is_active: bool = True
+
+    class Config:
+        from_attributes = True
+
+
+# ==========================================
+# 2c. TERMINAL PEMBAYARAN (ADMIN) — BARU v2
+# ==========================================
+
+class PaymentTerminalCreate(BaseModel):
+    # Nama TIDAK multi-bahasa: ini label alat fisik di meja kasir, dibaca
+    # staf, bukan pengunjung — "EDC 1" tetap "EDC 1" dalam bahasa apa pun.
+    name: str = Field(..., min_length=1)
+    category: PaymentMethodEnum
+
+
+class PaymentTerminalUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, min_length=1)
+    category: Optional[PaymentMethodEnum] = None
+    is_active: Optional[bool] = None
+
+
+class PaymentTerminalRead(BaseModel):
+    id: uuid.UUID
+    name: str
+    category: PaymentMethodEnum
+    is_active: bool = True
+
+    class Config:
+        from_attributes = True
+
+
+# ==========================================
 # 3. TICKET MASTER & SUB CATEGORY (ADMIN)
 # ==========================================
 
 class TicketSubCategoryCreate(BaseModel):
-    # Nama varian per bahasa: {"id": "Dewasa", "en": "Adult", "zh": "成人"}.
-    # `zh` opsional. Harga TIDAK ikut per-bahasa — satu `price` universal.
-    name_i18n: LocalizedName
-    min_age: int = Field(default=0, ge=0)
-    max_age: Optional[int] = Field(default=None, ge=0)
+    """
+    UBAH v2: varian tiket tidak lagi diketik bebas per master.
+
+    Dulu payload ini membawa `name_i18n` / `min_age` / `max_age` sendiri —
+    artinya "Dewasa" di Lantai 1 dan "Dewasa" di Lantai 2 adalah dua
+    definisi lepas yang gampang menyimpang. Sekarang admin memilih varian
+    dari MASTER varian usia (`age_categories`) dan HANYA mengisi harga;
+    backend yang menyalin nama & rentang usia ke kolom snapshot.
+    """
+    age_category_id: uuid.UUID
     price: int = Field(..., ge=0)
 
 
 class TicketSubCategoryUpdate(BaseModel):
-    # Dikirim utuh (semua bahasa sekaligus) saat admin menyimpan form edit.
-    name_i18n: Optional[LocalizedName] = None
-    min_age: Optional[int] = Field(default=None, ge=0)
-    max_age: Optional[int] = Field(default=None, ge=0)
+    """
+    Yang bisa diubah per master tiket tinggal HARGA (dan status aktif).
+    Nama & rentang usia diubah di master varian usia, satu tempat untuk
+    semua master tiket — itulah inti sentralisasinya.
+    """
     price: Optional[int] = Field(default=None, ge=0)
-    # BARU: kirim `is_active: true` untuk mengaktifkan kembali sub-kategori
+    # Kirim `is_active: true` untuk mengaktifkan kembali sub-kategori
     # yang sebelumnya dinonaktifkan (soft-deleted).
     is_active: Optional[bool] = None
 
@@ -115,6 +206,11 @@ class TicketSubCategoryUpdate(BaseModel):
 class TicketSubCategoryRead(BaseModel):
     id: uuid.UUID
     ticket_master_id: uuid.UUID
+    # BARU v2 — tautan ke master varian usia. Inilah kunci yang dipakai
+    # halaman pengunjung untuk menggabungkan varian yang sama lintas
+    # lantai jadi SATU baris input (lihat alur pemilihan tiket).
+    # Optional karena baris legacy hasil migrasi bisa belum tertaut.
+    age_category_id: Optional[uuid.UUID] = None
     # `name` = cermin Bahasa Indonesia (dipakai layar & laporan staf).
     name: str
     # `name_i18n` = sumber sebenarnya, dipakai layar pengunjung.
@@ -263,6 +359,49 @@ class ActiveSessionStatusRead(BaseModel):
 
 
 # ==========================================
+# 4b. SESI KASIR (BARU v2)
+# ==========================================
+
+class CashierSessionCreate(BaseModel):
+    session_id: uuid.UUID
+    terminal_ids: List[uuid.UUID] = Field(
+        default_factory=list,
+        description="Terminal pembayaran yang dipakai kasir selama shift ini "
+                    "(mis. EDC 1 & QRIS Meja 2). Boleh kosong kalau kasir "
+                    "hanya melayani tunai."
+    )
+
+
+class CashierSessionRead(BaseModel):
+    id: uuid.UUID
+    session_id: uuid.UUID
+    user_id: uuid.UUID
+    opened_at: datetime
+    closed_at: Optional[datetime] = None
+    # Dipetakan dari properti komputasi `CashierSession.is_open` (db.py).
+    is_open: bool = True
+    # Terminal yang boleh dipilih kasir ini pada pop-up konfirmasi
+    # pembayaran — sengaja dikirim utuh (bukan cuma id-nya) supaya
+    # frontend tidak perlu memanggil GET /payment-terminals lagi.
+    terminals: List[PaymentTerminalRead] = []
+
+    class Config:
+        from_attributes = True
+
+
+class CashierSessionStatusRead(BaseModel):
+    """
+    Respons `GET /cashier-sessions/me/active`.
+
+    SELALU 200 — "kasir belum membuka sesinya" adalah keadaan normal
+    (justru itulah yang memicu gerbang "Buka Sesi Kasir" di frontend),
+    bukan error. Pola yang sama dengan `ActiveSessionStatusRead`.
+    """
+    has_active: bool
+    cashier_session: Optional[CashierSessionRead] = None
+
+
+# ==========================================
 # 5. ORIGIN SCHEMAS
 # ==========================================
 
@@ -312,7 +451,15 @@ class TransactionCreate(BaseModel):
     customer_name: str = Field(..., min_length=1)  # Wajib diisi sesuai spesifikasi baru
     items: List[TransactionItemCreate] = Field(..., min_length=1)
     origins: List[OriginBase] = Field(default_factory=list)
+    # KATEGORI pembayaran. Diabaikan kalau `payment_terminal_id` diisi —
+    # terminal yang menentukan kategorinya, bukan sebaliknya. Kalau tidak,
+    # dua field ini bisa saling bertentangan ("QRIS" + terminal "EDC 1").
     payment_method: PaymentMethodEnum = PaymentMethodEnum.qris
+    # BARU v2 — terminal fisik yang dipakai. Hanya diisi kalau transaksi
+    # dibuat kasir (Tambah Manual); pengunjung yang memesan sendiri dari
+    # halaman publik membiarkannya kosong, dan detailnya baru terisi saat
+    # kasir menekan Konfirmasi.
+    payment_terminal_id: Optional[uuid.UUID] = None
 
 
 class TransactionResponse(BaseModel):
@@ -323,7 +470,21 @@ class TransactionResponse(BaseModel):
     customer_name: str
     total_price: int
     status: TransactionStatus
+
+    # --- Metode pembayaran: KATEGORI + DETAIL ---
+    # `payment_method`        : kategori umum (EDC / QRIS / Tunai)
+    # `payment_method_detail` : terminal spesifik ("EDC 1", "QRIS Meja 2"),
+    #                           NULL selama belum dikonfirmasi kasir.
     payment_method: PaymentMethodEnum
+    payment_terminal_id: Optional[uuid.UUID] = None
+    payment_method_detail: Optional[str] = None
+    cashier_session_id: Optional[uuid.UUID] = None
+
+    # --- Verifikasi Checker ---
+    verification_status: VerificationStatusEnum = VerificationStatusEnum.pending
+    verified_by_id: Optional[uuid.UUID] = None
+    verified_at: Optional[datetime] = None
+
     created_at: datetime
     confirmed_at: Optional[datetime] = None
     date_only: date
@@ -340,6 +501,23 @@ class TransactionResponse(BaseModel):
 
 class TransactionStatusUpdate(BaseModel):
     status: TransactionStatus
+    # BARU v2 — inilah jalur "pop-up konfirmasi pembayaran": saat kasir
+    # mengonfirmasi transaksi yang dibuat pengunjung, terminal yang
+    # dipilihnya mengisi KATEGORI + DETAIL metode pembayaran sekaligus.
+    payment_terminal_id: Optional[uuid.UUID] = None
+    # Untuk pembayaran TUNAI, yang memang tidak punya terminal: kasir
+    # cukup mengirim kategorinya. Kalau `payment_terminal_id` juga diisi,
+    # terminal yang menang — kategori selalu diturunkan dari alat yang
+    # benar-benar dipakai menagih.
+    payment_method: Optional[PaymentMethodEnum] = None
+
+
+class TransactionVerificationUpdate(BaseModel):
+    """
+    Body `PATCH /transactions/{id}/verification` — HANYA untuk role
+    Checker & Admin. Begitu `approved`, transaksi terkunci dari kasir.
+    """
+    verification_status: VerificationStatusEnum
 
 
 class TransactionUpdateData(BaseModel):
@@ -351,3 +529,6 @@ class TransactionUpdateData(BaseModel):
     origins: Optional[List[OriginBase]] = None
     status: Optional[TransactionStatus] = None
     payment_method: Optional[PaymentMethodEnum] = None
+    # Diabaikan kalau None; kalau diisi, kategori ikut diturunkan dari
+    # terminal (aturan yang sama dengan TransactionCreate di atas).
+    payment_terminal_id: Optional[uuid.UUID] = None

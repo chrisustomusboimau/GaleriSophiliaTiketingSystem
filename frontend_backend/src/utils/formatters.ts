@@ -212,11 +212,54 @@ export const TRANSACTION_STATUS_LABEL: Record<string, string> = {
   cancelled: "Batal",
 };
 
+/**
+ * Label KATEGORI metode pembayaran.
+ *
+ * `card` dilabeli "EDC" — itu memang alat yang dipakai di lapangan, dan
+ * filter riwayat transaksi sudah menyebutnya begitu sejak lama. Nilai
+ * kolomnya sendiri tetap "card" supaya tidak ada baris transaksi lama
+ * yang perlu ditulis ulang.
+ */
 export const PAYMENT_METHOD_LABEL: Record<string, string> = {
   qris: "QRIS",
-  card: "Kartu Kredit/Debit",
+  card: "EDC",
   cash: "Tunai",
 };
+
+/** Label kategori saat memilih/mendaftarkan TERMINAL (lebih deskriptif). */
+export const TERMINAL_CATEGORY_LABEL: Record<string, string> = {
+  qris: "QRIS",
+  card: "EDC (Kartu Kredit/Debit)",
+  cash: "Tunai",
+};
+
+/**
+ * Label status verifikasi Checker. Sengaja memakai kalimat penuh
+ * "Approved by Checker" (bukan sekadar "Approved") supaya jelas SIAPA
+ * yang menyetujui — di layar yang sama ada status pembayaran "Lunas"
+ * yang gampang tertukar kalau labelnya terlalu pendek.
+ */
+export const VERIFICATION_STATUS_LABEL: Record<string, string> = {
+  pending: "Pending",
+  approved: "Approved by Checker",
+};
+
+export const VERIFICATION_STATUS_BADGE: Record<string, string> = {
+  pending: "bg-gray-100 text-gray-600 border-gray-300",
+  approved: "bg-green-100 text-green-700 border-green-300",
+};
+
+/**
+ * Label metode pembayaran lengkap: kategori + terminal spesifik.
+ * Dipakai layar yang hanya punya ruang satu kolom (mis. ekspor Excel).
+ */
+export function formatPaymentMethod(
+  category: string | null | undefined,
+  detail: string | null | undefined
+): string {
+  const label = PAYMENT_METHOD_LABEL[category ?? ""] || category?.toUpperCase() || "-";
+  return detail ? `${label} — ${detail}` : label;
+}
 
 export const ROLE_LABEL: Record<string, string> = {
   admin: "Admin",

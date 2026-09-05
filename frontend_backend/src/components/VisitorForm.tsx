@@ -1,17 +1,37 @@
 /**
  * VisitorForm.tsx
  * ----------------------------------------------------
- * Form utama input data pengunjung museum.
- * UPDATE:
- * - Tiket dikelompokkan berdasarkan Nama Tiket (Master Tiket / Lantai).
- * - Menampilkan keterangan batasan usia untuk setiap varian tiket.
+ * Form input data pengunjung museum.
+ *
+ * PERUBAHAN INTI (v2) — INPUT PER VARIAN USIA, BUKAN PER LANTAI.
+ *
+ * Dulu form ini menampilkan satu counter untuk SETIAP kombinasi
+ * lantai × varian: memilih 2 lantai berarti pengunjung harus mengisi
+ * "Dewasa" dua kali, dan tidak ada yang mencegahnya mengisi angka yang
+ * berbeda untuk orang yang sama.
+ *
+ * Sekarang counter-nya murni per VARIAN USIA (dari Master Varian Usia),
+ * satu baris untuk "Dewasa" berapa pun lantai yang dipilih. Konsekuensinya
+ * ada DUA angka berbeda yang harus dijaga tetap terpisah:
+ *
+ *   ORANG FISIK  = jumlah yang diketik pengunjung (mis. 2 Anak + 2 Dewasa
+ *                  = 4 orang). Inilah dasar form kewarganegaraan — 4 orang
+ *                  tetap 4 kewarganegaraan, berapa pun lantai yang dibeli.
+ *
+ *   UNIT TIKET   = orang × jumlah lantai (4 orang × 2 lantai = 8 tiket).
+ *                  Inilah yang dikirim ke backend sebagai item transaksi,
+ *                  dan yang menentukan total harga.
+ *
+ * Mencampur keduanya adalah kesalahan yang paling mudah terjadi di sini,
+ * jadi keduanya dihitung terpisah dan diberi nama eksplisit di bawah
+ * (`totalVisitors` vs `totalTickets`).
  */
 
 import React, { useEffect, useMemo, useState, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { getData } from "country-list";
 import { apiPost, ApiError } from "../api/client";
-import { TransactionEntry, TransactionItemInput, PaymentMethod } from "../types";
+import { TransactionEntry, TransactionItemInput, PaymentMethod, SessionTicket } from "../types";
 import { formatCurrency, resolveName } from "../utils/formatters";
 import { useLanguage } from "../contexts/LanguageContext";
 import { useActiveSession } from "../contexts/ActiveSessionContext";
@@ -42,36 +62,57 @@ const LOCAL_STRINGS: Record<"id" | "en" | "zh", Record<string, string>> = {
     noActiveSession: "Tidak ada sesi penjualan tiket yang sedang dibuka saat ini. Silakan coba lagi nanti.",
     noMatchingTickets: "Pilihan lantai Anda tidak tersedia pada sesi saat ini. Silakan pilih ulang.",
     backToSelection: "Pilih Ulang Lantai",
-    priceLabel: "Harga",
     customerNameLabel: "Nama Pemesan",
     customerNamePlaceholder: "Masukkan nama Anda",
     customerNameRequired: "Nama pemesan wajib diisi.",
     yearsOld: "tahun",
-    aboveAge: "ke atas",
+    visitorCountTitle: "Jumlah Pengunjung",
+    visitorCountHint: "Isi jumlah orang per kategori usia. Tiket dihitung otomatis untuk setiap lokasi yang Anda pilih.",
+    selectedLocations: "Lokasi dipilih",
+    perLocation: "per lokasi",
+    ticketMath: "{people} orang × {floors} lokasi = {tickets} tiket",
+    totalTickets: "Total Tiket",
+    notAvailableEverywhere: "Tidak tersedia di semua lokasi terpilih",
+    perPerson: "orang",
+    ticketUnit: "tiket",
   },
   en: {
     loadingSession: "Loading available tickets...",
     noActiveSession: "There is no open ticket session right now. Please try again later.",
     noMatchingTickets: "Your floor selection is not available in the current session. Please select again.",
     backToSelection: "Reselect Floors",
-    priceLabel: "Price",
     customerNameLabel: "Your Name",
     customerNamePlaceholder: "Enter your name",
     customerNameRequired: "Please enter your name.",
     yearsOld: "years old",
-    aboveAge: "and above",
+    visitorCountTitle: "Number of Visitors",
+    visitorCountHint: "Enter how many people per age category. Tickets are calculated automatically for each location you selected.",
+    selectedLocations: "Selected locations",
+    perLocation: "per location",
+    ticketMath: "{people} people × {floors} locations = {tickets} tickets",
+    totalTickets: "Total Tickets",
+    notAvailableEverywhere: "Not available at every selected location",
+    perPerson: "person",
+    ticketUnit: "tickets",
   },
   zh: {
     loadingSession: "正在加载可购票种...",
     noActiveSession: "目前没有开放的售票场次，请稍后再试。",
     noMatchingTickets: "您选择的楼层在当前场次中不可用，请重新选择。",
     backToSelection: "重新选择楼层",
-    priceLabel: "价格",
     customerNameLabel: "订购人姓名",
     customerNamePlaceholder: "请输入您的姓名",
     customerNameRequired: "请填写订购人姓名。",
     yearsOld: "岁",
-    aboveAge: "及以上",
+    visitorCountTitle: "参观人数",
+    visitorCountHint: "请按年龄类别填写人数。系统会为您选择的每个区域自动计算门票。",
+    selectedLocations: "已选区域",
+    perLocation: "每个区域",
+    ticketMath: "{people} 人 × {floors} 个区域 = {tickets} 张票",
+    totalTickets: "门票总数",
+    notAvailableEverywhere: "并非所有已选区域都提供",
+    perPerson: "人",
+    ticketUnit: "张票",
   },
 };
 
@@ -84,36 +125,59 @@ interface CountryVisitor {
   count: number | string;
 }
 
-interface TicketVariant {
+/** Satu lokasi yang menjual varian usia tertentu, beserta harganya di sana. */
+interface VariantLocation {
+  masterId: string;
+  masterName: string;
   subCategoryId: string;
-  name: string;
-  displayName: string;
-  ageLabel: string;
   price: number;
 }
 
-interface TicketGroup {
-  masterId: string;
-  masterName: string;
-  variants: TicketVariant[];
+/**
+ * Satu baris input di layar: SATU varian usia, berlaku untuk semua lokasi
+ * terpilih yang menjualnya.
+ */
+interface AgeVariantRow {
+  /** `age_category_id`, atau nama varian untuk data lama yang belum tertaut. */
+  key: string;
+  displayName: string;
+  ageLabel: string;
+  locations: VariantLocation[];
+  /** Harga untuk SATU orang di SELURUH lokasi terpilih yang menjualnya. */
+  totalPricePerPerson: number;
 }
 
 interface CounterInputProps {
   label: string;
   ageLabel: string;
+  /** Harga total per orang untuk semua lokasi terpilih. */
   price: number;
+  locations: VariantLocation[];
+  /** Jumlah lokasi yang dipilih pengunjung — untuk peringatan ketersediaan. */
+  selectedFloorCount: number;
   value: number | string;
   onChange: (value: number | string) => void;
+  strings: Record<string, string>;
 }
 
 /* =====================================================
    SUB-COMPONENTS
 ===================================================== */
 
-const CounterInput: React.FC<CounterInputProps> = ({ label, ageLabel, price, value, onChange }) => {
+const CounterInput: React.FC<CounterInputProps> = ({
+  label,
+  ageLabel,
+  price,
+  locations,
+  selectedFloorCount,
+  value,
+  onChange,
+  strings,
+}) => {
   const numericValue = Number(value) || 0;
   const subtotal = numericValue * price;
   const inputId = `counter-${label.replace(/\s+/g, "-").toLowerCase()}`;
+  const isPartial = locations.length < selectedFloorCount;
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.value === "") {
@@ -124,19 +188,36 @@ const CounterInput: React.FC<CounterInputProps> = ({ label, ageLabel, price, val
   };
 
   return (
-    <div className="mb-4 p-4 border border-gray-200 rounded-lg bg-[#fcfcfc] shadow-sm">
-      <div className="flex justify-between items-start mb-3">
-        <div>
+    <div className="mb-4 p-4 border border-gray-200 rounded-xl bg-white shadow-sm">
+      <div className="flex justify-between items-start mb-3 gap-3">
+        <div className="min-w-0">
           <label htmlFor={inputId} className="font-bold text-black cursor-pointer block">
             {label}
           </label>
           {ageLabel && (
-            <span className="text-xs font-semibold text-orange-600 bg-orange-50 px-2 py-0.5 rounded-md border border-orange-100 inline-block mt-0.5">
+            <span className="text-xs font-semibold text-orange-600 bg-orange-50 px-2 py-0.5 rounded-md border border-orange-100 inline-block mt-1">
               {ageLabel}
             </span>
           )}
         </div>
-        <span className="text-gray-600 font-medium">{formatCurrency(price)}</span>
+        <div className="text-right shrink-0">
+          <span className="text-gray-800 font-bold block">{formatCurrency(price)}</span>
+          <span className="text-[10px] text-gray-400 font-medium">/ {strings.perPerson}</span>
+        </div>
+      </div>
+
+      {/* Rincian harga per lokasi — pengunjung berhak tahu total di atas
+          berasal dari mana, terutama kalau harganya beda antar lantai. */}
+      <div className="mb-3 space-y-0.5">
+        {locations.map((loc) => (
+          <div key={loc.subCategoryId} className="flex justify-between text-[11px] text-gray-500">
+            <span className="truncate mr-2">{loc.masterName}</span>
+            <span className="font-mono shrink-0">{formatCurrency(loc.price)}</span>
+          </div>
+        ))}
+        {isPartial && (
+          <p className="text-[11px] text-amber-600 font-medium pt-1">{strings.notAvailableEverywhere}</p>
+        )}
       </div>
 
       <div className="flex items-center justify-between">
@@ -178,8 +259,12 @@ const CounterInput: React.FC<CounterInputProps> = ({ label, ageLabel, price, val
       </div>
 
       {numericValue > 0 && (
-        <div className="mt-3 text-sm text-right text-gray-600">
-          {numericValue} × {formatCurrency(price)} = <span className="font-bold text-black">{formatCurrency(subtotal)}</span>
+        <div className="mt-3 text-sm text-right text-gray-600 pt-2 border-t border-gray-100">
+          {numericValue} × {formatCurrency(price)} ={" "}
+          <span className="font-bold text-black">{formatCurrency(subtotal)}</span>
+          <span className="block text-[11px] text-gray-400">
+            {numericValue * locations.length} {strings.ticketUnit}
+          </span>
         </div>
       )}
     </div>
@@ -327,7 +412,7 @@ const VisitorForm: React.FC = () => {
     }
   }, [language, navigate, selectedFloors.length]);
 
-  const relevantTickets = useMemo(() => {
+  const relevantTickets = useMemo<SessionTicket[]>(() => {
     if (!activeSession) return [];
     return activeSession.active_tickets.filter((st) => {
       const sub = st.sub_category;
@@ -336,91 +421,118 @@ const VisitorForm: React.FC = () => {
     });
   }, [activeSession, selectedFloors]);
 
-  // Pengelompokan berdasarkan Master Tiket & Penyusunan Label Usia
-  const groupedTickets: TicketGroup[] = useMemo(() => {
-    const map = new Map<string, TicketGroup>();
+  /**
+   * Menggabungkan varian yang sama LINTAS LOKASI jadi satu baris input.
+   *
+   * Kuncinya `age_category_id` dari Master Varian Usia — itulah yang
+   * membuat "Dewasa" di Lantai 1 dan "Dewasa" di Lantai 2 dikenali sebagai
+   * varian yang SAMA. Untuk data lama yang belum tertaut master (hasil
+   * migrasi yang tidak menemukan padanan), jatuh ke nama varian: hasilnya
+   * tetap tergabung selama namanya konsisten, dan kalau tidak, paling
+   * buruk kembali ke perilaku lama (satu baris per lantai).
+   */
+  const ageVariants: AgeVariantRow[] = useMemo(() => {
+    const map = new Map<string, AgeVariantRow>();
 
     relevantTickets.forEach((st) => {
-      const sub = st.sub_category as any;
+      const sub = st.sub_category;
       if (!sub) return;
 
-      const masterId = sub.ticket_master_id || sub.master?.id || "default";
-      const masterName = resolveName(sub.master?.name_i18n, language, sub.master?.name || "Tiket");
+      const key = sub.age_category_id || `name:${sub.name}`;
+      const masterName = resolveName(
+        sub.ticket_master_name_i18n,
+        language,
+        sub.ticket_master_name || "Tiket"
+      );
 
-      if (!map.has(masterId)) {
-        map.set(masterId, {
-          masterId,
-          masterName,
-          variants: [],
+      if (!map.has(key)) {
+        // Rentang usia dibaca dari min_age/max_age — nama field yang
+        // benar-benar dikirim backend (`TicketSubCategoryRead`).
+        let ageLabel = "";
+        if (sub.max_age !== null && sub.max_age !== undefined) {
+          ageLabel = `${sub.min_age} - ${sub.max_age} ${t.yearsOld}`;
+        } else {
+          ageLabel = `${sub.min_age}+ ${t.yearsOld}`;
+        }
+
+        map.set(key, {
+          key,
+          displayName: resolveName(sub.name_i18n, language, sub.name),
+          ageLabel,
+          locations: [],
+          totalPricePerPerson: 0,
         });
       }
 
-      // Format keterangan usia berdasarkan data age_min / age_max atau fallback nama
-      let ageLabel = "";
-      if (sub.age_min !== undefined && sub.age_max !== undefined && sub.age_max !== null) {
-        ageLabel = `${sub.age_min} - ${sub.age_max} ${t.yearsOld}`;
-      } else if (sub.age_min !== undefined && (sub.age_max === undefined || sub.age_max === null)) {
-        ageLabel = `>= ${sub.age_min} ${t.yearsOld}`;
-      } else if (sub.age_range) {
-        ageLabel = sub.age_range;
-      }
-
-      const variant: TicketVariant = {
+      const row = map.get(key)!;
+      row.locations.push({
+        masterId: sub.ticket_master_id,
+        masterName,
         subCategoryId: sub.id,
-        name: sub.name,
-        displayName: resolveName(sub.name_i18n, language, sub.name),
-        ageLabel,
         price: sub.price,
-      };
-
-      map.get(masterId)!.variants.push(variant);
+      });
+      row.totalPricePerPerson += sub.price;
     });
 
+    // Urutkan menurut usia minimum lewat urutan kemunculan lokasi pertama,
+    // supaya Anak selalu di atas Dewasa seperti di katalog.
     return Array.from(map.values());
   }, [relevantTickets, language, t]);
 
   useEffect(() => {
-    if (groupedTickets.length === 0) return;
+    if (ageVariants.length === 0) return;
     setCounts((prev) => {
       const next: Record<string, number | string> = {};
-      groupedTickets.forEach((group) => {
-        group.variants.forEach((v) => {
-          next[v.subCategoryId] = prev[v.subCategoryId] ?? 0;
-        });
+      ageVariants.forEach((v) => {
+        next[v.key] = prev[v.key] ?? 0;
       });
       return next;
     });
-  }, [groupedTickets]);
+  }, [ageVariants]);
 
   const pureCounts = useMemo(() => {
     const result: Record<string, number> = {};
-    groupedTickets.forEach((group) => {
-      group.variants.forEach((v) => {
-        result[v.subCategoryId] = Number(counts[v.subCategoryId]) || 0;
-      });
+    ageVariants.forEach((v) => {
+      result[v.key] = Number(counts[v.key]) || 0;
     });
     return result;
-  }, [counts, groupedTickets]);
+  }, [counts, ageVariants]);
 
-  const totalVisitors = useMemo(() => Object.values(pureCounts).reduce((sum, v) => sum + v, 0), [pureCounts]);
+  /** ORANG FISIK — dasar form kewarganegaraan. TIDAK dikali jumlah lokasi. */
+  const totalVisitors = useMemo(
+    () => ageVariants.reduce((sum, v) => sum + (pureCounts[v.key] || 0), 0),
+    [ageVariants, pureCounts]
+  );
+
+  /** UNIT TIKET — orang × lokasi yang menjual varian itu. */
+  const totalTickets = useMemo(
+    () => ageVariants.reduce((sum, v) => sum + (pureCounts[v.key] || 0) * v.locations.length, 0),
+    [ageVariants, pureCounts]
+  );
 
   const totalFromCountries = useMemo(
     () => countryVisitors.reduce((sum, c) => sum + (Number(c.count) || 0), 0),
     [countryVisitors]
   );
 
-  const totalPrice = useMemo(() => {
-    let total = 0;
-    groupedTickets.forEach((group) => {
-      group.variants.forEach((v) => {
-        total += (pureCounts[v.subCategoryId] || 0) * v.price;
-      });
-    });
-    return total;
-  }, [groupedTickets, pureCounts]);
+  const totalPrice = useMemo(
+    () => ageVariants.reduce((sum, v) => sum + (pureCounts[v.key] || 0) * v.totalPricePerPerson, 0),
+    [ageVariants, pureCounts]
+  );
 
-  const updateCount = (subCategoryId: string, value: number | string) => {
-    setCounts((prev) => ({ ...prev, [subCategoryId]: value }));
+  /** Nama lokasi terpilih, untuk ditampilkan di ringkasan atas. */
+  const selectedLocationNames = useMemo(() => {
+    const names = new Map<string, string>();
+    ageVariants.forEach((v) =>
+      v.locations.forEach((loc) => {
+        if (!names.has(loc.masterId)) names.set(loc.masterId, loc.masterName);
+      })
+    );
+    return Array.from(names.values());
+  }, [ageVariants]);
+
+  const updateCount = (key: string, value: number | string) => {
+    setCounts((prev) => ({ ...prev, [key]: value }));
   };
 
   const handleAddCountry = () => {
@@ -451,6 +563,8 @@ const VisitorForm: React.FC = () => {
       setError(translations.visitorAmountRequired[language]);
       return false;
     }
+    // Dibandingkan dengan ORANG FISIK, bukan unit tiket: 4 orang yang
+    // membeli 2 lantai tetap mengisi 4 kewarganegaraan, bukan 8.
     if (totalVisitors !== totalFromCountries) {
       setError(translations.visitorAmountError[language]);
       return false;
@@ -467,13 +581,14 @@ const VisitorForm: React.FC = () => {
     try {
       setIsSubmitting(true);
 
+      // Di sinilah orang fisik diterjemahkan jadi unit tiket: satu item
+      // per (varian × lokasi), masing-masing sebanyak jumlah orangnya.
       const items: TransactionItemInput[] = [];
-      groupedTickets.forEach((group) => {
-        group.variants.forEach((v) => {
-          const qty = pureCounts[v.subCategoryId] || 0;
-          if (qty > 0) {
-            items.push({ ticket_sub_category_id: v.subCategoryId, quantity: qty });
-          }
+      ageVariants.forEach((variant) => {
+        const qty = pureCounts[variant.key] || 0;
+        if (qty <= 0) return;
+        variant.locations.forEach((loc) => {
+          items.push({ ticket_sub_category_id: loc.subCategoryId, quantity: qty });
         });
       });
 
@@ -492,6 +607,7 @@ const VisitorForm: React.FC = () => {
       const responseState = {
         origins: countryVisitors,
         totalVisitors,
+        totalTickets,
         totalPrice,
         paymentMethod,
         ticketCode: data.ticket_code,
@@ -543,7 +659,7 @@ const VisitorForm: React.FC = () => {
     );
   }
 
-  if (groupedTickets.length === 0) {
+  if (ageVariants.length === 0) {
     return (
       <div className="max-w-md mx-auto text-black pb-8 text-center py-16 px-4">
         <div className="p-5 bg-red-50 border border-red-200 text-red-700 rounded-xl shadow-sm mb-6">{t.noMatchingTickets}</div>
@@ -558,10 +674,15 @@ const VisitorForm: React.FC = () => {
     );
   }
 
+  const ticketMathText = t.ticketMath
+    .replace("{people}", String(totalVisitors))
+    .replace("{floors}", String(selectedLocationNames.length))
+    .replace("{tickets}", String(totalTickets));
+
   return (
     <form onSubmit={handleSubmit} className="max-w-md mx-auto text-black pb-8">
       {/* Nama Pemesan */}
-      <div className="mb-6 p-4 border border-gray-200 rounded-lg bg-[#fcfcfc] shadow-sm">
+      <div className="mb-6 p-4 border border-gray-200 rounded-xl bg-[#fcfcfc] shadow-sm">
         <label htmlFor="customer-name" className="block font-bold text-black mb-2">
           {t.customerNameLabel}
         </label>
@@ -576,28 +697,45 @@ const VisitorForm: React.FC = () => {
         />
       </div>
 
-      {/* Pengelompokan Berdasarkan Nama Tiket / Master Tiket */}
-      {groupedTickets.map((group) => (
-        <div key={group.masterId} className="mb-6 p-5 border border-orange-100 rounded-xl bg-orange-50/30 shadow-sm">
-          <h3 className="font-extrabold text-lg text-black mb-4 border-b border-orange-200 pb-2 flex items-center gap-2">
+      {/* Jumlah pengunjung — PER VARIAN USIA, berlaku untuk semua lokasi */}
+      <div className="mb-6 p-5 border border-orange-100 rounded-xl bg-orange-50/30 shadow-sm">
+        <div className="mb-4 border-b border-orange-200 pb-3">
+          <h3 className="font-extrabold text-lg text-black flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-[#fb9418]"></span>
-            {group.masterName}
+            {t.visitorCountTitle}
           </h3>
-
-          <div className="space-y-3">
-            {group.variants.map((variant) => (
-              <CounterInput
-                key={variant.subCategoryId}
-                label={variant.displayName}
-                ageLabel={variant.ageLabel}
-                price={variant.price}
-                value={counts[variant.subCategoryId] ?? 0}
-                onChange={(v) => updateCount(variant.subCategoryId, v)}
-              />
+          <p className="text-xs text-gray-500 mt-1.5">{t.visitorCountHint}</p>
+          <div className="mt-3 flex flex-wrap items-center gap-1.5">
+            <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wide">
+              {t.selectedLocations}:
+            </span>
+            {selectedLocationNames.map((name) => (
+              <span
+                key={name}
+                className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-white text-[#fb9418] border border-orange-200"
+              >
+                {name}
+              </span>
             ))}
           </div>
         </div>
-      ))}
+
+        <div className="space-y-1">
+          {ageVariants.map((variant) => (
+            <CounterInput
+              key={variant.key}
+              label={variant.displayName}
+              ageLabel={variant.ageLabel}
+              price={variant.totalPricePerPerson}
+              locations={variant.locations}
+              selectedFloorCount={selectedLocationNames.length}
+              value={counts[variant.key] ?? 0}
+              onChange={(v) => updateCount(variant.key, v)}
+              strings={t}
+            />
+          ))}
+        </div>
+      </div>
 
       {/* Multi-Citizenship / Country Input Section */}
       <div className="mb-8 p-5 border border-gray-200 rounded-xl bg-[#fcfcfc] shadow-sm">
@@ -605,6 +743,7 @@ const VisitorForm: React.FC = () => {
           <label className="block font-bold text-black">
             {translations.citizenship?.[language] || "Kewarganegaraan"}
           </label>
+          {/* Dibandingkan dengan ORANG FISIK, bukan unit tiket. */}
           <span
             className={`text-xs font-bold px-2.5 py-1 rounded-full ${
               totalVisitors !== totalFromCountries ? "bg-red-50 text-red-600 border border-red-200" : "bg-green-50 text-green-700 border border-green-200"
@@ -684,7 +823,8 @@ const VisitorForm: React.FC = () => {
         </div>
       </div>
 
-      {/* Summary Section */}
+      {/* Summary Section — ORANG vs TIKET ditampilkan terpisah supaya
+          pengunjung tidak kaget melihat jumlah tiket lebih besar. */}
       <div className="mb-6 p-5 rounded-xl bg-gray-50 border border-gray-200">
         <div className="flex justify-between mb-2 text-sm">
           <span className="text-gray-600 font-medium">{translations.totalVisitors[language]}</span>
@@ -692,6 +832,13 @@ const VisitorForm: React.FC = () => {
             {totalVisitors} {translations.people[language]}
           </span>
         </div>
+        <div className="flex justify-between mb-2 text-sm">
+          <span className="text-gray-600 font-medium">{t.totalTickets}</span>
+          <span className="font-bold text-black">{totalTickets}</span>
+        </div>
+        {totalVisitors > 0 && selectedLocationNames.length > 1 && (
+          <p className="text-[11px] text-gray-400 font-medium">{ticketMathText}</p>
+        )}
         <div className="flex justify-between items-end mt-4 pt-4 border-t border-gray-200">
           <span className="text-gray-800 font-bold">{translations.totalPrice[language]}</span>
           <span className="font-black text-2xl text-[#fb9418]">{formatCurrency(totalPrice)}</span>

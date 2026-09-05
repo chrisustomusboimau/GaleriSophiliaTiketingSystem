@@ -19,15 +19,26 @@
  * tab) lalu dibagi ke tab Riwayat & Ringkasan — backend belum punya
  * endpoint filter-by-session, jadi filternya tetap `tx.session_id ===
  * sessionId` di client.
+ *
+ * UPDATE v2 — GERBANG "BUKA SESI KASIR":
+ * Sebelum bisa masuk ke tab mana pun, KASIR harus melewati dua langkah:
+ *   1. memilih TERMINAL PEMBAYARAN yang ada di mejanya (sesi kasir), dan
+ *   2. mengisi NOMOR TIKET FISIK AWAL (gerbang lama, tidak berubah).
+ * Tanpa langkah 1, pop-up konfirmasi pembayaran tidak punya pilihan
+ * terminal untuk ditawarkan — dan Metode Pembayaran Detail di riwayat
+ * akan kosong selamanya.
+ *
+ * Admin tidak pernah digerbang (peran override), dan checker hanya
+ * terkena gerbang nomor tiket awal — ia memang tidak menagih pembayaran.
  */
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import ExcelJS from "exceljs";
-import { saveAs } from "file-saver";
 import { useAuth } from "../contexts/AuthContext";
+import { CashierSessionProvider, useCashierSession } from "../contexts/CashierSessionContext";
 import { apiGet, apiPatch, apiDelete, ApiError } from "../api/client";
-import { OperationalSession, TransactionEntry, TransactionUpdatePayload } from "../types";
+import { OperationalSession, TransactionEntry, TransactionUpdatePayload, UserRole, VerificationStatus } from "../types";
 import {
   formatDateID,
   toTimeInputValue,
@@ -37,14 +48,17 @@ import {
   SESSION_STATUS_BADGE,
   SESSION_LIVE_LABEL,
   SESSION_LIVE_BADGE,
+  VERIFICATION_STATUS_LABEL,
   ROLE_LABEL,
 } from "../utils/formatters";
+import { CURRENCY_NUM_FMT, downloadWorkbook, styleHeaderRow, timestampSuffix } from "../utils/excel";
 import Header from "../components/Header";
 import AdminDashboard from "../components/admin/AdminDashboard";
 import PaymentHistoryComponent from "../components/PaymentHistoryComponent";
 import EditTransactionModal from "../components/admin/EditTransactionModal";
 import Summary from "../components/Summary";
 import SessionAuditForm from "../components/admin/SessionAuditForm";
+import OpenCashierSessionPanel from "../components/admin/OpenCashierSessionPanel";
 
 type TabKey = "antrian" | "riwayat" | "ringkasan";
 
@@ -56,8 +70,8 @@ interface SessionHistoryTabProps {
   transactions: TransactionEntry[];
   isLoading: boolean;
   onReload: () => void;
-  canEdit: boolean;
-  canDelete: boolean;
+  /** Role yang sedang login — menentukan penguncian & hak verifikasi per baris. */
+  role: UserRole | null;
   onViewSummary: () => void;
 }
 
@@ -65,34 +79,40 @@ const SessionHistoryTab: React.FC<SessionHistoryTabProps> = ({
   transactions,
   isLoading,
   onReload,
-  canEdit,
-  canDelete,
+  role,
   onViewSummary,
 }) => {
   const [isExporting, setIsExporting] = useState(false);
 
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [paymentFilter, setPaymentFilter] = useState<string>("all");
+  const [verificationFilter, setVerificationFilter] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState("");
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedTx, setSelectedTx] = useState<TransactionEntry | null>(null);
+  const [verifyingId, setVerifyingId] = useState<string | null>(null);
+  const [verifyError, setVerifyError] = useState<string | null>(null);
 
   const filteredTransactions = useMemo(() => {
     return transactions.filter((tx) => {
       if (statusFilter !== "all" && tx.status !== statusFilter) return false;
       if (paymentFilter !== "all" && tx.payment_method !== paymentFilter) return false;
+      if (verificationFilter !== "all" && tx.verification_status !== verificationFilter) return false;
       if (searchQuery.trim()) {
         const q = searchQuery.trim().toLowerCase();
         const match =
           tx.ticket_code.toLowerCase().includes(q) ||
           tx.customer_name.toLowerCase().includes(q) ||
-          tx.queue_number.toString().includes(q);
+          tx.queue_number.toString().includes(q) ||
+          // Terminal ikut dicari: "tunjukkan semua transaksi EDC 2 hari ini"
+          // adalah pertanyaan pertama saat struk EDC tidak cocok.
+          (tx.payment_method_detail || "").toLowerCase().includes(q);
         if (!match) return false;
       }
       return true;
     });
-  }, [transactions, statusFilter, paymentFilter, searchQuery]);
+  }, [transactions, statusFilter, paymentFilter, verificationFilter, searchQuery]);
 
   const handleEditClick = (tx: TransactionEntry) => {
     setSelectedTx(tx);
@@ -115,13 +135,28 @@ const SessionHistoryTab: React.FC<SessionHistoryTabProps> = ({
     onReload();
   };
 
+  /** CHECKER/ADMIN: menyetujui transaksi, atau menariknya kembali ke Pending. */
+  const handleVerify = async (tx: TransactionEntry, next: VerificationStatus) => {
+    try {
+      setVerifyingId(tx.id);
+      setVerifyError(null);
+      await apiPatch(`/transactions/${tx.id}/verification`, { verification_status: next });
+      onReload();
+    } catch (err) {
+      setVerifyError(err instanceof ApiError ? err.message : "Gagal memperbarui status verifikasi.");
+    } finally {
+      setVerifyingId(null);
+    }
+  };
+
   const activeFilterLabel = useMemo(() => {
     const parts: string[] = [];
     if (statusFilter !== "all") parts.push(TRANSACTION_STATUS_LABEL[statusFilter] || statusFilter);
     if (paymentFilter !== "all") parts.push(PAYMENT_METHOD_LABEL[paymentFilter] || paymentFilter);
+    if (verificationFilter !== "all") parts.push(VERIFICATION_STATUS_LABEL[verificationFilter] || verificationFilter);
     if (searchQuery.trim()) parts.push(`Cari: "${searchQuery.trim()}"`);
     return parts.length > 0 ? parts.join(" · ") : null;
-  }, [statusFilter, paymentFilter, searchQuery]);
+  }, [statusFilter, paymentFilter, verificationFilter, searchQuery]);
 
   const handleExportExcel = async () => {
     if (filteredTransactions.length === 0) return;
@@ -139,16 +174,16 @@ const SessionHistoryTab: React.FC<SessionHistoryTabProps> = ({
         { header: "Waktu Konfirmasi", key: "time", width: 20 },
         { header: "Rincian Tiket", key: "items_summary", width: 45 },
         { header: "Metode Pembayaran", key: "payment_method", width: 20 },
+        // Kolom terpisah, bukan digabung ke kolom di atas: rekonsiliasi
+        // dibaca dua arah — total per kategori untuk buku besar, total per
+        // alat untuk mencocokkan struk EDC.
+        { header: "Metode Pembayaran Detail", key: "payment_method_detail", width: 26 },
         { header: "Total Tagihan", key: "total_price", width: 25 },
         { header: "Status", key: "status", width: 15 },
+        { header: "Status Verifikasi", key: "verification_status", width: 22 },
       ];
 
-      const headerRow = worksheet.getRow(1);
-      headerRow.font = { bold: true, color: { argb: "FFFFFFFF" } };
-      headerRow.alignment = { vertical: "middle", horizontal: "center" };
-      headerRow.eachCell((cell) => {
-        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF000000" } };
-      });
+      styleHeaderRow(worksheet);
 
       filteredTransactions.forEach((tx) => {
         const dateObj = new Date(tx.created_at || "");
@@ -174,20 +209,16 @@ const SessionHistoryTab: React.FC<SessionHistoryTabProps> = ({
           time: timeStr,
           items_summary: itemsSummary,
           payment_method: pmStr,
+          payment_method_detail: tx.payment_method_detail || "-",
           total_price: tx.total_price,
           status: TRANSACTION_STATUS_LABEL[tx.status] || tx.status,
+          verification_status:
+            VERIFICATION_STATUS_LABEL[tx.verification_status] || tx.verification_status,
         });
-        row.getCell("total_price").numFmt = '"Rp"#,##0;[Red]\\-"Rp"#,##0';
+        row.getCell("total_price").numFmt = CURRENCY_NUM_FMT;
       });
 
-      const now = new Date();
-      const suffix = `${now.getFullYear()}${(now.getMonth() + 1).toString().padStart(2, "0")}${now
-        .getDate()
-        .toString()
-        .padStart(2, "0")}_${now.getHours().toString().padStart(2, "0")}${now.getMinutes().toString().padStart(2, "0")}`;
-      const buffer = await workbook.xlsx.writeBuffer();
-      const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-      saveAs(blob, `Riwayat_Sesi_${suffix}.xlsx`);
+      await downloadWorkbook(workbook, `Riwayat_Sesi_${timestampSuffix()}.xlsx`);
     } catch (err) {
       console.error("Failed to export to Excel:", err);
       alert("Terjadi kesalahan saat mengekspor data.");
@@ -207,7 +238,7 @@ const SessionHistoryTab: React.FC<SessionHistoryTabProps> = ({
         <div className="flex items-center gap-3 flex-wrap">
           <input
             type="text"
-            placeholder="Cari kode tiket / nama / antrian..."
+            placeholder="Cari kode tiket / nama / antrian / terminal..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="text-sm border border-gray-300 rounded-lg px-3 py-2 bg-white shadow-sm outline-none focus:ring-2 focus:ring-[#fb9418] w-56"
@@ -222,6 +253,16 @@ const SessionHistoryTab: React.FC<SessionHistoryTabProps> = ({
             <option value="confirmed">Lunas / Dikonfirmasi</option>
             <option value="pending">Menunggu (Pending)</option>
             <option value="cancelled">Batal (Cancelled)</option>
+          </select>
+
+          <select
+            value={verificationFilter}
+            onChange={(e) => setVerificationFilter(e.target.value)}
+            className="bg-white border-gray-300 rounded-lg shadow-sm text-sm font-bold text-black focus:ring-[#fb9418] focus:border-[#fb9418] py-2 px-3 border outline-none cursor-pointer h-[38px]"
+          >
+            <option value="all">Semua Verifikasi</option>
+            <option value="pending">Pending</option>
+            <option value="approved">Approved by Checker</option>
           </select>
 
           <div className="flex border border-gray-300 rounded-lg overflow-hidden shadow-sm bg-white text-sm font-bold h-[38px]">
@@ -281,6 +322,7 @@ const SessionHistoryTab: React.FC<SessionHistoryTabProps> = ({
             onClick={() => {
               setStatusFilter("all");
               setPaymentFilter("all");
+              setVerificationFilter("all");
               setSearchQuery("");
             }}
             className="text-xs text-gray-400 hover:text-red-500 font-bold transition-colors underline underline-offset-2 ml-2"
@@ -290,7 +332,18 @@ const SessionHistoryTab: React.FC<SessionHistoryTabProps> = ({
         </div>
       )}
 
-      <PaymentHistoryComponent transactions={filteredTransactions} isLoading={isLoading} onEditClick={handleEditClick} canEdit={canEdit} />
+      {verifyError && (
+        <div className="mb-4 p-4 bg-red-50 border border-red-200 text-red-700 rounded-xl shadow-sm">{verifyError}</div>
+      )}
+
+      <PaymentHistoryComponent
+        transactions={filteredTransactions}
+        isLoading={isLoading}
+        onEditClick={handleEditClick}
+        role={role}
+        onVerifyClick={handleVerify}
+        verifyingId={verifyingId}
+      />
 
       <EditTransactionModal
         isOpen={isModalOpen}
@@ -298,7 +351,7 @@ const SessionHistoryTab: React.FC<SessionHistoryTabProps> = ({
         transaction={selectedTx}
         onSave={handleSaveEdit}
         onDelete={handleDeleteTransaction}
-        canDelete={canDelete}
+        role={role}
       />
     </div>
   );
@@ -308,10 +361,20 @@ const SessionHistoryTab: React.FC<SessionHistoryTabProps> = ({
    MAIN PAGE
 ===================================================== */
 
-const SessionDetailPage: React.FC = () => {
-  const { sessionId } = useParams<{ sessionId: string }>();
+/**
+ * Isi halaman. Dipisah dari komponen ekspor di bawah semata-mata supaya
+ * ia berada DI DALAM `CashierSessionProvider` dan bisa memanggil
+ * `useCashierSession()` — provider butuh `sessionId` dari route, jadi
+ * tidak bisa dipasang di App.tsx seperti `ActiveSessionProvider`.
+ */
+const SessionDetailContent: React.FC<{ sessionId: string }> = ({ sessionId }) => {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
+  const {
+    cashierSession,
+    isLoading: isLoadingCashierSession,
+    reload: reloadCashierSession,
+  } = useCashierSession();
 
   const [session, setSession] = useState<OperationalSession | null>(null);
   const [isLoadingSession, setIsLoadingSession] = useState(true);
@@ -358,26 +421,34 @@ const SessionDetailPage: React.FC = () => {
     loadTransactions();
   }, [loadTransactions]);
 
-  if (!user || !sessionId) return null;
-
-  const canConfirmOrEdit = user.role === "admin" || user.role === "kasir";
-  const canDelete = user.role === "admin";
+  if (!user) return null;
 
   // --- Guard RBAC: kasir/checker hanya boleh mengakses sesi yang 'opened'.
   // Sesi draft/closed hanya boleh diakses admin. ---
   const isForbiddenForRole = !isLoadingSession && !sessionError && session && user.role !== "admin" && session.status !== "opened";
 
-  // --- Gerbang WAJIB isi Nomor Tiket Awal (non-admin): kasir/checker
-  // tidak bisa masuk ke tab Antrian/Riwayat/Ringkasan selama ada tiket
-  // aktif yang nomor awalnya belum diisi. Admin selalu punya akses penuh
-  // dan tidak pernah digerbang. ---
+  const gateReady = !isLoadingSession && !sessionError && !!session && !isForbiddenForRole;
+
+  // --- Gerbang 1 (BARU): BUKA SESI KASIR. Kasir harus menyatakan terminal
+  // pembayaran mana yang ada di mejanya sebelum mulai melayani — tanpa itu,
+  // pop-up konfirmasi tidak punya pilihan terminal untuk ditawarkan dan
+  // Metode Pembayaran Detail akan kosong selamanya.
+  //
+  // Hanya berlaku untuk KASIR: admin adalah peran override, dan checker
+  // memang tidak pernah menagih pembayaran. ---
+  const needsCashierSessionGate =
+    gateReady && user.role === "kasir" && !isLoadingCashierSession && !cashierSession;
+
+  // --- Gerbang 2 (LAMA, tidak berubah): WAJIB isi Nomor Tiket Awal.
+  // Kasir/checker tidak bisa masuk ke tab mana pun selama ada tiket aktif
+  // yang nomor awalnya belum diisi. ---
   const needsStartNumberGate =
-    !isLoadingSession &&
-    !sessionError &&
-    !!session &&
-    !isForbiddenForRole &&
+    gateReady &&
     user.role !== "admin" &&
-    session.active_tickets.some((st) => st.audit?.start_ticket_number == null);
+    !needsCashierSessionGate &&
+    session!.active_tickets.some((st) => st.audit?.start_ticket_number == null);
+
+  const isGated = needsCashierSessionGate || needsStartNumberGate;
 
   return (
     <div className="min-h-screen bg-[#fcfcfc] flex flex-col font-sans">
@@ -445,7 +516,7 @@ const SessionDetailPage: React.FC = () => {
         </div>
 
         {/* TAB NAVIGATION — disembunyikan kalau akses ditolak atau digerbang isi nomor awal */}
-        {!isForbiddenForRole && !needsStartNumberGate && (
+        {!isForbiddenForRole && !isGated && (
           <nav className="max-w-7xl mx-auto px-4 sm:px-6 flex gap-1 overflow-x-auto no-scrollbar">
             {(
               [
@@ -484,6 +555,18 @@ const SessionDetailPage: React.FC = () => {
               Kembali ke Daftar Sesi
             </button>
           </div>
+        ) : needsCashierSessionGate ? (
+          <div className="max-w-2xl mx-auto p-6 sm:p-8 bg-white border border-gray-200 rounded-2xl shadow-sm space-y-5">
+            <div className="text-center space-y-2">
+              <h2 className="text-lg font-bold text-black uppercase tracking-wide">Buka Sesi Kasir</h2>
+              <p className="text-sm text-gray-500">
+                Pilih terminal pembayaran yang ada di meja Anda untuk sesi ini. Hanya terminal yang Anda pilih
+                di sini yang bisa dipakai menagih, dan namanya tercatat sebagai Metode Pembayaran Detail pada
+                setiap transaksi.
+              </p>
+            </div>
+            <OpenCashierSessionPanel onOpened={reloadCashierSession} />
+          </div>
         ) : needsStartNumberGate ? (
           <div className="max-w-2xl mx-auto p-6 sm:p-8 bg-white border border-gray-200 rounded-2xl shadow-sm space-y-5">
             <div className="text-center space-y-2">
@@ -510,8 +593,7 @@ const SessionDetailPage: React.FC = () => {
                   transactions={transactions}
                   isLoading={isLoadingTransactions}
                   onReload={loadTransactions}
-                  canEdit={canConfirmOrEdit}
-                  canDelete={canDelete}
+                  role={user.role}
                   onViewSummary={() => setActiveTab("ringkasan")}
                 />
               )}
@@ -528,6 +610,23 @@ const SessionDetailPage: React.FC = () => {
         )}
       </main>
     </div>
+  );
+};
+
+/**
+ * Komponen rute. Memasang `CashierSessionProvider` dengan `sessionId` dari
+ * URL, lalu menyerahkan sisanya ke `SessionDetailContent` — semua modal di
+ * dalamnya (konfirmasi pembayaran, tambah manual, edit transaksi) memakai
+ * daftar terminal yang SATU dan sama dari provider ini.
+ */
+const SessionDetailPage: React.FC = () => {
+  const { sessionId } = useParams<{ sessionId: string }>();
+  if (!sessionId) return null;
+
+  return (
+    <CashierSessionProvider sessionId={sessionId}>
+      <SessionDetailContent sessionId={sessionId} />
+    </CashierSessionProvider>
   );
 };
 

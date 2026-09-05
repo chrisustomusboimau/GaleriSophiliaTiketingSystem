@@ -3,18 +3,30 @@
  * ----------------------------------------------------
  * Tabel riwayat transaksi. Dibuat ulang sepenuhnya untuk skema baru:
  * tidak ada lagi kolom "floor / age_category" tetap — rincian tiket
- * sekarang ditampilkan dari `ticket_name_snapshot` per item, dan kolom
- * baru `customer_name` ditambahkan sebagai identitas pemesan.
+ * ditampilkan dari `ticket_name_snapshot` per item, dan kolom
+ * `customer_name` ada sebagai identitas pemesan.
+ *
+ * UPDATE v2 — dua kolom baru:
+ * - "Metode Detail": terminal yang benar-benar dipakai menagih
+ *   ("EDC 1", "QRIS Meja 2"), dipisah dari kolom "Metode" yang berisi
+ *   KATEGORI umum. Dipisah, bukan digabung, karena rekonsiliasi harian
+ *   dibaca dua arah: total per kategori (untuk buku besar) dan total per
+ *   alat (untuk mencocokkan struk EDC).
+ * - "Verifikasi": status approval Checker + tombol Approve. Transaksi
+ *   yang sudah Approved terkunci untuk kasir — tombol Edit-nya mati
+ *   dengan penjelasan, bukan hilang diam-diam.
  */
 
 import React from "react";
-import { TransactionEntry } from "../types";
+import { TransactionEntry, UserRole } from "../types";
 import {
   formatCurrency,
   formatDateTimeID,
   formatTimeID,
   PAYMENT_METHOD_LABEL,
   TRANSACTION_STATUS_LABEL,
+  VERIFICATION_STATUS_BADGE,
+  VERIFICATION_STATUS_LABEL,
 } from "../utils/formatters";
 
 export type Transaction = TransactionEntry;
@@ -23,7 +35,12 @@ interface PaymentHistoryComponentProps {
   transactions: TransactionEntry[];
   isLoading: boolean;
   onEditClick: (tx: TransactionEntry) => void;
-  canEdit?: boolean;
+  /** Role yang sedang login — menentukan penguncian & hak verifikasi. */
+  role: UserRole | null;
+  /** Dipanggil saat Checker/Admin mengubah status verifikasi satu transaksi. */
+  onVerifyClick?: (tx: TransactionEntry, next: "pending" | "approved") => void;
+  /** Id transaksi yang sedang diproses verifikasinya (tombol jadi loading). */
+  verifyingId?: string | null;
 }
 
 const statusBadgeClass = (status: string) => {
@@ -44,8 +61,15 @@ const PaymentHistoryComponent: React.FC<PaymentHistoryComponentProps> = ({
   transactions,
   isLoading,
   onEditClick,
-  canEdit = true,
+  role,
+  onVerifyClick,
+  verifyingId = null,
 }) => {
+  // Cerminan `_assert_can_mutate` di backend — layar ini hanya membuatnya
+  // terlihat lebih awal, gerbang sebenarnya tetap di API.
+  const canVerify = role === "checker" || role === "admin";
+  const canOpenEditor = role === "admin" || role === "kasir" || role === "checker";
+
   if (isLoading) {
     return (
       <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-12 text-center text-gray-400 font-medium">
@@ -64,7 +88,7 @@ const PaymentHistoryComponent: React.FC<PaymentHistoryComponentProps> = ({
 
   return (
     <div className="overflow-x-auto bg-white border border-gray-200 rounded-xl shadow-sm">
-      <table className="w-full text-sm">
+      <table className="w-full text-sm min-w-[1100px]">
         <thead className="bg-gray-50 text-[11px] uppercase tracking-wider text-gray-400 font-bold">
           <tr>
             <th className="px-4 py-3 text-left">Kode Tiket</th>
@@ -72,51 +96,115 @@ const PaymentHistoryComponent: React.FC<PaymentHistoryComponentProps> = ({
             <th className="px-4 py-3 text-left">Tanggal &amp; Waktu</th>
             <th className="px-4 py-3 text-left">Rincian Tiket</th>
             <th className="px-4 py-3 text-left">Metode</th>
+            <th className="px-4 py-3 text-left">Metode Detail</th>
             <th className="px-4 py-3 text-right">Total</th>
             <th className="px-4 py-3 text-left">Status</th>
+            <th className="px-4 py-3 text-left">Verifikasi</th>
             <th className="px-4 py-3 text-right">Aksi</th>
           </tr>
         </thead>
         <tbody>
-          {transactions.map((tx) => (
-            <tr key={tx.id} className="border-t border-gray-100 hover:bg-gray-50/60 align-top">
-              <td className="px-4 py-3">
-                <span className="font-black text-black tracking-wide">{tx.ticket_code}</span>
-                <p className="text-[10px] text-gray-400 font-mono mt-0.5">Ke-{tx.queue_number}</p>
-              </td>
-              <td className="px-4 py-3 text-gray-700 font-medium">{tx.customer_name || <span className="text-gray-300 italic">Tanpa nama</span>}</td>
-              <td className="px-4 py-3 text-gray-600">
-                <p>{formatDateTimeID(tx.created_at)}</p>
-                {tx.confirmed_at && <p className="text-[10px] text-green-600 font-bold mt-0.5">Lunas {formatTimeID(tx.confirmed_at)}</p>}
-              </td>
-              <td className="px-4 py-3">
-                <ul className="space-y-0.5">
-                  {tx.items.map((item, idx) => (
-                    <li key={idx} className="text-[12px] text-gray-700">
-                      <span className="font-bold text-black">{item.quantity}x</span> {item.ticket_name_snapshot}
-                    </li>
-                  ))}
-                </ul>
-              </td>
-              <td className="px-4 py-3 text-gray-600 font-bold text-xs uppercase">{PAYMENT_METHOD_LABEL[tx.payment_method] || tx.payment_method}</td>
-              <td className="px-4 py-3 text-right font-black text-black">{formatCurrency(tx.total_price)}</td>
-              <td className="px-4 py-3">
-                <span className={`text-[11px] font-bold px-2 py-1 rounded-full border ${statusBadgeClass(tx.status)}`}>
-                  {TRANSACTION_STATUS_LABEL[tx.status] || tx.status}
-                </span>
-              </td>
-              <td className="px-4 py-3 text-right">
-                {canEdit && (
-                  <button
-                    onClick={() => onEditClick(tx)}
-                    className="text-xs font-bold px-3 py-1.5 rounded-lg border border-gray-300 text-gray-600 hover:border-[#fb9418] hover:text-[#fb9418] transition-colors"
+          {transactions.map((tx) => {
+            const isApproved = tx.verification_status === "approved";
+            const isLockedForRole = role === "kasir" && isApproved;
+            // Checker bukan operator kasir: ia hanya menyentuh transaksi
+            // yang sudah ia setujui.
+            const isCheckerOnPending = role === "checker" && !isApproved;
+            const editDisabled = isLockedForRole || isCheckerOnPending;
+
+            return (
+              <tr key={tx.id} className="border-t border-gray-100 hover:bg-gray-50/60 align-top">
+                <td className="px-4 py-3">
+                  <span className="font-black text-black tracking-wide">{tx.ticket_code}</span>
+                  <p className="text-[10px] text-gray-400 font-mono mt-0.5">Ke-{tx.queue_number}</p>
+                </td>
+                <td className="px-4 py-3 text-gray-700 font-medium">
+                  {tx.customer_name || <span className="text-gray-300 italic">Tanpa nama</span>}
+                </td>
+                <td className="px-4 py-3 text-gray-600">
+                  <p>{formatDateTimeID(tx.created_at)}</p>
+                  {tx.confirmed_at && (
+                    <p className="text-[10px] text-green-600 font-bold mt-0.5">Lunas {formatTimeID(tx.confirmed_at)}</p>
+                  )}
+                </td>
+                <td className="px-4 py-3">
+                  <ul className="space-y-0.5">
+                    {tx.items.map((item, idx) => (
+                      <li key={idx} className="text-[12px] text-gray-700">
+                        <span className="font-bold text-black">{item.quantity}x</span> {item.ticket_name_snapshot}
+                      </li>
+                    ))}
+                  </ul>
+                </td>
+                <td className="px-4 py-3 text-gray-600 font-bold text-xs uppercase">
+                  {PAYMENT_METHOD_LABEL[tx.payment_method] || tx.payment_method}
+                </td>
+                <td className="px-4 py-3 text-xs">
+                  {tx.payment_method_detail ? (
+                    <span className="font-bold text-black">{tx.payment_method_detail}</span>
+                  ) : (
+                    <span
+                      className="text-gray-300 italic"
+                      title="Belum ada terminal — transaksi ini belum dikonfirmasi kasir."
+                    >
+                      —
+                    </span>
+                  )}
+                </td>
+                <td className="px-4 py-3 text-right font-black text-black">{formatCurrency(tx.total_price)}</td>
+                <td className="px-4 py-3">
+                  <span className={`text-[11px] font-bold px-2 py-1 rounded-full border ${statusBadgeClass(tx.status)}`}>
+                    {TRANSACTION_STATUS_LABEL[tx.status] || tx.status}
+                  </span>
+                </td>
+                <td className="px-4 py-3">
+                  <span
+                    className={`text-[11px] font-bold px-2 py-1 rounded-full border whitespace-nowrap ${
+                      VERIFICATION_STATUS_BADGE[tx.verification_status]
+                    }`}
                   >
-                    Edit
-                  </button>
-                )}
-              </td>
-            </tr>
-          ))}
+                    {VERIFICATION_STATUS_LABEL[tx.verification_status] || tx.verification_status}
+                  </span>
+                  {tx.verified_at && (
+                    <p className="text-[10px] text-gray-400 font-mono mt-0.5">{formatDateTimeID(tx.verified_at)}</p>
+                  )}
+                </td>
+                <td className="px-4 py-3 text-right">
+                  <div className="flex justify-end gap-2">
+                    {canVerify && onVerifyClick && (
+                      <button
+                        onClick={() => onVerifyClick(tx, isApproved ? "pending" : "approved")}
+                        disabled={verifyingId === tx.id}
+                        className={`text-xs font-bold px-3 py-1.5 rounded-lg border transition-colors whitespace-nowrap disabled:opacity-50 ${
+                          isApproved
+                            ? "border-gray-300 text-gray-500 hover:bg-gray-50"
+                            : "border-green-300 text-green-700 bg-green-50 hover:bg-green-100"
+                        }`}
+                      >
+                        {verifyingId === tx.id ? "..." : isApproved ? "Batalkan" : "Approve"}
+                      </button>
+                    )}
+                    {canOpenEditor && (
+                      <button
+                        onClick={() => onEditClick(tx)}
+                        disabled={editDisabled}
+                        title={
+                          isLockedForRole
+                            ? "Sudah diverifikasi Checker — terkunci untuk Kasir."
+                            : isCheckerOnPending
+                            ? "Setujui transaksinya dulu sebelum Checker bisa mengubahnya."
+                            : undefined
+                        }
+                        className="text-xs font-bold px-3 py-1.5 rounded-lg border border-gray-300 text-gray-600 hover:border-[#fb9418] hover:text-[#fb9418] transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-gray-300 disabled:hover:text-gray-600"
+                      >
+                        Edit
+                      </button>
+                    )}
+                  </div>
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>

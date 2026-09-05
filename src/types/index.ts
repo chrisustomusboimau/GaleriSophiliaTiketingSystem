@@ -38,7 +38,19 @@ export type SessionStatus = "draft" | "opened" | "closed";
 
 export type TransactionStatus = "pending" | "confirmed" | "cancelled" | "paid";
 
+/**
+ * KATEGORI metode pembayaran. `card` ADALAH kategori EDC — nilainya
+ * sengaja dipertahankan (bukan diganti "edc") supaya tidak ada satu pun
+ * baris transaksi lama yang perlu ditulis ulang; yang berubah hanya
+ * labelnya di layar, lihat `PAYMENT_METHOD_LABEL` di utils/formatters.ts.
+ *
+ * Untuk metode pembayaran SPESIFIK ("EDC 1", "QRIS Meja 2") lihat
+ * `PaymentTerminal` dan `TransactionEntry.payment_method_detail`.
+ */
 export type PaymentMethod = "qris" | "card" | "cash";
+
+/** Status verifikasi Checker. `approved` mengunci transaksi dari kasir. */
+export type VerificationStatus = "pending" | "approved";
 
 // ==========================================
 // AUTH / USER (fastapi-users + role kustom)
@@ -70,12 +82,102 @@ export interface UserRegisterPayload {
 }
 
 // ==========================================
+// MASTER VARIAN KATEGORI USIA
+// ==========================================
+
+/**
+ * Sumber tunggal daftar varian usia untuk SELURUH master tiket.
+ * Master tiket tidak lagi mendefinisikan variannya sendiri — ia hanya
+ * menetapkan HARGA untuk varian-varian di sini.
+ */
+export interface AgeCategory {
+  id: string;
+  /** Cermin Bahasa Indonesia — lihat catatan di TicketSubCategory.name. */
+  name: string;
+  name_i18n: LocalizedName;
+  min_age: number;
+  max_age: number | null;
+  is_active: boolean;
+}
+
+export interface AgeCategoryPayload {
+  /** ID & EN wajib; backend membalas 422 kalau salah satunya kosong. */
+  name_i18n: LocalizedNameInput;
+  min_age: number;
+  max_age?: number | null;
+  /** Kirim true untuk mengaktifkan kembali varian yang dinonaktifkan. */
+  is_active?: boolean;
+}
+
+// ==========================================
+// TERMINAL PEMBAYARAN
+// ==========================================
+
+/**
+ * Alat pembayaran fisik di meja kasir: "EDC 1", "QRIS Meja 2", dst.
+ * Namanya TIDAK multi-bahasa — ini label alat yang dibaca staf, bukan
+ * pengunjung.
+ */
+export interface PaymentTerminal {
+  id: string;
+  name: string;
+  /** Kategori umum yang diwakili terminal ini. */
+  category: PaymentMethod;
+  is_active: boolean;
+}
+
+export interface PaymentTerminalPayload {
+  name: string;
+  category: PaymentMethod;
+  is_active?: boolean;
+}
+
+// ==========================================
+// SESI KASIR
+// ==========================================
+
+/**
+ * "Shift" seorang kasir di dalam satu sesi operasional: siapa yang
+ * berjaga, dan terminal mana saja yang ada di mejanya. `terminals`
+ * inilah satu-satunya pilihan yang boleh muncul di pop-up konfirmasi
+ * pembayaran selama shift berlangsung.
+ */
+export interface CashierSession {
+  id: string;
+  session_id: string;
+  user_id: string;
+  opened_at: string;
+  closed_at: string | null;
+  is_open: boolean;
+  terminals: PaymentTerminal[];
+}
+
+export interface CashierSessionStatus {
+  has_active: boolean;
+  cashier_session: CashierSession | null;
+}
+
+export interface CashierSessionPayload {
+  session_id: string;
+  terminal_ids: string[];
+}
+
+// ==========================================
 // TICKET MASTER & SUB CATEGORY (Master Data)
 // ==========================================
 
 export interface TicketSubCategory {
   id: string;
   ticket_master_id: string;
+  /**
+   * Tautan ke master varian usia (`AgeCategory`). Inilah kunci yang
+   * dipakai halaman pengunjung untuk menggabungkan varian yang sama
+   * lintas lantai jadi SATU baris input — "Dewasa" di Lantai 1 dan
+   * "Dewasa" di Lantai 2 punya `age_category_id` yang sama.
+   *
+   * Bisa null pada baris legacy yang belum tertaut saat migrasi.
+   */
+  age_category_id?: string | null;
   /**
    * Cermin Bahasa Indonesia dari `name_i18n.id`, ditulis ulang backend
    * setiap kali varian disimpan. Dipakai layar & laporan STAF (yang memang
@@ -119,12 +221,21 @@ export interface TicketMaster {
   sub_categories: TicketSubCategory[];
 }
 
+/**
+ * Payload membuat varian pada satu master tiket.
+ *
+ * UBAH: nama & rentang usia TIDAK lagi dikirim dari sini — keduanya
+ * diturunkan backend dari `AgeCategory` yang dipilih. Admin cuma
+ * menentukan harganya.
+ */
 export interface TicketSubCategoryPayload {
-  /** ID & EN wajib; backend membalas 422 kalau salah satunya kosong. */
-  name_i18n: LocalizedNameInput;
-  min_age: number;
-  max_age?: number | null;
+  age_category_id: string;
   price: number;
+}
+
+/** Payload mengubah varian yang sudah ada: harga & status aktif saja. */
+export interface TicketSubCategoryUpdatePayload {
+  price?: number;
   /** Kirim true untuk mengaktifkan kembali sub-kategori yang dinonaktifkan. */
   is_active?: boolean;
 }
@@ -253,7 +364,23 @@ export interface TransactionEntry {
   date_only: string;
   total_price: number;
   status: TransactionStatus;
+
+  /** KATEGORI metode pembayaran: EDC / QRIS / Tunai. */
   payment_method: PaymentMethod;
+  /**
+   * DETAIL metode pembayaran — nama terminal yang benar-benar dipakai
+   * menagih ("EDC 1", "QRIS Meja 2"). Snapshot, dibekukan saat transaksi
+   * ditulis. `null` selama transaksi pengunjung belum dikonfirmasi kasir.
+   */
+  payment_method_detail: string | null;
+  payment_terminal_id: string | null;
+  cashier_session_id: string | null;
+
+  /** Verifikasi Checker — `approved` mengunci transaksi dari kasir. */
+  verification_status: VerificationStatus;
+  verified_by_id: string | null;
+  verified_at: string | null;
+
   confirmed_at: string | null;
   created_at: string;
   items: TransactionItem[];
@@ -276,6 +403,12 @@ export interface TransactionCreatePayload {
   payment_method: PaymentMethod;
   items: TransactionItemInput[];
   origins: TransactionOriginInput[];
+  /**
+   * Hanya diisi kalau transaksi dibuat KASIR (Tambah Manual). Kalau ada,
+   * backend menurunkan `payment_method` dari kategori terminal ini —
+   * jadi keduanya tidak pernah bisa saling bertentangan.
+   */
+  payment_terminal_id?: string | null;
 }
 
 export interface TransactionUpdatePayload {
@@ -284,10 +417,22 @@ export interface TransactionUpdatePayload {
   origins?: TransactionOriginInput[];
   status?: TransactionStatus;
   payment_method?: PaymentMethod;
+  payment_terminal_id?: string | null;
 }
 
 export interface TransactionStatusPayload {
   status: TransactionStatus;
+  /** Terminal yang dipilih kasir di pop-up konfirmasi pembayaran. */
+  payment_terminal_id?: string | null;
+  /**
+   * Untuk pembayaran TUNAI, yang memang tidak punya terminal. Kalau
+   * `payment_terminal_id` juga dikirim, terminal yang menang.
+   */
+  payment_method?: PaymentMethod;
+}
+
+export interface TransactionVerificationPayload {
+  verification_status: VerificationStatus;
 }
 
 // Alias lama dipertahankan sebentar untuk kompatibilitas nama import,

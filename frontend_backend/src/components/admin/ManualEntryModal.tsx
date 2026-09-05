@@ -10,13 +10,21 @@
  *
  * `customer_name` WAJIB diisi (backend: `TransactionCreate.customer_name
  * = Field(..., min_length=1)`).
+ *
+ * UPDATE v2: metode pembayaran tidak lagi dipilih lewat radio
+ * QRIS/Kartu/Tunai yang lepas. Kasir memilih TERMINAL yang dipakai
+ * menagih (dari sesi kasirnya), dan terminal itulah yang menetapkan
+ * kategori sekaligus detail metode pembayaran — supaya keduanya tidak
+ * pernah bisa saling bertentangan.
  */
 
 import React, { useEffect, useMemo, useState } from "react";
 import { getData } from "country-list";
 import { apiGet, apiPost, ApiError } from "../../api/client";
-import { OperationalSession, TicketMaster, TransactionEntry, PaymentMethod } from "../../types";
+import { OperationalSession, TicketMaster, TransactionEntry } from "../../types";
 import { formatCurrency, getMasterColorTheme, buildSubCategoryMasterMap } from "../../utils/formatters";
+import { useCashierSession } from "../../contexts/CashierSessionContext";
+import TerminalPicker, { CASH_SELECTION, PaymentSelection } from "./TerminalPicker";
 
 interface ManualEntryModalProps {
   isOpen: boolean;
@@ -39,9 +47,11 @@ const ManualEntryModal: React.FC<ManualEntryModalProps> = ({ isOpen, onClose, on
   const [isLoadingSession, setIsLoadingSession] = useState(false);
   const [sessionError, setSessionError] = useState<string | null>(null);
 
+  const { terminals } = useCashierSession();
+
   const [customerName, setCustomerName] = useState("");
   const [quantities, setQuantities] = useState<Record<string, number>>({});
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("qris");
+  const [payment, setPayment] = useState<PaymentSelection>(CASH_SELECTION);
   const [countryVisitors, setCountryVisitors] = useState<CountryVisitor[]>([{ countryCode: "id", count: 1 }]);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -77,6 +87,18 @@ const ManualEntryModal: React.FC<ManualEntryModalProps> = ({ isOpen, onClose, on
 
     loadData();
   }, [isOpen, sessionId]);
+
+  // Preseleksi terminal pertama milik kasir — pilihan yang paling sering
+  // benar, dan tetap bisa diganti. Kalau sesi kasirnya tanpa terminal
+  // sama sekali, jatuh ke Tunai.
+  useEffect(() => {
+    if (!isOpen) return;
+    setPayment(
+      terminals.length > 0
+        ? { terminalId: terminals[0].id, category: terminals[0].category }
+        : CASH_SELECTION
+    );
+  }, [isOpen, terminals]);
 
   const isSessionOpen = targetSession?.status === "opened";
 
@@ -142,7 +164,7 @@ const ManualEntryModal: React.FC<ManualEntryModalProps> = ({ isOpen, onClose, on
     setCustomerName("");
     setQuantities({});
     setCountryVisitors([{ countryCode: "id", count: 1 }]);
-    setPaymentMethod("qris");
+    setPayment(CASH_SELECTION);
     setFormError(null);
     onClose();
   };
@@ -195,7 +217,10 @@ const ManualEntryModal: React.FC<ManualEntryModalProps> = ({ isOpen, onClose, on
     try {
       const transaction = await apiPost<TransactionEntry>("/transactions", {
         customer_name: customerName.trim(),
-        payment_method: paymentMethod,
+        // Kategori tetap dikirim sebagai dasar; kalau ada terminal,
+        // backend menurunkan kategorinya dari terminal itu.
+        payment_method: payment.category,
+        payment_terminal_id: payment.terminalId,
         items,
         origins,
       });
@@ -382,34 +407,22 @@ const ManualEntryModal: React.FC<ManualEntryModalProps> = ({ isOpen, onClose, on
                   </div>
                 </div>
 
-                {/* 4. METODE PEMBAYARAN */}
+                {/* 4. METODE PEMBAYARAN — terminal, bukan kategori lepas */}
                 <div>
-                  <label className="block text-sm font-extrabold text-black mb-3 border-b border-gray-200 pb-2 uppercase tracking-wide">
+                  <label className="block text-sm font-extrabold text-black mb-1 border-b border-gray-200 pb-2 uppercase tracking-wide">
                     4. Metode Pembayaran
                   </label>
-                  <div className="grid grid-cols-3 gap-3">
-                    {(["qris", "card", "cash"] as PaymentMethod[]).map((method) => (
-                      <label
-                        key={method}
-                        className={`flex items-center justify-center p-3 border-2 rounded-lg cursor-pointer transition-all text-center leading-tight text-xs sm:text-sm ${
-                          paymentMethod === method
-                            ? "border-[#fb9418] bg-orange-50 text-[#fb9418] font-bold shadow-sm"
-                            : "border-gray-200 text-gray-600 hover:bg-gray-50"
-                        }`}
-                      >
-                        <input
-                          type="radio"
-                          name="paymentMethod"
-                          value={method}
-                          checked={paymentMethod === method}
-                          onChange={() => setPaymentMethod(method)}
-                          className="hidden"
-                          disabled={isSubmitting || !isSessionOpen}
-                        />
-                        {method === "qris" ? "QRIS" : method === "card" ? "Kartu Kredit/Debit" : "Tunai"}
-                      </label>
-                    ))}
-                  </div>
+                  <p className="text-[11px] text-gray-400 mb-3">
+                    Pilih terminal yang dipakai menagih. Nama terminal tercatat sebagai Metode Pembayaran
+                    Detail, dan kategorinya mengikuti terminal itu.
+                  </p>
+                  <TerminalPicker
+                    terminals={terminals}
+                    value={payment}
+                    onChange={setPayment}
+                    disabled={isSubmitting || !isSessionOpen}
+                    name="manual-entry-terminal"
+                  />
                 </div>
 
                 <div className="flex justify-between items-center p-4 bg-orange-50 border border-orange-100 rounded-xl">

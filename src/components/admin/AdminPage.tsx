@@ -18,7 +18,13 @@
  *   App.tsx, jadi komponen ini tidak perlu lagi menangani kasus
  *   "non-admin nyasar ke sini" secara manual seperti versi sebelumnya.
  *
- * Sisa tab di sini: Master Tiket, Akun Staf — murni admin.
+ * Tab di sini (semuanya murni admin): Master Tiket, Master Varian Usia,
+ * Terminal Pembayaran, Akun Staf.
+ *
+ * Urutan tab mengikuti urutan penyiapan yang benar: Varian Usia dulu
+ * (master tiket butuh varian yang sudah ada), baru Master Tiket, lalu
+ * Terminal Pembayaran (dipakai kasir saat membuka sesi), terakhir Akun
+ * Staf.
  */
 
 import React, { useEffect, useState } from "react";
@@ -27,9 +33,11 @@ import { useAuth } from "../../contexts/AuthContext";
 import { ROLE_LABEL } from "../../utils/formatters";
 import Header from "../Header";
 import TicketMasterManager from "./TicketMasterManager";
+import AgeCategoryManager from "./AgeCategoryManager";
+import PaymentTerminalManager from "./PaymentTerminalManager";
 import UserManager from "./UserManager";
 
-type TabKey = "tickets" | "staff";
+type TabKey = "age-categories" | "tickets" | "terminals" | "staff";
 
 interface TabDef {
   key: TabKey;
@@ -38,7 +46,9 @@ interface TabDef {
 }
 
 const ALL_TABS: TabDef[] = [
+  { key: "age-categories", label: "Varian Usia", shortLabel: "Usia" },
   { key: "tickets", label: "Master Tiket", shortLabel: "Tiket" },
+  { key: "terminals", label: "Terminal Pembayaran", shortLabel: "Terminal" },
   { key: "staff", label: "Akun Staf", shortLabel: "Staf" },
 ];
 
@@ -113,7 +123,9 @@ const AdminPage: React.FC = () => {
       {/* MAIN CONTENT AREA */}
       <main className="flex-1 p-4 sm:p-6 lg:p-8">
         <div className="max-w-7xl mx-auto text-black">
+          {activeTab === "age-categories" && <AgeCategoryManager />}
           {activeTab === "tickets" && <TicketMasterManager role={user.role} />}
+          {activeTab === "terminals" && <PaymentTerminalManager />}
           {activeTab === "staff" && <UserManager currentUserId={user.id} />}
         </div>
       </main>

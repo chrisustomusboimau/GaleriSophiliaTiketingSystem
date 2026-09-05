@@ -4,6 +4,16 @@
  * Modal edit transaksi: nama pemesan, status, metode pembayaran,
  * rincian tiket (berbasis Master Data, bukan lantai hardcoded),
  * serta asal negara pengunjung.
+ *
+ * UPDATE v2:
+ * - Metode pembayaran dipilih lewat TERMINAL (lihat `TerminalPicker`),
+ *   bukan radio kategori lepas — kategori diturunkan dari terminal.
+ * - PENGUNCIAN DATA: transaksi yang sudah di-approve Checker tidak bisa
+ *   diubah kasir. Modal tetap bisa dibuka (kasir berhak MELIHAT rincian),
+ *   tapi seluruh input dimatikan dan alasannya ditulis di atas — jauh
+ *   lebih membantu daripada tombol yang diam-diam menghilang.
+ * - Hak HAPUS dihitung per-transaksi: admin selalu boleh; checker hanya
+ *   untuk transaksi yang sudah Approved; kasir tidak pernah.
  */
 
 import React, { useEffect, useMemo, useState } from "react";
@@ -14,10 +24,19 @@ import {
   TransactionEntry,
   TransactionStatus,
   PaymentMethod,
+  UserRole,
   flattenTicketMasters,
   FlatSubCategory,
 } from "../../types";
-import { formatCurrency, calculateItemsTotal, getMasterColorTheme } from "../../utils/formatters";
+import {
+  formatCurrency,
+  calculateItemsTotal,
+  getMasterColorTheme,
+  VERIFICATION_STATUS_LABEL,
+  VERIFICATION_STATUS_BADGE,
+} from "../../utils/formatters";
+import { useCashierSession } from "../../contexts/CashierSessionContext";
+import TerminalPicker, { PaymentSelection, selectionFromTransaction } from "./TerminalPicker";
 
 interface EditTransactionModalProps {
   isOpen: boolean;
@@ -31,11 +50,16 @@ interface EditTransactionModalProps {
       origins?: { country_code: string; count: number }[];
       status?: TransactionStatus;
       payment_method?: PaymentMethod;
+      payment_terminal_id?: string | null;
     }
   ) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
-  /** true jika user login tidak berhak menghapus (mis. role kasir) */
-  canDelete?: boolean;
+  /**
+   * Role yang sedang login — dipakai menghitung hak edit & hapus
+   * PER-TRANSAKSI (bergantung status verifikasinya), bukan sekali di
+   * level halaman seperti sebelumnya.
+   */
+  role: UserRole | null;
 }
 
 const COUNTRIES = Object.freeze(getData().map((c) => ({ code: c.code.toLowerCase(), name: c.name })));
@@ -51,8 +75,9 @@ const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
   transaction,
   onSave,
   onDelete,
-  canDelete = true,
+  role,
 }) => {
+  const { terminals } = useCashierSession();
   const [catalog, setCatalog] = useState<FlatSubCategory[]>([]);
   const [isLoadingCatalog, setIsLoadingCatalog] = useState(false);
 
@@ -60,7 +85,7 @@ const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [countryVisitors, setCountryVisitors] = useState<CountryVisitorState[]>([{ countryCode: "id", count: 1 }]);
   const [editedStatus, setEditedStatus] = useState<TransactionStatus>("pending");
-  const [editedPaymentMethod, setEditedPaymentMethod] = useState<PaymentMethod>("qris");
+  const [payment, setPayment] = useState<PaymentSelection>({ terminalId: null, category: "qris" });
 
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -102,7 +127,7 @@ const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
       }
 
       setEditedStatus(transaction.status);
-      setEditedPaymentMethod(transaction.payment_method || "qris");
+      setPayment(selectionFromTransaction(transaction.payment_terminal_id, transaction.payment_method));
       setError(null);
     }
   }, [transaction, isOpen]);
@@ -182,7 +207,8 @@ const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
         items,
         origins: payloadOrigins,
         status: editedStatus,
-        payment_method: editedPaymentMethod,
+        payment_method: payment.category,
+        payment_terminal_id: payment.terminalId,
       });
       onClose();
     } catch (err: any) {
@@ -213,6 +239,25 @@ const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
 
   if (!isOpen || !transaction) return null;
 
+  /* =====================================================
+     HAK AKSES PER-TRANSAKSI (Approval & Data Locking)
+     Cerminan dari `_assert_can_mutate` di api/app/app.py — backend tetap
+     gerbang sebenarnya; ini supaya kasir tidak menabrak 403 lebih dulu.
+  ===================================================== */
+  const isApproved = transaction.verification_status === "approved";
+  const isLocked = role === "kasir" && isApproved;
+  // Checker bukan operator kasir: ia hanya menyentuh transaksi yang sudah
+  // ia setujui.
+  const isCheckerOnPending = role === "checker" && !isApproved;
+  const readOnly = isSaving || isLocked || isCheckerOnPending;
+  const canDelete = role === "admin" || (role === "checker" && isApproved);
+
+  const lockNotice = isLocked
+    ? "Transaksi ini sudah diverifikasi Checker sehingga terkunci untuk Kasir. Hubungi Checker atau Admin bila memang perlu diubah."
+    : isCheckerOnPending
+    ? "Transaksi ini belum berstatus Approved. Setujui dulu lewat tombol Approve di Riwayat Transaksi bila Anda perlu mengubahnya."
+    : null;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 animate-in fade-in duration-200">
       <div className="bg-[#fcfcfc] rounded-xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[95vh] border border-gray-200">
@@ -236,6 +281,23 @@ const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
             </div>
           )}
 
+          <div className="mb-6 flex items-center gap-2 flex-wrap">
+            <span className="text-[11px] font-extrabold text-gray-500 uppercase tracking-wider">Verifikasi:</span>
+            <span
+              className={`text-[11px] font-bold px-2 py-1 rounded-full border ${
+                VERIFICATION_STATUS_BADGE[transaction.verification_status]
+              }`}
+            >
+              {VERIFICATION_STATUS_LABEL[transaction.verification_status] || transaction.verification_status}
+            </span>
+          </div>
+
+          {lockNotice && (
+            <div className="mb-6 p-3 bg-amber-50 text-amber-800 text-sm border-l-4 border-amber-400 rounded-r shadow-sm">
+              {lockNotice}
+            </div>
+          )}
+
           {/* NAMA PEMESAN */}
           <div className="mb-6">
             <label className="block text-[11px] font-extrabold text-gray-500 uppercase tracking-wider mb-2">Nama Pemesan</label>
@@ -243,53 +305,46 @@ const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
               type="text"
               value={customerName}
               onChange={(e) => setCustomerName(e.target.value)}
-              disabled={isSaving}
+              disabled={readOnly}
               required
               placeholder="Nama pengunjung"
               className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#fb9418] focus:border-[#fb9418] outline-none bg-white text-sm text-black shadow-sm"
             />
           </div>
 
-          {/* STATUS & METODE PEMBAYARAN */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-            <div>
-              <label className="block text-[11px] font-extrabold text-gray-500 uppercase tracking-wider mb-2">Status Pembayaran</label>
-              <select
-                value={editedStatus}
-                onChange={(e) => setEditedStatus(e.target.value as TransactionStatus)}
-                disabled={isSaving}
-                className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#fb9418] focus:border-[#fb9418] outline-none bg-white font-bold text-gray-800 shadow-sm cursor-pointer text-sm"
-              >
-                <option value="pending">🟡 Pending</option>
-                <option value="confirmed">🟢 Confirmed</option>
-                <option value="cancelled">🔴 Cancelled</option>
-              </select>
-            </div>
+          {/* STATUS PEMBAYARAN */}
+          <div className="mb-6">
+            <label className="block text-[11px] font-extrabold text-gray-500 uppercase tracking-wider mb-2">Status Pembayaran</label>
+            <select
+              value={editedStatus}
+              onChange={(e) => setEditedStatus(e.target.value as TransactionStatus)}
+              disabled={readOnly}
+              className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#fb9418] focus:border-[#fb9418] outline-none bg-white font-bold text-gray-800 shadow-sm cursor-pointer text-sm disabled:bg-gray-100 disabled:cursor-not-allowed"
+            >
+              <option value="pending">🟡 Pending</option>
+              <option value="confirmed">🟢 Confirmed</option>
+              <option value="cancelled">🔴 Cancelled</option>
+            </select>
+          </div>
 
-            <div>
-              <label className="block text-[11px] font-extrabold text-gray-500 uppercase tracking-wider mb-2">Metode Pembayaran</label>
-              <div className="flex border border-gray-300 rounded-lg overflow-hidden shadow-sm h-[42px] bg-white">
-                {(["qris", "card", "cash"] as PaymentMethod[]).map((method) => (
-                  <label
-                    key={method}
-                    className={`flex-1 flex items-center justify-center text-xs font-bold cursor-pointer transition-colors ${
-                      editedPaymentMethod === method ? "bg-[#fb9418] text-white" : "text-gray-600 hover:bg-gray-50"
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="editPaymentMethod"
-                      value={method}
-                      checked={editedPaymentMethod === method}
-                      onChange={(e) => setEditedPaymentMethod(e.target.value as PaymentMethod)}
-                      className="hidden"
-                      disabled={isSaving}
-                    />
-                    {method === "qris" ? "QRIS" : method === "card" ? "KARTU" : "TUNAI"}
-                  </label>
-                ))}
-              </div>
-            </div>
+          {/* METODE PEMBAYARAN — terminal menentukan kategori & detail */}
+          <div className="mb-6">
+            <label className="block text-[11px] font-extrabold text-gray-500 uppercase tracking-wider mb-1">
+              Metode Pembayaran
+            </label>
+            <p className="text-[11px] text-gray-400 mb-3">
+              Tercatat saat ini:{" "}
+              <strong className="text-gray-600">
+                {transaction.payment_method_detail || "belum ada terminal (baru kategori umum)"}
+              </strong>
+            </p>
+            <TerminalPicker
+              terminals={terminals}
+              value={payment}
+              onChange={setPayment}
+              disabled={readOnly}
+              name="edit-transaction-terminal"
+            />
           </div>
 
           <hr className="mb-6 border-gray-200" />
@@ -315,7 +370,7 @@ const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
                             <button
                               type="button"
                               onClick={() => adjustQuantity(item.id, -1)}
-                              disabled={isSaving || (quantities[item.id] || 0) <= 0}
+                              disabled={readOnly || (quantities[item.id] || 0) <= 0}
                               className="w-8 h-8 flex items-center justify-center font-bold text-gray-600 hover:bg-gray-100 disabled:opacity-50"
                             >
                               -
@@ -326,13 +381,13 @@ const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
                               value={quantities[item.id] ?? 0}
                               onChange={(e) => handleQuantityInput(item.id, e.target.value)}
                               onFocus={(e) => e.target.select()}
-                              disabled={isSaving}
+                              disabled={readOnly}
                               className="w-12 h-8 text-center font-bold text-black border-x border-gray-300 outline-none focus:ring-2 focus:ring-inset focus:ring-[#fb9418] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                             />
                             <button
                               type="button"
                               onClick={() => adjustQuantity(item.id, 1)}
-                              disabled={isSaving}
+                              disabled={readOnly}
                               className="w-8 h-8 flex items-center justify-center font-bold text-[#fb9418] hover:bg-orange-50"
                             >
                               +
@@ -366,7 +421,7 @@ const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
                   <select
                     value={country.countryCode}
                     onChange={(e) => handleUpdateCountry(index, "countryCode", e.target.value)}
-                    disabled={isSaving}
+                    disabled={readOnly}
                     className="flex-[3] min-w-0 p-2 bg-gray-50 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#fb9418] focus:border-[#fb9418] text-sm text-black truncate transition-shadow cursor-pointer"
                   >
                     {COUNTRIES.map((c) => (
@@ -382,7 +437,7 @@ const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
                     value={country.count}
                     onChange={(e) => handleUpdateCountry(index, "count", e.target.value)}
                     onFocus={(e) => e.target.select()}
-                    disabled={isSaving}
+                    disabled={readOnly}
                     placeholder="0"
                     className="flex-1 min-w-0 p-2 text-center font-bold text-black bg-white border border-gray-300 rounded-md focus:ring-2 focus:ring-[#fb9418] focus:border-[#fb9418] outline-none transition-shadow"
                   />
@@ -391,7 +446,7 @@ const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
                     <button
                       type="button"
                       onClick={() => handleRemoveCountry(index)}
-                      disabled={isSaving}
+                      disabled={readOnly}
                       className="flex-none w-8 h-8 flex items-center justify-center font-bold text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors"
                     >
                       ✕
@@ -405,7 +460,7 @@ const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
               <button
                 type="button"
                 onClick={handleAddCountry}
-                disabled={isSaving}
+                disabled={readOnly}
                 className="mt-3 text-sm font-bold text-[#fb9418] hover:text-orange-600 transition-colors flex items-center gap-1"
               >
                 <span className="text-lg leading-none">+</span> Tambah Negara
@@ -445,7 +500,8 @@ const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
               </button>
               <button
                 onClick={handleSave}
-                disabled={isSaving || isDeleting}
+                disabled={readOnly || isDeleting}
+                title={lockNotice ?? undefined}
                 className="px-6 py-3 bg-[#fb9418] text-[#fcfcfc] hover:bg-orange-500 font-bold rounded-lg shadow-md transition-all active:scale-95 disabled:opacity-50 flex items-center gap-2"
               >
                 {isSaving ? "Menyimpan..." : "Simpan Perubahan"}

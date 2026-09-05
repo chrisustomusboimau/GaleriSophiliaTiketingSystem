@@ -6,6 +6,16 @@
  * Export Excel juga diperbarui: kolom lantai/kategori usia tetap
  * (Anak/Remaja/Dewasa) dihapus, digantikan kolom "Rincian Tiket" bebas
  * varian karena master data kini dinamis.
+ *
+ * ⚠️ HALAMAN INI SUDAH TIDAK TERPAKAI. Rute `/admin/history` dihapus saat
+ * perombakan navigasi — riwayat transaksi sekarang hidup sebagai tab di
+ * `/sesi/:sessionId` (lihat `SessionDetailPage.tsx`), dan tidak ada satu
+ * pun modul yang meng-import file ini. Dipertahankan sementara hanya agar
+ * tidak ada yang terhapus tanpa persetujuan; disarankan menghapusnya.
+ *
+ * Diselaraskan dengan API komponen v2 (prop `role` menggantikan
+ * `canEdit`/`canDelete`) supaya tidak menjadi kode mati yang tidak bisa
+ * dikompilasi.
  */
 
 import React, { useEffect, useState, useCallback, useMemo } from "react";
@@ -14,7 +24,7 @@ import ExcelJS from "exceljs";
 import { saveAs } from "file-saver";
 import { apiGet, apiPatch, apiDelete, forceLogout, ApiError } from "../api/client";
 import { TransactionEntry, TransactionUpdatePayload, UserStaff } from "../types";
-import { formatCurrency, PAYMENT_METHOD_LABEL, TRANSACTION_STATUS_LABEL } from "../utils/formatters";
+import { PAYMENT_METHOD_LABEL, TRANSACTION_STATUS_LABEL } from "../utils/formatters";
 import PaymentHistoryComponent from "../components/PaymentHistoryComponent";
 import EditTransactionModal from "../components/admin/EditTransactionModal";
 import Header from "../components/Header";
@@ -183,6 +193,7 @@ const PaymentHistoryPage: React.FC = () => {
         { header: "Waktu Konfirmasi", key: "time", width: 20 },
         { header: "Rincian Tiket", key: "items_summary", width: 45 },
         { header: "Metode Pembayaran", key: "payment_method", width: 20 },
+        { header: "Metode Pembayaran Detail", key: "payment_method_detail", width: 26 },
         { header: "Total Tagihan", key: "total_price", width: 25 },
         { header: "Status", key: "status", width: 15 },
       ];
@@ -219,6 +230,7 @@ const PaymentHistoryPage: React.FC = () => {
           time: timeStr,
           items_summary: itemsSummary,
           payment_method: pmStr,
+          payment_method_detail: tx.payment_method_detail || "-",
           total_price: tx.total_price,
           status: TRANSACTION_STATUS_LABEL[tx.status] || tx.status,
         });
@@ -248,9 +260,6 @@ const PaymentHistoryPage: React.FC = () => {
   useEffect(() => {
     loadTransactions();
   }, [loadTransactions]);
-
-  const canEdit = currentUser?.role === "admin" || currentUser?.role === "kasir";
-  const canDelete = currentUser?.role === "admin";
 
   const handleViewSummary = () => {
     navigate("/admin/summary", { state: { filteredTransactions, activeFilterLabel } });
@@ -450,7 +459,7 @@ const PaymentHistoryPage: React.FC = () => {
             transactions={filteredTransactions}
             isLoading={isLoading}
             onEditClick={handleEditClick}
-            canEdit={canEdit}
+            role={currentUser?.role ?? null}
           />
         </div>
       </main>
@@ -461,7 +470,7 @@ const PaymentHistoryPage: React.FC = () => {
         transaction={selectedTx}
         onSave={handleSaveEdit}
         onDelete={handleDeleteTransaction}
-        canDelete={canDelete}
+        role={currentUser?.role ?? null}
       />
     </div>
   );

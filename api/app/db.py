@@ -25,6 +25,13 @@
 #
 # Untuk instalasi BARU (database kosong), `create_all()` akan membuat kedua
 # tabel ini lengkap dengan kolom `is_active` dari awal — tidak perlu migrasi.
+#
+# UPDATE v2 (terminal pembayaran, sesi kasir, approval checker, master
+# varian usia): model baru `PaymentTerminal`, `AgeCategory`,
+# `CashierSession`, `CashierSessionTerminal`; kolom baru di
+# `TicketSubCategory` (age_category_id) dan `TransactionEntry` (detail
+# terminal + status verifikasi). Peringatan migrasi yang sama berlaku —
+# jalankan `api/MIGRATE_v2.sql` SEKALI pada database yang sudah ada.
 # ==========================================================
 
 from collections.abc import AsyncGenerator
@@ -33,7 +40,8 @@ from datetime import datetime
 
 from sqlalchemy import (
     Column, String, Integer, DateTime, ForeignKey,
-    Uuid, Date, Time, UniqueConstraint, CheckConstraint, Boolean
+    Uuid, Date, Time, UniqueConstraint, CheckConstraint, Boolean,
+    Index, text
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
@@ -66,6 +74,66 @@ class User(SQLAlchemyBaseUserTableUUID, Base):
 # ==========================================
 # MASTER DATA (DIKELOLA ADMIN)
 # ==========================================
+
+class AgeCategory(Base):
+    """
+    BARU (v2) — MASTER VARIAN KATEGORI USIA.
+
+    Sumber tunggal daftar varian usia untuk SELURUH master tiket. Sebelum
+    ini, admin mengetik ulang "Dewasa 22+", "Anak 0–12", dst. secara manual
+    di setiap master tiket — sehingga "Dewasa" di Lantai 1 dan "Dewasa" di
+    Lantai 2 adalah dua baris lepas yang gampang menyimpang (beda ejaan,
+    beda rentang usia). Sekarang varian dibuat sekali di sini, lalu setiap
+    master tiket hanya mengisi HARGA-nya.
+
+    Nama dipisah cermin/i18n dengan pola yang sama seperti TicketMaster —
+    lihat penjelasan panjang di TicketMaster.name & TicketMaster.name_i18n.
+    """
+    __tablename__ = "age_categories"
+
+    id        = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name      = Column(String, nullable=False)          # cermin Bahasa Indonesia
+    name_i18n = Column(JSONB, nullable=False, server_default="{}")
+    min_age   = Column(Integer, nullable=False, default=0)
+    max_age   = Column(Integer, nullable=True)          # NULL = tanpa batas atas
+    is_active = Column(Boolean, nullable=False, default=True, server_default="true")
+
+    __table_args__ = (
+        CheckConstraint("max_age IS NULL OR max_age >= min_age", name="ck_age_category_range_valid"),
+        CheckConstraint(
+            "btrim(coalesce(name_i18n->>'id','')) <> '' AND btrim(coalesce(name_i18n->>'en','')) <> ''",
+            name="ck_age_category_name_i18n_required",
+        ),
+    )
+
+
+class PaymentTerminal(Base):
+    """
+    BARU (v2) — Terminal pembayaran fisik yang ada di lokasi.
+    Contoh: "EDC 1", "EDC 2", "QRIS Meja 1", "QRIS Meja 2".
+
+    `category` sengaja memakai nilai yang SUDAH dipakai kolom
+    `TransactionEntry.payment_method` ('qris' / 'card' / 'cash'), dengan
+    'card' BERARTI kategori EDC — frontend memang sudah melabelinya "EDC"
+    di filter riwayat. Konsekuensinya: tidak ada satu pun baris transaksi
+    lama yang perlu ditulis ulang saat fitur ini masuk.
+
+    Soft delete lewat `is_active`, alasannya sama persis dengan
+    TicketSubCategory.is_active: terminal yang sudah pernah dipakai
+    transaksi TIDAK BOLEH dihapus dari database, kalau tidak riwayat
+    pembayaran kehilangan jejak alat yang dipakai.
+    """
+    __tablename__ = "payment_terminals"
+
+    id        = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name      = Column(String, nullable=False, unique=True)
+    category  = Column(String, nullable=False)
+    is_active = Column(Boolean, nullable=False, default=True, server_default="true")
+
+    __table_args__ = (
+        CheckConstraint("category IN ('qris','card','cash')", name="ck_payment_terminal_category_valid"),
+    )
+
 
 class TicketMaster(Base):
     """
@@ -136,6 +204,24 @@ class TicketSubCategory(Base):
     # BARU — nama varian multi-bahasa: {"id": "Dewasa", "en": "Adult", ...}
     name_i18n = Column(JSONB, nullable=False, server_default="{}")
 
+    # BARU (v2) — tautan ke MASTER varian usia. Sejak sekarang baris di
+    # tabel ini TIDAK LAGI dibuat dengan nama & rentang usia ketikan bebas:
+    # admin memilih varian dari `age_categories`, lalu hanya mengisi harga.
+    #
+    # Kolom name / name_i18n / min_age / max_age di bawah TETAP ADA dan
+    # tetap diisi backend — perannya berubah jadi SNAPSHOT (pola yang sama
+    # dengan TransactionItem.ticket_name_snapshot): mengganti nama atau
+    # rentang usia di master varian besok TIDAK BOLEH diam-diam mengubah
+    # sesi yang sedang berjalan maupun laporan yang sudah dicetak.
+    #
+    # Nullable karena baris legacy hasil migrasi bisa saja tidak menemukan
+    # padanan master varian; baris baru selalu mengisinya.
+    age_category_id = Column(
+        Uuid(as_uuid=True),
+        ForeignKey("age_categories.id", ondelete="RESTRICT"),
+        nullable=True
+    )
+
     min_age = Column(Integer, nullable=False, default=0)
     max_age = Column(Integer, nullable=True)     # NULL = tanpa batas atas (misal 22+)
     price   = Column(Integer, nullable=False)    # Harga dasar tiket
@@ -153,11 +239,18 @@ class TicketSubCategory(Base):
             "btrim(coalesce(name_i18n->>'id','')) <> '' AND btrim(coalesce(name_i18n->>'en','')) <> ''",
             name="ck_sub_category_name_i18n_required",
         ),
+        # Satu harga per varian usia per master tiket. Postgres mengizinkan
+        # NULL berulang kali pada UNIQUE, jadi baris legacy yang belum
+        # tertaut master varian tidak diblokir constraint ini.
+        UniqueConstraint("ticket_master_id", "age_category_id", name="uq_age_category_per_master"),
     )
 
     # lazy="selectin" agar snapshot nama tiket ("Tiket Lantai 11 - Dewasa") bisa
     # dibentuk tanpa lazy-load tersembunyi di dalam async session
     ticket_master = relationship("TicketMaster", back_populates="sub_categories", lazy="selectin")
+    # lazy="selectin" supaya halaman pengunjung bisa mengelompokkan varian
+    # lintas-lantai berdasarkan master varian usia tanpa query tambahan.
+    age_category  = relationship("AgeCategory", lazy="selectin")
 
     @property
     def ticket_master_name(self) -> str | None:
@@ -313,6 +406,106 @@ class SessionTicketAudit(Base):
 
 
 # ==========================================
+# SESI KASIR (BARU v2)
+# ==========================================
+
+class CashierSession(Base):
+    """
+    BARU (v2) — Sesi kerja SATU kasir di dalam satu sesi operasional.
+
+    Bedanya dengan `OperationalSession`: sesi operasional itu jadwal milik
+    galeri (dibuka & ditutup admin), sedangkan ini adalah "shift" personal
+    kasir — siapa yang berjaga, dan TERMINAL PEMBAYARAN MANA yang ada di
+    mejanya selama shift itu. Dari sinilah daftar pilihan metode pembayaran
+    spesifik (EDC 1 / QRIS Meja 2 / ...) pada pop-up konfirmasi berasal;
+    kasir tidak bisa memilih terminal yang bukan miliknya.
+
+    Sengaja dicatat di database (bukan sekadar state browser) supaya
+    transaksi bisa ditelusuri sampai "EDC 2, kasir X, sesi Y" — termasuk
+    setelah kasir ganti perangkat atau browsernya dibersihkan.
+    """
+    __tablename__ = "cashier_sessions"
+
+    id         = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    session_id = Column(
+        Uuid(as_uuid=True),
+        ForeignKey("operational_sessions.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True
+    )
+    user_id = Column(
+        Uuid(as_uuid=True),
+        ForeignKey("user.id", ondelete="RESTRICT"),
+        nullable=False
+    )
+    opened_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(settings.timezone)
+    )
+    # NULL = masih berjalan. Lihat catatan indeks parsial di bawah.
+    closed_at = Column(DateTime(timezone=True), nullable=True, default=None)
+
+    __table_args__ = (
+        # Satu kasir hanya boleh punya SATU sesi kasir terbuka pada satu
+        # waktu. Indeks PARSIAL (bukan UniqueConstraint biasa) supaya sesi
+        # yang sudah ditutup tidak ikut memblokir sesi berikutnya —
+        # UniqueConstraint("user_id") polos akan melarang kasir bekerja
+        # untuk kedua kalinya, selamanya.
+        Index(
+            "uq_one_open_cashier_session",
+            "user_id",
+            unique=True,
+            postgresql_where=text("closed_at IS NULL"),
+        ),
+    )
+
+    @property
+    def is_open(self) -> bool:
+        """Properti komputasi (BUKAN kolom) — dipetakan Pydantic seperti kolom biasa."""
+        return self.closed_at is None
+
+    session   = relationship("OperationalSession", lazy="selectin")
+    user      = relationship("User", lazy="selectin")
+    terminals = relationship(
+        "CashierSessionTerminal",
+        back_populates="cashier_session",
+        cascade="all, delete-orphan",
+        lazy="selectin"
+    )
+
+
+class CashierSessionTerminal(Base):
+    """
+    Tabel junction: terminal pembayaran mana saja yang dipakai pada satu
+    sesi kasir. Pola & alasannya sama dengan `SessionTicket` di atas.
+    """
+    __tablename__ = "cashier_session_terminals"
+
+    id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    cashier_session_id = Column(
+        Uuid(as_uuid=True),
+        ForeignKey("cashier_sessions.id", ondelete="CASCADE"),
+        nullable=False
+    )
+    payment_terminal_id = Column(
+        Uuid(as_uuid=True),
+        ForeignKey("payment_terminals.id", ondelete="RESTRICT"),
+        nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "cashier_session_id", "payment_terminal_id",
+            name="uq_terminal_per_cashier_session"
+        ),
+    )
+
+    cashier_session = relationship("CashierSession", back_populates="terminals")
+    terminal        = relationship("PaymentTerminal", lazy="selectin")
+
+
+# ==========================================
 # TRANSAKSI & DETAIL PEMESANAN
 # ==========================================
 
@@ -337,7 +530,53 @@ class TransactionEntry(Base):
 
     total_price    = Column(Integer, nullable=False)
     status         = Column(String, nullable=False, default="pending")   # pending, confirmed, paid, cancelled
+
+    # KATEGORI metode pembayaran: 'qris' | 'card' (= EDC) | 'cash'.
+    # Nilai 'card' sengaja dipertahankan apa adanya untuk kategori EDC —
+    # mengganti nilainya jadi 'edc' berarti menulis ulang setiap baris
+    # transaksi yang pernah ada, tanpa manfaat nyata. Yang berubah cuma
+    # labelnya di layar (lihat PAYMENT_METHOD_LABEL di frontend).
     payment_method = Column(String, nullable=False, default="qris")
+
+    # --- BARU (v2): DETAIL metode pembayaran ---
+    # Terminal fisik yang benar-benar dipakai (mis. "EDC 1", "QRIS Meja 2").
+    # NULL untuk transaksi yang dibuat pengunjung sendiri lewat halaman
+    # publik: di sana belum ada kasir, jadi belum ada terminal. Detailnya
+    # baru terisi saat kasir menekan Konfirmasi dan memilih terminal.
+    payment_terminal_id = Column(
+        Uuid(as_uuid=True),
+        ForeignKey("payment_terminals.id", ondelete="RESTRICT"),
+        nullable=True
+    )
+    # SNAPSHOT nama terminal, dibekukan saat transaksi ditulis — alasannya
+    # sama dengan TransactionItem.ticket_name_snapshot: admin mengganti
+    # nama "EDC 1" jadi "EDC Lantai 1" besok TIDAK BOLEH mengubah riwayat
+    # & laporan rekonsiliasi yang sudah dicetak hari ini.
+    payment_method_detail = Column(String, nullable=True)
+    # Jejak sesi kasir yang melayani — untuk audit "siapa, pakai alat apa".
+    cashier_session_id = Column(
+        Uuid(as_uuid=True),
+        ForeignKey("cashier_sessions.id", ondelete="RESTRICT"),
+        nullable=True
+    )
+
+    # --- BARU (v2): VERIFIKASI CHECKER ---
+    # 'pending' | 'approved'. Begitu 'approved', transaksi TERKUNCI untuk
+    # kasir (tidak bisa diedit/dihapus) dan hanya bisa di-override oleh
+    # checker atau admin. Penegakannya di app.py (_assert_can_mutate),
+    # bukan di sini.
+    verification_status = Column(
+        String, nullable=False, default="pending", server_default="pending", index=True
+    )
+    verified_by_id = Column(
+        Uuid(as_uuid=True),
+        # SET NULL, bukan RESTRICT: menghapus akun checker yang sudah
+        # resign tidak boleh terhalang oleh riwayat verifikasinya, dan
+        # tidak boleh ikut menghapus transaksinya.
+        ForeignKey("user.id", ondelete="SET NULL"),
+        nullable=True
+    )
+    verified_at = Column(DateTime(timezone=True), nullable=True, default=None)
 
     # Immutable — diisi otomatis saat pertama kali dibuat
     created_at = Column(
@@ -353,9 +592,16 @@ class TransactionEntry(Base):
 
     __table_args__ = (
         UniqueConstraint("queue_number", "date_only", name="uq_queue_per_day"),
+        CheckConstraint(
+            "verification_status IN ('pending','approved')",
+            name="ck_transaction_verification_status_valid",
+        ),
     )
 
-    session = relationship("OperationalSession", back_populates="transactions")
+    session          = relationship("OperationalSession", back_populates="transactions")
+    payment_terminal = relationship("PaymentTerminal", lazy="selectin")
+    cashier_session  = relationship("CashierSession", lazy="selectin")
+    verified_by      = relationship("User", foreign_keys=[verified_by_id], lazy="selectin")
     items   = relationship(
         "TransactionItem",
         back_populates="transaction",
