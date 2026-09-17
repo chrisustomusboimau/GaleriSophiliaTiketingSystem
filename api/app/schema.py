@@ -480,13 +480,22 @@ class TransactionResponse(BaseModel):
     payment_method_detail: Optional[str] = None
     cashier_session_id: Optional[uuid.UUID] = None
 
-    # --- Verifikasi Checker ---
+    # --- Verifikasi Checker (LEGACY — dipertahankan di skema untuk data
+    # lama; UI tidak lagi menampilkan atau bisa mengubah field ini sejak
+    # role Checker menjadi read-only. Penguncian edit sekarang ditentukan
+    # dari `status`, lihat `confirmed_by_*` di bawah). ---
     verification_status: VerificationStatusEnum = VerificationStatusEnum.pending
     verified_by_id: Optional[uuid.UUID] = None
     verified_at: Optional[datetime] = None
 
     created_at: datetime
     confirmed_at: Optional[datetime] = None
+    # BARU: staf yang menekan Konfirmasi (mengunci antrean ke
+    # "confirmed"/"paid"). `confirmed_by_email` dipakai frontend untuk
+    # menurunkan nama tampilan (bagian sebelum "@") di kolom "Dikonfirmasi
+    # Oleh" pada tabel Riwayat Transaksi.
+    confirmed_by_id: Optional[uuid.UUID] = None
+    confirmed_by_email: Optional[str] = None
     date_only: date
     items: List[TransactionItemResponse] = []
     origins: List[TransactionOriginResponse] = []

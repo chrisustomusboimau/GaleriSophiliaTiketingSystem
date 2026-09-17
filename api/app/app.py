@@ -51,12 +51,18 @@ from app.users import (
 # namanya menutupi `current_checker` di app/users.py yang artinya berbeda
 # (admin+checker). Begitu aturan approval Checker masuk, nama lama itu
 # jadi jebakan. Sekarang dipisah tegas:
-#   current_staff    = siapa pun yang punya akun staf (baca data)
-#   current_verifier = yang berwenang mem-verifikasi & meng-override
-current_admin    = require_role(["admin"])
-current_kasir    = require_role(["admin", "kasir"])
-current_staff    = require_role(["admin", "kasir", "checker"])
-current_verifier = require_role(["admin", "checker"])
+#   current_staff       = siapa pun yang punya akun staf (baca data)
+#   current_write_staff = yang boleh MENGUBAH data transaksi (status,
+#                         edit, hapus). Checker SENGAJA tidak termasuk:
+#                         role ini sekarang read-only — lihat catatan di
+#                         `_assert_can_mutate` di bawah.
+#   current_verifier    = LEGACY, dipertahankan admin-only untuk data lama;
+#                         Checker tidak lagi berwenang memverifikasi apa pun.
+current_admin       = require_role(["admin"])
+current_kasir       = require_role(["admin", "kasir"])
+current_staff       = require_role(["admin", "kasir", "checker"])
+current_write_staff = require_role(["admin", "kasir"])
+current_verifier    = require_role(["admin"])
 
 
 PREFIX = settings.api_prefix   # "/api/v1"
@@ -1542,14 +1548,19 @@ async def _resolve_terminal(
 
 def _assert_can_mutate(entry: TransactionEntry, user: User, *, for_delete: bool = False) -> None:
     """
-    Gerbang tunggal penguncian data (Approval & Data Locking).
+    Gerbang tunggal penguncian data (Ticket Edit Access Validation).
 
-    Aturannya:
-      - Admin  : selalu boleh.
-      - Kasir  : boleh selama transaksi BELUM diverifikasi Checker; tidak
-                 pernah boleh menghapus (penghapusan tetap hak admin).
-      - Checker: hanya menyentuh transaksi yang SUDAH ia setujui — perannya
-                 memverifikasi & meng-override, bukan mengoperasikan kasir.
+    Aturannya (berdasarkan STATUS tiket & ROLE user):
+      - Admin  : selalu boleh — satu-satunya role yang boleh mengubah
+                 tiket yang sudah berstatus "Paid" (confirmed/paid).
+      - Kasir  : boleh mengedit tiket yang BELUM dikonfirmasi ("pending").
+                 Begitu tiket berstatus "confirmed"/"paid", hak edit kasir
+                 hilang — eksklusif milik Admin. Kasir tidak pernah boleh
+                 menghapus (penghapusan tetap hak admin).
+      - Checker: TIDAK PERNAH boleh mengubah/menghapus apa pun — role ini
+                 read-only (lihat `current_write_staff`, yang seharusnya
+                 sudah menolak checker sebelum sampai ke sini; baris di
+                 bawah ini murni jaga-jaga tambahan/defense-in-depth).
 
     Dipanggil di awal SETIAP jalur tulis transaksi (status, edit, delete)
     supaya aturannya tidak pernah bercabang per-endpoint.
@@ -1558,32 +1569,28 @@ def _assert_can_mutate(entry: TransactionEntry, user: User, *, for_delete: bool 
     if role == "admin":
         return
 
-    is_approved = entry.verification_status == "approved"
+    is_locked = entry.status in ("confirmed", "paid")
 
     if role == "kasir":
-        if is_approved:
-            raise HTTPException(
-                status_code=403,
-                detail="Transaksi sudah diverifikasi Checker dan terkunci. "
-                       "Hanya Checker atau Admin yang bisa mengubah atau menghapusnya."
-            )
         if for_delete:
             raise HTTPException(
                 status_code=403,
                 detail="Kasir tidak berwenang menghapus transaksi. Hubungi Admin."
             )
-        return
-
-    if role == "checker":
-        if not is_approved:
+        if is_locked:
             raise HTTPException(
                 status_code=403,
-                detail="Checker hanya bisa mengubah transaksi yang sudah berstatus "
-                       "Approved. Setujui transaksinya terlebih dahulu."
+                detail="Tiket ini sudah berstatus Paid/Dikonfirmasi dan terkunci. "
+                       "Hanya Admin yang bisa mengubah atau menghapusnya."
             )
         return
 
-    raise HTTPException(status_code=403, detail="Akses ditolak.")
+    # Checker (atau role lain di luar admin/kasir): akses baca saja.
+    raise HTTPException(
+        status_code=403,
+        detail="Akses ditolak. Role Checker bersifat read-only dan tidak "
+               "berwenang mengubah atau menghapus transaksi."
+    )
 
 
 # ==========================================
@@ -1805,11 +1812,9 @@ async def update_transaction_status(
     transaction_id: uuid.UUID,
     payload: TransactionStatusUpdate,
     session: AsyncSession = Depends(get_async_session),
-    # PENJAGA PINTU: semua staf lolos di sini, lalu `_assert_can_mutate`
-    # yang memutuskan per-transaksi — checker perlu bisa meng-override
-    # transaksi yang sudah ia setujui, tapi tidak boleh mengoperasikan
-    # antrean kasir sehari-hari.
-    user: User = Depends(current_staff)
+    # PENJAGA PINTU: hanya Admin & Kasir — Checker read-only, tidak pernah
+    # sampai ke `_assert_can_mutate` di bawah untuk endpoint ini.
+    user: User = Depends(current_write_staff)
 ):
     """STAFF: Mengubah status pembayaran tiket.
 
@@ -1848,6 +1853,7 @@ async def update_transaction_status(
         entry.status = payload.status.value
         if payload.status.value in ["confirmed", "paid"]:
             entry.confirmed_at = datetime.now(WIB)
+            entry.confirmed_by_id = user.id
 
         await session.commit()
         await session.refresh(entry)
@@ -1868,18 +1874,21 @@ async def update_transaction_verification(
     transaction_id: uuid.UUID,
     payload: TransactionVerificationUpdate,
     session: AsyncSession = Depends(get_async_session),
-    # HANYA Checker & Admin. Kasir tidak boleh menyetujui pekerjaannya
-    # sendiri — itu inti dari kontrol ini.
+    # LEGACY / admin-only: Checker tidak lagi berwenang memverifikasi apa
+    # pun sejak rolenya menjadi read-only. Endpoint ini dipertahankan
+    # admin-only murni untuk kompatibilitas data lama; UI tidak lagi
+    # menampilkan kolom atau tombol verifikasi sama sekali (lihat
+    # `_assert_can_mutate`, yang sekarang mengunci tiket berdasarkan
+    # STATUS "Paid", bukan `verification_status`).
     verifier: User = Depends(current_verifier),
 ):
-    """CHECKER/ADMIN: Menandai transaksi sebagai 'Approved by Checker',
+    """ADMIN (legacy): Menandai transaksi sebagai 'Approved by Checker',
     atau menariknya kembali ke 'Pending'.
 
-    Begitu 'approved', transaksi otomatis TERKUNCI dari kasir: tombol
-    edit & hapus miliknya mati, dan backend menolak permintaannya lewat
-    `_assert_can_mutate`. Menarik kembali ke 'pending' membuka kuncinya
-    lagi dan menghapus jejak siapa yang menyetujui, supaya tidak ada
-    transaksi berlabel "pernah disetujui X" yang isinya sudah berubah."""
+    Field `verification_status` TIDAK LAGI dipakai untuk mengunci hak
+    edit/hapus — itu sekarang murni fungsi dari `status` tiket (lihat
+    `_assert_can_mutate`). Endpoint ini hanya dipertahankan agar data
+    verifikasi lama tetap bisa dikoreksi oleh Admin bila perlu."""
     result = await session.execute(
         select(TransactionEntry).where(TransactionEntry.id == transaction_id)
     )
@@ -1910,13 +1919,13 @@ async def edit_transaction_data(
     payload: TransactionUpdateData,
     session: AsyncSession = Depends(get_async_session),
     # Lihat catatan penjaga pintu di endpoint /status di atas.
-    user: User = Depends(current_staff)
+    user: User = Depends(current_write_staff)
 ):
-    """STAFF: Mengubah nama pemesan, rincian tiket, asal negara, status,
-    atau metode pembayaran (kategori & terminal).
+    """ADMIN/KASIR: Mengubah nama pemesan, rincian tiket, asal negara,
+    status, atau metode pembayaran (kategori & terminal).
 
-    Transaksi yang sudah diverifikasi Checker TERKUNCI untuk kasir —
-    lihat `_assert_can_mutate`."""
+    Tiket berstatus "Paid" (confirmed/paid) TERKUNCI untuk kasir — hanya
+    Admin yang bisa mengubahnya. Lihat `_assert_can_mutate`."""
     result = await session.execute(select(TransactionEntry).where(TransactionEntry.id == transaction_id))
     entry = result.scalars().first()
     if not entry:
@@ -1984,6 +1993,7 @@ async def edit_transaction_data(
         entry.status = payload.status.value
         if payload.status.value in ["confirmed", "paid"]:
             entry.confirmed_at = datetime.now(WIB)
+            entry.confirmed_by_id = user.id
 
     # Terminal diproses SEBELUM `payment_method` mentah, lalu menang atas
     # keduanya: kategori selalu diturunkan dari terminal supaya kategori &
@@ -2016,13 +2026,13 @@ async def edit_transaction_data(
 async def delete_transaction_entry(
     transaction_id: uuid.UUID,
     session: AsyncSession = Depends(get_async_session),
-    user: User = Depends(current_staff)
+    user: User = Depends(current_write_staff)
 ):
-    """ADMIN (atau CHECKER untuk transaksi yang sudah Approved): Menghapus
-    transaksi dari antrean.
+    """ADMIN: Menghapus transaksi dari antrean.
 
-    Kasir TIDAK PERNAH bisa menghapus, baik sebelum maupun sesudah
-    verifikasi — lihat `_assert_can_mutate(..., for_delete=True)`."""
+    Kasir TIDAK PERNAH bisa menghapus, apapun statusnya, dan Checker
+    (read-only) tidak pernah sampai ke endpoint ini — lihat
+    `_assert_can_mutate(..., for_delete=True)`."""
     try:
         result = await session.execute(
             select(TransactionEntry).where(TransactionEntry.id == transaction_id)

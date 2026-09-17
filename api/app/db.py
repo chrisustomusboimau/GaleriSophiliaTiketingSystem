@@ -37,6 +37,7 @@
 from collections.abc import AsyncGenerator
 import uuid
 from datetime import datetime
+from typing import Optional
 
 from sqlalchemy import (
     Column, String, Integer, DateTime, ForeignKey,
@@ -586,6 +587,18 @@ class TransactionEntry(Base):
     )
     # Nullable — diisi oleh API saat status berubah ke "confirmed" / "paid"
     confirmed_at = Column(DateTime(timezone=True), nullable=True, default=None)
+    # BARU: staf (kasir/admin) yang menekan Konfirmasi dan mengunci antrean
+    # ini ke status "confirmed"/"paid". Dipakai kolom "Dikonfirmasi Oleh" di
+    # tabel Riwayat Transaksi — MENGGANTIKAN kolom "Verifikasi" (Checker)
+    # yang sudah dihapus sejak Checker menjadi role read-only.
+    confirmed_by_id = Column(
+        Uuid(as_uuid=True),
+        # SET NULL, bukan RESTRICT: menghapus akun staf yang sudah resign
+        # tidak boleh terhalang oleh riwayat transaksi yang pernah ia
+        # konfirmasi.
+        ForeignKey("user.id", ondelete="SET NULL"),
+        nullable=True
+    )
 
     # Kolom tanggal untuk composite unique constraint (reset harian antrean)
     date_only = Column(Date, nullable=False)
@@ -602,6 +615,7 @@ class TransactionEntry(Base):
     payment_terminal = relationship("PaymentTerminal", lazy="selectin")
     cashier_session  = relationship("CashierSession", lazy="selectin")
     verified_by      = relationship("User", foreign_keys=[verified_by_id], lazy="selectin")
+    confirmed_by     = relationship("User", foreign_keys=[confirmed_by_id], lazy="selectin")
     items   = relationship(
         "TransactionItem",
         back_populates="transaction",
@@ -614,6 +628,17 @@ class TransactionEntry(Base):
         cascade="all, delete-orphan",
         lazy="selectin"
     )
+
+    @property
+    def confirmed_by_email(self) -> Optional[str]:
+        """
+        Email login staf yang mengonfirmasi antrean ini, dipakai
+        `TransactionResponse` (Pydantic `from_attributes` membaca ini
+        seperti kolom biasa). Nama tampilan ("staff.cashier") diturunkan
+        dari sini di sisi FRONTEND dengan memotong bagian sebelum `@`
+        (lihat `getStaffNameFromEmail` di `src/utils/formatters.ts`).
+        """
+        return self.confirmed_by.email if self.confirmed_by_id and self.confirmed_by else None
 
 
 class TransactionItem(Base):
