@@ -451,3 +451,17 @@ export interface TransactionVerificationPayload {
 // `TransactionEntry` secara langsung.
 export type Visitor = TransactionEntry;
 export type Transaction = TransactionEntry;
+
+/**
+ * Respons `GET /reports/sessions/{id}` (per sesi, ADMIN) dan
+ * `GET /reports/combined?date=&session_id=` (multi-sesi, ADMIN & KASIR).
+ * Sumber data ekspor Excel — hak akses per role ditegakkan backend.
+ */
+export interface SessionReport {
+  date: string; // YYYY-MM-DD
+  sessions: OperationalSession[];
+  /** Seluruh transaksi milik sesi-sesi di atas, semua status. */
+  transactions: TransactionEntry[];
+  /** "Tiketing-YYYY-MM-DD-NamaSesi.xlsx" atau "Tiketing-YYYY-MM-DD.xlsx". */
+  file_name: string;
+}
