@@ -16,14 +16,14 @@
  *
  * RBAC: rute dijaga `RequireRole allowed={["admin","kasir"]}` di App.tsx —
  * checker dialihkan ke /sesi. Ekspor multi-sesi boleh untuk admin & kasir,
- * jadi tombolnya selalu dirender di halaman ini; datanya diambil dari
- * `GET /reports/combined` yang menegakkan aturan yang sama (checker 403,
- * sesi harus satu tanggal & bukan draft).
+ * jadi tombolnya selalu dirender di halaman ini. Workbook dibangun
+ * client-side dari sesi & transaksi yang sudah dimuat halaman ini.
  *
  * Transaksi untuk tampilan diambil lewat
  * `GET /transactions/all?session_id=...` untuk semua sesi di tanggal itu,
  * lalu dipersempit ke sesi yang dicentang di client (mencentang/melepas
- * sesi tidak memicu request baru).
+ * sesi tidak memicu request baru). Filter client ini juga yang menjamin
+ * hasilnya benar kalau backend mengabaikan parameter `session_id`.
  */
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
@@ -38,6 +38,7 @@ import {
   SESSION_STATUS_LABEL,
   SESSION_STATUS_BADGE,
 } from "../utils/formatters";
+import { dateExportFileName } from "../utils/excel";
 import Header from "../components/Header";
 import SessionHistoryPanel from "../components/SessionHistoryPanel";
 import ReportExportButton from "../components/ReportExportButton";
@@ -143,7 +144,9 @@ const CombinedReportPage: React.FC = () => {
   const exportSlot =
     selectedSessions.length > 0 ? (
       <ReportExportButton
-        reportPath={`/reports/combined?date=${date}&${selectedSessions.map((s) => `session_id=${s.id}`).join("&")}`}
+        sessions={selectedSessions}
+        transactions={selectedTransactions}
+        fileName={dateExportFileName(date)}
         label="Download Excel Multi-Sesi"
       />
     ) : null;

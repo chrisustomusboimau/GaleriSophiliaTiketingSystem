@@ -541,3 +541,28 @@ class TransactionUpdateData(BaseModel):
     # Diabaikan kalau None; kalau diisi, kategori ikut diturunkan dari
     # terminal (aturan yang sama dengan TransactionCreate di atas).
     payment_terminal_id: Optional[uuid.UUID] = None
+
+
+# ==========================================
+# 9. LAPORAN (EKSPOR EXCEL) — BARU
+# ==========================================
+
+class SessionReportRead(BaseModel):
+    """
+    Respons `GET /reports/sessions/{session_id}` (per sesi, ADMIN) dan
+    `GET /reports/combined` (multi-sesi per tanggal, ADMIN & KASIR).
+
+    Backend sengaja hanya mengirim DATA MENTAH (sesi + transaksinya). Angka
+    ringkasan & workbook Excel tetap dibangun di frontend dari data ini
+    (`src/utils/report.ts` & `reportWorkbook.ts`) — satu-satunya
+    implementasi, jadi angka di layar dan di berkas unduhan tidak mungkin
+    menyimpang. Yang dijamin endpoint ini: HAK AKSES ekspor per role, dan
+    validasi bahwa sesi yang digabung memang berasal dari tanggal yang sama.
+    """
+    date: date
+    sessions: List[OperationalSessionRead]
+    # Seluruh transaksi milik sesi-sesi di atas, SEMUA status, urut waktu dibuat.
+    transactions: List[TransactionResponse]
+    # Nama berkas saran: "Tiketing-YYYY-MM-DD-NamaSesi.xlsx" (per sesi) atau
+    # "Tiketing-YYYY-MM-DD.xlsx" (multi-sesi).
+    file_name: str

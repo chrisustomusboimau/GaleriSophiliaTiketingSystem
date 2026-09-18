@@ -38,6 +38,17 @@ const SessionsListPage: React.FC = () => {
               <span className="bg-[#fb9418] text-black px-1.5 py-0.5 rounded text-[9px] font-black">{ROLE_LABEL[user.role] || user.role}</span>
             </div>
 
+            {/* Laporan Gabungan multi-sesi: admin & kasir (checker tidak). */}
+            {(user.role === "admin" || user.role === "kasir") && (
+              <button
+                onClick={() => navigate("/laporan-gabungan")}
+                className="text-xs sm:text-sm font-bold px-3 sm:px-4 py-2 rounded-lg border border-zinc-700 text-gray-300 hover:text-[#fb9418] hover:border-[#fb9418] hover:bg-[#fb9418]/10 transition-all active:scale-95"
+              >
+                <span className="hidden sm:inline">Laporan Gabungan</span>
+                <span className="sm:hidden">Laporan</span>
+              </button>
+            )}
+
             {/* Non-admin tidak boleh melihat/mengakses area admin lain — tautan ini
                 hanya dirender untuk admin. */}
             {user.role === "admin" && (

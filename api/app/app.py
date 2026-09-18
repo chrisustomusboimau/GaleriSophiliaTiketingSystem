@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from contextlib import asynccontextmanager
 from sqlalchemy import select, func, delete
+import re
 import uuid
 from typing import List, Optional
 from sqlalchemy.exc import IntegrityError
@@ -28,6 +29,7 @@ from app.schema import (
     SessionTicketAuditRead, SessionTicketAuditStartUpdate, SessionTicketAuditEndUpdate,
     SessionTicketAuditBulkUpdate,
     ActiveSessionStatusRead,
+    SessionReportRead,
 )
 from app.i18n import build_snapshot_i18n
 from app.db import (
@@ -1771,14 +1773,24 @@ async def list_today_transactions(
 @app.get(f"{PREFIX}/transactions/all", response_model=List[TransactionResponse], tags=["transactions"])
 async def list_all_transactions(
     status: Optional[str] = Query(None, description="Filter by payment status (e.g., 'pending')"),
+    session_id: Optional[List[uuid.UUID]] = Query(
+        None,
+        description="BARU: filter ke satu/beberapa sesi (ulangi parameternya: "
+                    "?session_id=a&session_id=b). Kosong = semua sesi.",
+    ),
     session: AsyncSession = Depends(get_async_session),
     user: User = Depends(current_staff) # <-- PENJAGA PINTU: ADMIN, KASIR, CHECKER
 ):
-    """STAFF: Lists ALL historical transactions."""
+    """STAFF: Lists ALL historical transactions.
+
+    BARU: `session_id` supaya halaman detail sesi tidak perlu lagi menarik
+    seluruh histori transaksi lalu menyaringnya di browser."""
     try:
         query = select(TransactionEntry).order_by(TransactionEntry.created_at.asc())
         if status:
             query = query.where(TransactionEntry.status == status)
+        if session_id:
+            query = query.where(TransactionEntry.session_id.in_(session_id))
 
         result = await session.execute(query)
         entries = result.scalars().unique().all()
@@ -2051,3 +2063,107 @@ async def delete_transaction_entry(
     except Exception as e:
         await session.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to delete entry {e}")
+
+
+# ==========================================
+# LAPORAN (EKSPOR EXCEL) — BARU
+# ==========================================
+# Dua endpoint sumber data ekspor Excel. Workbook-nya sendiri dibangun di
+# frontend (lihat catatan `SessionReportRead` di schema.py); yang
+# ditegakkan di sini adalah HAK AKSES:
+#   - Ekspor PER SESI      : hanya ADMIN.
+#   - Ekspor MULTI-SESI    : ADMIN & KASIR (checker 403).
+# Sesi berstatus 'draft' tidak pernah berjalan, jadi tidak bisa dilaporkan.
+
+def _sanitize_file_name_part(value: str) -> str:
+    """Contoh "Sesi 1" -> "Sesi1": buang spasi & karakter yang dilarang di nama berkas.
+    Nama berkas dikirim ke frontend lewat `SessionReportRead.file_name`."""
+    return re.sub(r'[\s\\/:*?"<>|]+', "", value)
+
+
+async def _load_report_transactions(
+    session: AsyncSession, session_ids: List[uuid.UUID]
+) -> List[TransactionEntry]:
+    result = await session.execute(
+        select(TransactionEntry)
+        .where(TransactionEntry.session_id.in_(session_ids))
+        .order_by(TransactionEntry.created_at.asc())
+    )
+    return list(result.scalars().unique().all())
+
+
+@app.get(f"{PREFIX}/reports/sessions/{{session_id}}", response_model=SessionReportRead, tags=["reports"])
+async def get_session_report(
+    session_id: uuid.UUID,
+    session: AsyncSession = Depends(get_async_session),
+    user: User = Depends(current_admin),
+):
+    """ADMIN: Data ekspor Excel PER SESI (sesi + seluruh transaksinya).
+
+    Kasir & checker ditolak 403 — ekspor per sesi khusus admin. Kasir
+    memakai `GET /reports/combined` (bisa dengan satu sesi saja)."""
+    result = await session.execute(select(OperationalSession).where(OperationalSession.id == session_id))
+    entry = result.scalars().first()
+    if not entry:
+        raise HTTPException(status_code=404, detail="Sesi tidak ditemukan.")
+    if entry.status == "draft":
+        raise HTTPException(status_code=400, detail="Sesi draft belum pernah berjalan, tidak ada laporan untuk diekspor.")
+
+    return SessionReportRead(
+        date=entry.date,
+        sessions=[OperationalSessionRead.model_validate(entry)],
+        transactions=[TransactionResponse.model_validate(tx) for tx in await _load_report_transactions(session, [entry.id])],
+        file_name=f"Tiketing-{entry.date.isoformat()}-{_sanitize_file_name_part(entry.name)}.xlsx",
+    )
+
+
+@app.get(f"{PREFIX}/reports/combined", response_model=SessionReportRead, tags=["reports"])
+async def get_combined_report(
+    date_filter: date = Query(..., alias="date", description="Tanggal laporan, format YYYY-MM-DD"),
+    session_ids: List[uuid.UUID] = Query(
+        ...,
+        alias="session_id",
+        description="Sesi yang digabung (ulangi parameternya: ?session_id=a&session_id=b).",
+    ),
+    session: AsyncSession = Depends(get_async_session),
+    user: User = Depends(current_kasir),
+):
+    """ADMIN & KASIR: Data Laporan Gabungan multi-sesi dalam SATU tanggal.
+
+    Validasi:
+    - minimal satu sesi, semua sesi harus ada (404 kalau tidak);
+    - semua sesi harus bertanggal `date` — laporan gabungan per tanggal,
+      bukan lintas hari (400);
+    - sesi 'draft' ditolak (400)."""
+    unique_ids = list(dict.fromkeys(session_ids))
+    if not unique_ids:
+        raise HTTPException(status_code=400, detail="Pilih minimal satu sesi.")
+
+    result = await session.execute(
+        select(OperationalSession)
+        .where(OperationalSession.id.in_(unique_ids))
+        .order_by(OperationalSession.start_time.asc())
+    )
+    sessions = list(result.scalars().unique().all())
+
+    missing = set(unique_ids) - {s.id for s in sessions}
+    if missing:
+        raise HTTPException(status_code=404, detail=f"Sesi tidak ditemukan: {', '.join(str(m) for m in missing)}")
+
+    wrong_date = [s.name for s in sessions if s.date != date_filter]
+    if wrong_date:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Sesi berikut bukan tanggal {date_filter.isoformat()}: {', '.join(wrong_date)}",
+        )
+
+    drafts = [s.name for s in sessions if s.status == "draft"]
+    if drafts:
+        raise HTTPException(status_code=400, detail=f"Sesi draft tidak bisa dilaporkan: {', '.join(drafts)}")
+
+    return SessionReportRead(
+        date=date_filter,
+        sessions=[OperationalSessionRead.model_validate(s) for s in sessions],
+        transactions=[TransactionResponse.model_validate(tx) for tx in await _load_report_transactions(session, unique_ids)],
+        file_name=f"Tiketing-{date_filter.isoformat()}.xlsx",
+    )

@@ -14,6 +14,7 @@ import GalleryInfoPage from "./pages/GalleryInfoPage";
 import UserManagementPage from "./pages/UserManagementPage";
 import SessionsListPage from "./pages/SessionsListPage";
 import SessionDetailPage from "./pages/SessionDetailPage";
+import CombinedReportPage from "./pages/CombinedReportPage";
 import TicketsUnavailablePage from "./pages/TicketsUnavailablePage";
 import { ActiveSessionProvider } from "./contexts/ActiveSessionContext";
 import RequireActiveSession from "./components/RequireActiveSession";
@@ -59,6 +60,13 @@ import RequireActiveSession from "./components/RequireActiveSession";
  *                         semuanya terfilter ke sesi ini. Kasir/checker
  *                         diblokir mengakses halaman ini kalau sesinya
  *                         bukan 'opened' (guard di SessionDetailPage.tsx).
+ *                         Ekspor Excel per sesi hanya tampil untuk admin.
+ *
+ *   Admin & kasir (RequireRole allowed=["admin","kasir"]):
+ *   /laporan-gabungan  → Laporan Gabungan multi-sesi per tanggal (pilih
+ *                         tanggal → centang sesi → ringkasan & riwayat
+ *                         gabungan + ekspor Excel multi-sesi). Checker
+ *                         dialihkan ke /sesi.
  *
  * UPDATE PENTING (perombakan navigasi & RBAC):
  * - /admin/history (Riwayat Transaksi lintas-sesi) DIHAPUS TOTAL.
@@ -108,6 +116,11 @@ export function App() {
                 <Route element={<RequireRole allowed={["admin", "kasir", "checker"]} />}>
                   <Route path="/sesi" element={<SessionsListPage />} />
                   <Route path="/sesi/:sessionId" element={<SessionDetailPage />} />
+                </Route>
+
+                {/* Laporan gabungan multi-sesi — admin & kasir saja */}
+                <Route element={<RequireRole allowed={["admin", "kasir"]} />}>
+                  <Route path="/laporan-gabungan" element={<CombinedReportPage />} />
                 </Route>
               </Route>
 

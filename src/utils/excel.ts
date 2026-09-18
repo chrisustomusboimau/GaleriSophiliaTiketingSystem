@@ -25,17 +25,19 @@ export function styleHeaderRow(worksheet: ExcelJS.Worksheet, rowNumber = 1): voi
   });
 }
 
-/**
- * Sufiks nama berkas berbasis waktu unduh: `20260903_1435`.
- * Dipakai supaya dua unduhan di hari yang sama tidak saling menimpa di
- * folder Downloads.
- */
-export function timestampSuffix(now: Date = new Date()): string {
-  const pad = (n: number) => n.toString().padStart(2, "0");
-  return (
-    `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}` +
-    `_${pad(now.getHours())}${pad(now.getMinutes())}`
-  );
+/** Membuang spasi & karakter yang tidak boleh ada di nama berkas ("Sesi 1" -> "Sesi1"). */
+function sanitizeFileNamePart(value: string): string {
+  return value.replace(/[\s\\/:*?"<>|]+/g, "");
+}
+
+/** Nama berkas ekspor PER SESI: `Tiketing-2026-09-17-Sesi1.xlsx`. */
+export function sessionExportFileName(session: { date: string; name: string }): string {
+  return `Tiketing-${session.date}-${sanitizeFileNamePart(session.name)}.xlsx`;
+}
+
+/** Nama berkas ekspor MULTI-SESI (gabungan satu tanggal): `Tiketing-2026-09-17.xlsx`. */
+export function dateExportFileName(date: string): string {
+  return `Tiketing-${date}.xlsx`;
 }
 
 /** Menulis workbook ke berkas .xlsx dan memicu unduhan di browser. */
