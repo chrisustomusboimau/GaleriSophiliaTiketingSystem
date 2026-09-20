@@ -61,6 +61,31 @@ export interface AuditRow {
   selisih: number | null;
 }
 
+/** Satu baris tabel Matriks Pengunjung: satu kategori umur (varian) x semua kombinasi tiket. */
+export interface VisitorMatrixRow {
+  /** Nama varian usia, mis. "Dewasa", "Student", "Anak" — sama dengan `variantNames`. */
+  label: string;
+  /** kombinasi tiket (mis. "Tiket Lantai 1 & Tiket Lantai 5") -> jumlah orang. */
+  counts: Record<string, number>;
+  total: number;
+}
+
+/**
+ * Matriks Pengunjung: baris = kategori umur, kolom = SETIAP KEMUNGKINAN
+ * kombinasi jenis tiket yang terdaftar untuk sesi ini — tunggal, sampai
+ * gabungan seluruh jenis tiket sekaligus (2^n - 1 kolom untuk n jenis
+ * tiket), BUKAN hanya kombinasi yang kebetulan pernah terjual. Satu orang
+ * yang membeli Lantai 1 + Lantai 5 sekaligus masuk kolom "Lt.1 & Lt.5",
+ * BUKAN dihitung dua kali di kolom "Lt.1" dan "Lt.5" terpisah.
+ */
+export interface VisitorMatrixData {
+  /** Label kolom kombinasi tiket, urut dari kombinasi 1-tiket ke kombinasi terbanyak tiketnya. */
+  columnLabels: string[];
+  rows: VisitorMatrixRow[];
+  columnTotals: Record<string, number>;
+  grandTotal: number;
+}
+
 export interface ReportData {
   windows: SessionWindow[];
   /** Label jam seluruh sesi, mis. "10:00–12:00 & 15:00–17:00". */
@@ -81,6 +106,7 @@ export interface ReportData {
   timeIntervalStats: DensityInterval[];
   auditRows: AuditRow[];
   auditTotals: { physical: number; digital: number; selisih: number };
+  visitorMatrix: VisitorMatrixData;
 }
 
 const toMinutes = (hhmm: string): number => {
@@ -94,6 +120,40 @@ const minutesToLabel = (mins: number): string =>
 /** Nama lengkap negara dari kode ISO ("ID" -> "Indonesia"); jatuh ke kode kalau tidak dikenal. */
 export function countryName(code: string): string {
   return getName(code.toUpperCase()) || code.toUpperCase();
+}
+
+/**
+ * SEMUA kombinasi non-kosong dari `items` (kombinasi, bukan permutasi),
+ * urut dari ukuran 1 ke ukuran penuh; di dalam ukuran yang sama, urut
+ * sesuai urutan `items` (yang sudah alfabet). Untuk n=3 ["A","B","C"]
+ * hasilnya: [A],[B],[C],[A,B],[A,C],[B,C],[A,B,C] — persis urutan kolom
+ * pada tabel Matriks Pengunjung.
+ */
+function generateCombinations<T>(items: T[]): T[][] {
+  const result: T[][] = [];
+  const n = items.length;
+  for (let size = 1; size <= n; size++) {
+    const backtrack = (start: number, current: T[]) => {
+      if (current.length === size) {
+        result.push([...current]);
+        return;
+      }
+      for (let i = start; i < n; i++) {
+        current.push(items[i]);
+        backtrack(i + 1, current);
+        current.pop();
+      }
+    };
+    backtrack(0, []);
+  }
+  return result;
+}
+
+/** "Tiket A" / "Tiket A & Tiket B" / "Tiket A, Tiket B & Tiket C" (koma + "&" di elemen terakhir). */
+function joinComboLabel(names: string[]): string {
+  if (names.length === 1) return names[0];
+  if (names.length === 2) return `${names[0]} & ${names[1]}`;
+  return `${names.slice(0, -1).join(", ")} & ${names[names.length - 1]}`;
 }
 
 /** Peta `ticket_sub_category_id -> nama master` untuk label "Nama Master — Nama Varian". */
@@ -189,26 +249,93 @@ export function computeReport(
   });
 
   // =========================================================
+  // KATALOG JENIS TIKET (nama master) — dihitung LEBIH AWAL karena
+  // dipakai dua tempat: kolom "Kepadatan Pengunjung" (section 5, di bawah)
+  // DAN untuk membangun SEMUA kemungkinan kombinasi kolom Matriks
+  // Pengunjung (section 1) — katalog ini datang dari `active_tickets`
+  // sesi, bukan dari transaksi yang terjadi, jadi kombinasi yang belum
+  // pernah terjual pun tetap muncul sebagai kolom (isinya 0).
+  // =========================================================
+  const groupNameSet = new Set<string>();
+  sessions.forEach((s) =>
+    s.active_tickets.forEach((st) => {
+      const sub = st.sub_category;
+      if (!sub) return;
+      groupNameSet.add(masterNameMap[sub.id] || "Lainnya");
+    })
+  );
+  const groupNames = Array.from(groupNameSet).sort();
+
+  // =========================================================
   // 1. STATISTIK UTAMA — dinamis per nama varian usia
   // =========================================================
   let revenue = 0;
   const byVariant: Record<string, number> = {};
+  // Matriks Pengunjung: variant -> kombinasi tiket (gabungan nama tiket yang
+  // dibeli orang yang sama) -> jumlah orang. Dibangun DI DALAM loop yang sama
+  // dengan `byVariant` supaya angka Total-nya selalu identik dengan kartu
+  // statistik di atas (satu sumber kebenaran, tidak ada perhitungan kedua).
+  const matrixCounts: Record<string, Record<string, number>> = {};
   statsTransactions.forEach((tx) => {
     revenue += tx.total_price || 0;
-    // Satu orang yang membeli beberapa lantai hanya dihitung SEKALI.
-    const seen = new Set<string>();
+    // Satu orang yang membeli beberapa jenis tiket hanya dihitung SEKALI —
+    // tapi untuk matriks, kita tetap perlu tahu SEMUA jenis tiket yang ia
+    // beli, jadi item-item milik orang yang sama dikumpulkan dulu (bukan
+    // langsung dilewati sesudah kemunculan pertama seperti sebelumnya).
+    const personMap = new Map<string, { label: string; qty: number; groups: Set<string> }>();
     tx.items.forEach((item) => {
       const key = dedupeKeyFor(item);
-      if (seen.has(key)) return;
-      seen.add(key);
-      const { variant } = splitTicketSnapshot(item.ticket_name_snapshot);
+      const { group, variant } = splitTicketSnapshot(item.ticket_name_snapshot);
       const label = variant || item.ticket_name_snapshot;
-      byVariant[label] = (byVariant[label] || 0) + item.quantity;
+      if (!personMap.has(key)) {
+        // Quantity diambil dari kemunculan PERTAMA saja per orang — persis
+        // seperti perilaku `byVariant` sebelum matriks ini ditambahkan.
+        personMap.set(key, { label, qty: item.quantity, groups: new Set() });
+      }
+      personMap.get(key)!.groups.add(group);
+    });
+    personMap.forEach(({ label, qty, groups }) => {
+      byVariant[label] = (byVariant[label] || 0) + qty;
+
+      const combo = joinComboLabel(Array.from(groups).sort());
+      if (!matrixCounts[label]) matrixCounts[label] = {};
+      matrixCounts[label][combo] = (matrixCounts[label][combo] || 0) + qty;
     });
   });
   const visitors = Object.values(byVariant).reduce((s, v) => s + v, 0);
   const dynamicStats = { visitors, byVariant, revenue };
   const variantNames = Object.keys(byVariant).sort();
+
+  // SEMUA kemungkinan kombinasi jenis tiket (katalog `groupNames`, bukan
+  // hanya yang kebetulan terjual) — inilah kolom-kolom Matriks Pengunjung,
+  // dari kombinasi 1-tiket sampai gabungan seluruh jenis tiket sekaligus.
+  const matrixColumnLabels = generateCombinations(groupNames).map((combo) => joinComboLabel(combo));
+
+  const matrixRows: VisitorMatrixRow[] = variantNames.map((label) => {
+    const counts = matrixCounts[label] || {};
+    // Total baris memakai `byVariant[label]` langsung (bukan menjumlah ulang
+    // sel-sel matriks) supaya selalu identik dengan kartu statistik "Total
+    // Orang" per kategori di atas, bahkan pada kasus tepi jarang (mis. nama
+    // master berubah setelah transaksi tercatat, sehingga kombinasi lama
+    // tidak persis cocok dengan salah satu kolom katalog saat ini).
+    const rowTotal = byVariant[label] || 0;
+    return { label, counts, total: rowTotal };
+  });
+
+  const matrixColumnTotals: Record<string, number> = {};
+  matrixColumnLabels.forEach((c) => {
+    matrixColumnTotals[c] = matrixRows.reduce((s, r) => s + (r.counts[c] || 0), 0);
+  });
+  // Grand total memakai `visitors` (sama dengan kartu "Total Orang"), bukan
+  // hasil penjumlahan ulang sel matriks — alasan sama seperti `rowTotal`.
+  const matrixGrandTotal = visitors;
+
+  const visitorMatrix: VisitorMatrixData = {
+    columnLabels: matrixColumnLabels,
+    rows: matrixRows,
+    columnTotals: matrixColumnTotals,
+    grandTotal: matrixGrandTotal,
+  };
 
   // =========================================================
   // 2. KUNJUNGAN PER MASTER (dulu "per lantai")
@@ -287,17 +414,8 @@ export function computeReport(
 
   // =========================================================
   // 5. KEPADATAN PENGUNJUNG PER 15 MENIT — kolom dinamis per master
+  //    (`groupNames` sudah dihitung di atas, dipakai ulang di sini).
   // =========================================================
-  const groupNameSet = new Set<string>();
-  sessions.forEach((s) =>
-    s.active_tickets.forEach((st) => {
-      const sub = st.sub_category;
-      if (!sub) return;
-      groupNameSet.add(masterNameMap[sub.id] || "Lainnya");
-    })
-  );
-  const groupNames = Array.from(groupNameSet).sort();
-
   // Jendela yang tumpang tindih/bersebelahan digabung jadi satu segmen.
   // Jeda antarsesi (mis. 12:00–15:00 di antara sesi 10–12 dan 15–17)
   // TIDAK menghasilkan baris sama sekali.
@@ -395,5 +513,6 @@ export function computeReport(
     timeIntervalStats,
     auditRows,
     auditTotals,
+    visitorMatrix,
   };
 }

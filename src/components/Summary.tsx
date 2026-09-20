@@ -66,7 +66,13 @@ const Summary: React.FC<SummaryProps> = ({ sessions, transactions, exportSlot })
     timeIntervalStats,
     auditRows,
     auditTotals,
+    visitorMatrix,
   } = report;
+
+  // --- MATRIKS PENGUNJUNG — judul dinamis ---
+  const matrixTitle = isCombined
+    ? "Rangkuman Pengunjung Keseluruhan (Laporan Gabungan)"
+    : `Rangkuman Pengunjung - Sesi ${sessions[0]?.name ?? "-"}`;
 
   return (
     <div className="space-y-6">
@@ -79,8 +85,7 @@ const Summary: React.FC<SummaryProps> = ({ sessions, transactions, exportSlot })
         {exportSlot}
       </div>
 
-      {/* INFO AUTO-LOAD — tidak ada lagi kontrol filter; ringkasan langsung
-          dihitung otomatis dari jam sesi & status Lunas/Dikonfirmasi. */}
+      {/* INFO AUTO-LOAD */}
       <div className="bg-white px-5 py-4 rounded-2xl shadow-sm border border-gray-200 flex items-center gap-3">
         <svg className="w-5 h-5 text-[#fb9418] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -98,7 +103,7 @@ const Summary: React.FC<SummaryProps> = ({ sessions, transactions, exportSlot })
         </p>
       </div>
 
-      {/* KARTU STATISTIK — dinamis per varian */}
+      {/* KARTU STATISTIK */}
       <div className="flex flex-wrap gap-4">
         <div className="bg-black p-5 rounded-2xl shadow-md border border-gray-800 flex flex-col justify-center items-center text-center flex-1 min-w-[140px]">
           <span className="text-[11px] text-gray-400 font-bold uppercase tracking-widest mb-1">Total Orang</span>
@@ -115,6 +120,73 @@ const Summary: React.FC<SummaryProps> = ({ sessions, transactions, exportSlot })
         <div className="bg-orange-50 p-5 rounded-2xl shadow-sm border border-[#fb9418]/30 flex flex-col justify-center items-center text-center flex-1 min-w-[160px]">
           <span className="text-[11px] text-gray-600 font-bold uppercase tracking-widest mb-1">Total Tagihan</span>
           <span className="text-2xl font-black text-[#fb9418]">{formatCurrency(dynamicStats.revenue)}</span>
+        </div>
+      </div>
+
+      {/* MATRIKS PENGUNJUNG — kategori umur x kombinasi jenis tiket */}
+      <div className="bg-[#fcfcfc] rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+        <div className="p-5 border-b border-gray-200 bg-white">
+          <h4 className="text-sm font-extrabold text-black uppercase tracking-wider">{matrixTitle}</h4>
+          <p className="text-xs text-gray-600 mt-1 font-medium">
+            Jumlah pengunjung per kategori umur, disilangkan dengan setiap kemungkinan kombinasi jenis tiket.
+          </p>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse min-w-[720px]">
+            <thead>
+              <tr className="bg-black text-white text-[10px] sm:text-xs font-bold uppercase tracking-widest">
+                <th className="p-3 text-white">Ticket / Kategori Umur</th>
+                {visitorMatrix.columnLabels.map((c) => (
+                  <th key={c} className="p-3 text-center border-l border-zinc-800 whitespace-nowrap text-white">
+                    {c}
+                  </th>
+                ))}
+                <th className="p-3 text-center border-l border-zinc-800 text-[#fb9418] font-extrabold">Total</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-200 text-sm bg-white">
+              {visitorMatrix.rows.map((row) => (
+                <tr key={row.label} className="hover:bg-orange-50/50 transition-colors">
+                  <td className="p-3 font-bold text-black whitespace-nowrap">{row.label}</td>
+                  {visitorMatrix.columnLabels.map((c) => (
+                    <td
+                      key={c}
+                      className={`p-3 text-center border-l border-gray-200 ${
+                        row.counts[c] ? "text-black font-extrabold" : "text-gray-500 font-medium"
+                      }`}
+                    >
+                      {row.counts[c] || 0}
+                    </td>
+                  ))}
+                  <td className="p-3 text-center border-l border-gray-200 font-black text-black bg-orange-100/60">
+                    {row.total}
+                  </td>
+                </tr>
+              ))}
+              {visitorMatrix.rows.length === 0 && (
+                <tr>
+                  <td colSpan={visitorMatrix.columnLabels.length + 2} className="p-6 text-center text-gray-600 italic font-medium">
+                    Belum ada data pengunjung pada filter ini.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+            {visitorMatrix.rows.length > 0 && (
+              <tfoot>
+                <tr className="border-t-2 border-gray-400 bg-gray-100 font-black text-black">
+                  <td className="p-3 text-black">Total</td>
+                  {visitorMatrix.columnLabels.map((c) => (
+                    <td key={c} className="p-3 text-center border-l border-gray-300 text-black">
+                      {visitorMatrix.columnTotals[c] || 0}
+                    </td>
+                  ))}
+                  <td className="p-3 text-center border-l border-gray-300 text-black bg-orange-200/80 font-black">
+                    {visitorMatrix.grandTotal}
+                  </td>
+                </tr>
+              </tfoot>
+            )}
+          </table>
         </div>
       </div>
 
@@ -166,11 +238,11 @@ const Summary: React.FC<SummaryProps> = ({ sessions, transactions, exportSlot })
             {auditRows.length > 0 && (
               <tfoot>
                 <tr className="border-t-2 border-gray-200 bg-gray-50 font-black">
-                  <td className="px-4 py-3">TOTAL</td>
+                  <td className="px-4 py-3 text-black">TOTAL</td>
                   <td />
                   <td />
-                  <td className="px-4 py-3 text-right">{auditTotals.physical}</td>
-                  <td className="px-4 py-3 text-right">{auditTotals.digital}</td>
+                  <td className="px-4 py-3 text-right text-black">{auditTotals.physical}</td>
+                  <td className="px-4 py-3 text-right text-black">{auditTotals.digital}</td>
                   <td className="px-4 py-3 text-right">
                     <span className={auditTotals.selisih === 0 ? "text-green-700" : "text-red-700"}>
                       {auditTotals.selisih > 0 ? `+${auditTotals.selisih}` : auditTotals.selisih}
@@ -264,7 +336,7 @@ const Summary: React.FC<SummaryProps> = ({ sessions, transactions, exportSlot })
         </div>
       </div>
 
-      {/* KEPADATAN PENGUNJUNG PER 15 MENIT — kolom dinamis per master */}
+      {/* KEPADATAN PENGUNJUNG PER 15 MENIT */}
       <div className="bg-[#fcfcfc] rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
         <div className="p-5 border-b border-gray-200 bg-white">
           <h4 className="text-sm font-extrabold text-black uppercase tracking-wider">

@@ -25,6 +25,18 @@ export function styleHeaderRow(worksheet: ExcelJS.Worksheet, rowNumber = 1): voi
   });
 }
 
+/** Nomor kolom (1-based) -> huruf kolom Excel ("1" -> "A", "27" -> "AA"). Dipakai membangun rumus SUM dinamis. */
+export function excelColumnLetter(colNumber: number): string {
+  let letter = "";
+  let n = colNumber;
+  while (n > 0) {
+    const rem = (n - 1) % 26;
+    letter = String.fromCharCode(65 + rem) + letter;
+    n = Math.floor((n - 1) / 26);
+  }
+  return letter;
+}
+
 /** Membuang spasi & karakter yang tidak boleh ada di nama berkas ("Sesi 1" -> "Sesi1"). */
 function sanitizeFileNamePart(value: string): string {
   return value.replace(/[\s\\/:*?"<>|]+/g, "");

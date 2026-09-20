@@ -16,7 +16,7 @@
 import ExcelJS from "exceljs";
 import { OperationalSession, TransactionEntry } from "../types";
 import { formatDateID, getStaffNameFromEmail, PAYMENT_METHOD_LABEL, TRANSACTION_STATUS_LABEL } from "./formatters";
-import { CURRENCY_NUM_FMT, styleHeaderRow } from "./excel";
+import { CURRENCY_NUM_FMT, excelColumnLetter, styleHeaderRow } from "./excel";
 import { countryName, PAYMENT_METHODS, ReportData } from "./report";
 
 interface BuildReportWorkbookArgs {
@@ -102,6 +102,62 @@ export function buildReportWorkbook({ sessions, transactions, report }: BuildRep
   });
   const revenueRow = statSheet.addRow({ label: "Total Tagihan", value: dynamicStats.revenue });
   revenueRow.getCell("value").numFmt = CURRENCY_NUM_FMT;
+
+  // --- Matriks Pengunjung (Kategori Umur x Kombinasi Jenis Tiket) ---
+  // Ditambahkan di bagian bawah sheet Statistik — sheet yang sama ini
+  // dipakai apa adanya untuk ekspor per sesi MAUPUN ekspor Laporan
+  // Gabungan (multi-sesi), jadi tabel ini otomatis berisi angka akumulasi
+  // seluruh sesi terpilih ketika `multi` true.
+  const { visitorMatrix } = report;
+  if (visitorMatrix.rows.length > 0) {
+    const totalCols = 2 + visitorMatrix.columnLabels.length; // kolom label + N kombinasi + kolom Total
+
+    statSheet.addRow({}); // spacer
+
+    const titleRow = statSheet.addRow({
+      label: multi ? "Rangkuman Pengunjung Keseluruhan (Laporan Gabungan)" : `Rangkuman Pengunjung - Sesi ${sessions[0]?.name ?? "-"}`,
+    });
+    titleRow.font = { bold: true, size: 12 };
+    statSheet.mergeCells(titleRow.number, 1, titleRow.number, totalCols);
+
+    const headerRow = statSheet.addRow(["Ticket / Kategori Umur", ...visitorMatrix.columnLabels, "Total"]);
+    headerRow.font = { bold: true, color: { argb: "FFFFFFFF" } };
+    headerRow.alignment = { vertical: "middle", horizontal: "center" };
+    headerRow.eachCell((cell) => {
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF000000" } };
+    });
+
+    const firstDataRowNum = headerRow.number + 1;
+    visitorMatrix.rows.forEach((row) => {
+      const dataRow = statSheet.addRow([row.label, ...visitorMatrix.columnLabels.map((c) => row.counts[c] || 0)]);
+      // Kolom Total baris ini = rumus SUM dinamis, bukan angka statis, supaya
+      // tetap benar kalau admin mengedit angka manual di Excel.
+      dataRow.getCell(totalCols).value = {
+        formula: `SUM(B${dataRow.number}:${excelColumnLetter(totalCols - 1)}${dataRow.number})`,
+      } as ExcelJS.CellFormulaValue;
+      dataRow.getCell(1).font = { bold: true };
+      dataRow.getCell(totalCols).font = { bold: true };
+    });
+    const lastDataRowNum = firstDataRowNum + visitorMatrix.rows.length - 1;
+
+    // Baris TOTAL — tiap kolom (termasuk kolom Total di ujung) pakai SUM dinamis.
+    const totalRow = statSheet.addRow(["Total", ...visitorMatrix.columnLabels.map(() => 0), 0]);
+    for (let col = 2; col <= totalCols; col++) {
+      const letter = excelColumnLetter(col);
+      totalRow.getCell(col).value = { formula: `SUM(${letter}${firstDataRowNum}:${letter}${lastDataRowNum})` } as ExcelJS.CellFormulaValue;
+    }
+    totalRow.font = { bold: true };
+    totalRow.eachCell((cell) => {
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF3F4F6" } };
+    });
+
+    // Lebarkan kolom-kolom kombinasi tiket (kolom bawaan sheet ini hanya
+    // didefinisikan untuk 2 kolom "Keterangan"/"Nilai").
+    for (let col = 2; col <= totalCols; col++) {
+      const current = statSheet.getColumn(col).width || 0;
+      statSheet.getColumn(col).width = Math.max(current, 16);
+    }
+  }
 
   // --- Sheet 3: Rekap Penjualan (varian x metode pembayaran) ---
   const salesSheet = workbook.addWorksheet("Rekap Penjualan");
