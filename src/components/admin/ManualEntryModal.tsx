@@ -16,15 +16,43 @@
  * menagih (dari sesi kasirnya), dan terminal itulah yang menetapkan
  * kategori sekaligus detail metode pembayaran — supaya keduanya tidak
  * pernah bisa saling bertentangan.
+ *
+ * UPDATE v4 — PILIH LANTAI (MINIMALIS) + HARGA TERAKUMULASI PER
+ * KATEGORI USIA, MENIRU PERSIS LOGIKA `VisitorForm.tsx`:
+ *
+ * Step 1 sekarang HANYA daftar nama Master Tiket (checkbox polos, tanpa
+ * harga/atribut lain) — beda dari v3 yang masih pakai `FloorCard`
+ * lengkap dengan rincian harga per varian.
+ *
+ * Step 2 tidak lagi satu grup counter PER LANTAI. Sekarang satu counter
+ * PER KATEGORI USIA (dikunci oleh `age_category_id`, sama seperti
+ * `VisitorForm`), dan harga yang ditampilkan adalah AKUMULASI harga
+ * kategori itu di SELURUH lantai yang dicentang. Konsekuensinya:
+ *
+ *   - Satu angka yang diketik kasir = jumlah ORANG (fisik), berlaku
+ *     untuk semua lantai terpilih yang menjual kategori usia itu.
+ *   - Saat dikirim ke backend, satu orang di N lantai terpilih menjadi
+ *     N item tiket (satu per lantai, masing-masing di harga lantainya
+ *     sendiri) — lihat `handleSubmit`.
+ *   - Kalau kasir hanya perlu jumlah BERBEDA per lantai untuk grup
+ *     usia yang sama (mis. 2 Dewasa hanya ke Lantai 1, 5 Dewasa lain
+ *     hanya ke Lantai 2), itu berarti DUA transaksi terpisah — sesuai
+ *     desain "tiket kombo lintas lantai" yang diminta, bukan lagi
+ *     input bebas per kombinasi lantai×kategori seperti versi lama.
+ *
+ * `floorList` & `ageVariants` diturunkan LANGSUNG dari
+ * `session.active_tickets` (`sub_category` sudah membawa
+ * `ticket_master_id`, `ticket_master_name`, & `age_category_id` dari
+ * backend) — tidak perlu lagi memanggil `GET /ticket-masters` terpisah.
  */
 
 import React, { useEffect, useMemo, useState } from "react";
 import { getData } from "country-list";
 import { apiGet, apiPost, ApiError } from "../../api/client";
-import { OperationalSession, TicketMaster, TransactionEntry } from "../../types";
-import { formatCurrency, getMasterColorTheme, buildSubCategoryMasterMap } from "../../utils/formatters";
+import { OperationalSession, TransactionEntry } from "../../types";
+import { formatCurrency } from "../../utils/formatters";
 import { useCashierSession } from "../../contexts/CashierSessionContext";
-import TerminalPicker, { CASH_SELECTION, PaymentSelection } from "./TerminalPicker";
+import TerminalPicker, { PaymentSelection } from "./TerminalPicker";
 
 interface ManualEntryModalProps {
   isOpen: boolean;
@@ -41,24 +69,50 @@ interface CountryVisitor {
   count: number | string;
 }
 
+/** Satu lantai (Master Tiket) tempat sebuah kategori usia dijual, beserta harganya di sana. */
+interface VariantLocation {
+  masterId: string;
+  masterName: string;
+  subCategoryId: string;
+  price: number;
+}
+
+/** Satu baris counter di Step 2: SATU kategori usia, berlaku untuk semua lantai terpilih yang menjualnya. */
+interface AgeVariantRow {
+  /** `age_category_id`, atau nama varian untuk data lama yang belum tertaut. */
+  key: string;
+  displayName: string;
+  locations: VariantLocation[];
+  /** Harga SATU orang, dijumlahkan di SELURUH lantai terpilih yang menjualnya. */
+  totalPricePerPerson: number;
+}
+
 const ManualEntryModal: React.FC<ManualEntryModalProps> = ({ isOpen, onClose, onSuccess, sessionId }) => {
   const [targetSession, setTargetSession] = useState<OperationalSession | null>(null);
-  const [masterNameMap, setMasterNameMap] = useState<Record<string, string>>({});
   const [isLoadingSession, setIsLoadingSession] = useState(false);
   const [sessionError, setSessionError] = useState<string | null>(null);
 
   const { terminals } = useCashierSession();
 
   const [customerName, setCustomerName] = useState("");
-  const [quantities, setQuantities] = useState<Record<string, number>>({});
-  const [payment, setPayment] = useState<PaymentSelection>(CASH_SELECTION);
+  /** Master tiket (lantai) yang sedang dicentang di Step 1. Bisa lebih dari satu. */
+  const [selectedFloorIds, setSelectedFloorIds] = useState<string[]>([]);
+  /** Jumlah orang per KATEGORI USIA (kunci = `AgeVariantRow.key`), bukan lagi per sub-kategori/lantai. */
+  const [ageCounts, setAgeCounts] = useState<Record<string, number>>({});
+  /**
+   * Pembayaran Tunai TIDAK diperbolehkan di modal ini (lihat efek
+   * "Preseleksi terminal" di bawah) — `null` berarti belum ada terminal
+   * non-tunai yang bisa dipakai sebagai default (submit akan diblokir
+   * sampai kasir memilih salah satu, atau sesi kasirnya ditutup-buka
+   * ulang dengan terminal EDC/QRIS).
+   */
+  const [payment, setPayment] = useState<PaymentSelection | null>(null);
   const [countryVisitors, setCountryVisitors] = useState<CountryVisitor[]>([{ countryCode: "id", count: 1 }]);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
-  // --- Ambil sesi TUJUAN (bukan sesi aktif global) + master data setiap
-  // kali modal dibuka ---
+  // --- Ambil sesi TUJUAN (bukan sesi aktif global) setiap kali modal dibuka ---
   useEffect(() => {
     if (!isOpen) return;
 
@@ -67,17 +121,10 @@ const ManualEntryModal: React.FC<ManualEntryModalProps> = ({ isOpen, onClose, on
       setSessionError(null);
       setTargetSession(null);
       try {
-        const [session, masters] = await Promise.all([
-          apiGet<OperationalSession>(`/sessions/${sessionId}`),
-          apiGet<TicketMaster[]>("/ticket-masters"),
-        ]);
+        const session = await apiGet<OperationalSession>(`/sessions/${sessionId}`);
         setTargetSession(session);
-        setMasterNameMap(buildSubCategoryMasterMap(masters));
-        const initialQty: Record<string, number> = {};
-        session.active_tickets.forEach((st) => {
-          initialQty[st.ticket_sub_category_id] = 0;
-        });
-        setQuantities(initialQty);
+        setSelectedFloorIds([]);
+        setAgeCounts({});
       } catch (err) {
         setSessionError(err instanceof ApiError ? err.message : "Gagal memuat data sesi.");
       } finally {
@@ -88,37 +135,95 @@ const ManualEntryModal: React.FC<ManualEntryModalProps> = ({ isOpen, onClose, on
     loadData();
   }, [isOpen, sessionId]);
 
-  // Preseleksi terminal pertama milik kasir — pilihan yang paling sering
-  // benar, dan tetap bisa diganti. Kalau sesi kasirnya tanpa terminal
-  // sama sekali, jatuh ke Tunai.
+  // Preseleksi terminal NON-TUNAI pertama milik kasir — pilihan yang
+  // paling sering benar, dan tetap bisa diganti. Tunai tidak lagi jadi
+  // fallback di modal ini: kalau sesi kasirnya tidak punya satu pun
+  // terminal EDC/QRIS, `payment` dibiarkan `null` dan submit diblokir
+  // (lihat validasi di `handleSubmit`) sampai terminal yang sesuai
+  // tersedia.
   useEffect(() => {
     if (!isOpen) return;
-    setPayment(
-      terminals.length > 0
-        ? { terminalId: terminals[0].id, category: terminals[0].category }
-        : CASH_SELECTION
-    );
+    const nonCashTerminal = terminals.find((t) => t.category !== "cash");
+    setPayment(nonCashTerminal ? { terminalId: nonCashTerminal.id, category: nonCashTerminal.category } : null);
   }, [isOpen, terminals]);
 
   const isSessionOpen = targetSession?.status === "opened";
 
-  // --- Grouping tiket aktif per master ---
-  const groupedTickets = useMemo(() => {
+  /**
+   * --- Step 1 data source: daftar nama lantai polos, tanpa harga ---
+   * Cukup id + label per Master Tiket unik yang punya tiket aktif pada
+   * sesi ini.
+   */
+  const floorList = useMemo(() => {
     if (!targetSession) return [];
-    const groups = new Map<string, { masterName: string; items: { id: string; name: string; price: number }[] }>();
+    const seen = new Map<string, string>();
     targetSession.active_tickets.forEach((st) => {
       const sub = st.sub_category;
-      if (!sub) return;
-      const masterKey = masterNameMap[sub.id] || "Tiket";
-      if (!groups.has(masterKey)) groups.set(masterKey, { masterName: masterKey, items: [] });
-      groups.get(masterKey)!.items.push({ id: sub.id, name: sub.name, price: sub.price });
+      if (!sub || !sub.ticket_master_id) return;
+      if (!seen.has(sub.ticket_master_id)) {
+        seen.set(sub.ticket_master_id, sub.ticket_master_name || "Tiket");
+      }
     });
-    return Array.from(groups.values());
-  }, [targetSession, masterNameMap]);
+    return Array.from(seen.entries()).map(([id, label]) => ({ id, label }));
+  }, [targetSession]);
 
+  /** Tiket aktif yang relevan = milik salah satu lantai yang dicentang di Step 1. */
+  const relevantTickets = useMemo(() => {
+    if (!targetSession) return [];
+    return targetSession.active_tickets.filter((st) => {
+      const sub = st.sub_category;
+      return !!sub && !!sub.ticket_master_id && selectedFloorIds.includes(sub.ticket_master_id);
+    });
+  }, [targetSession, selectedFloorIds]);
+
+  /**
+   * --- Step 2 data source: gabungkan kategori usia yang SAMA lintas
+   * lantai jadi satu baris, dan JUMLAHKAN harganya ---
+   * Kuncinya `age_category_id` — persis logika yang sudah dipakai di
+   * halaman pembelian tiket pengunjung (`VisitorForm.tsx`), supaya
+   * "Dewasa" di Lantai 1 dan "Dewasa" di Lantai 2 dikenali sebagai
+   * kategori yang sama. Data lama yang belum tertaut master varian usia
+   * jatuh ke pengelompokan by nama.
+   */
+  const ageVariants: AgeVariantRow[] = useMemo(() => {
+    const map = new Map<string, AgeVariantRow>();
+    relevantTickets.forEach((st) => {
+      const sub = st.sub_category;
+      if (!sub) return;
+      const key = sub.age_category_id || `name:${sub.name}`;
+      if (!map.has(key)) {
+        map.set(key, { key, displayName: sub.name, locations: [], totalPricePerPerson: 0 });
+      }
+      const row = map.get(key)!;
+      row.locations.push({
+        masterId: sub.ticket_master_id,
+        masterName: sub.ticket_master_name || "Tiket",
+        subCategoryId: sub.id,
+        price: sub.price,
+      });
+      row.totalPricePerPerson += sub.price;
+    });
+    return Array.from(map.values());
+  }, [relevantTickets]);
+
+  // Sinkronkan `ageCounts` dengan baris yang sedang tampil: pertahankan
+  // angka untuk kategori yang masih relevan (mis. tetap terjual di
+  // sisa lantai yang masih dicentang), buang kategori yang sudah tidak
+  // dijual sama sekali oleh lantai terpilih.
+  useEffect(() => {
+    setAgeCounts((prev) => {
+      const next: Record<string, number> = {};
+      ageVariants.forEach((v) => {
+        next[v.key] = prev[v.key] ?? 0;
+      });
+      return next;
+    });
+  }, [ageVariants]);
+
+  /** ORANG FISIK per kategori usia — dasar validasi Asal Negara & pengiriman ke backend. */
   const totalPeople = useMemo(
-    () => Object.values(quantities).reduce((sum, q) => sum + (Number(q) || 0), 0),
-    [quantities]
+    () => ageVariants.reduce((sum, v) => sum + (ageCounts[v.key] || 0), 0),
+    [ageVariants, ageCounts]
   );
 
   const totalFromCountries = useMemo(
@@ -126,30 +231,32 @@ const ManualEntryModal: React.FC<ManualEntryModalProps> = ({ isOpen, onClose, on
     [countryVisitors]
   );
 
-  const totalPrice = useMemo(() => {
-    if (!targetSession) return 0;
-    let total = 0;
-    targetSession.active_tickets.forEach((st) => {
-      const sub = st.sub_category;
-      if (!sub) return;
-      total += (quantities[st.ticket_sub_category_id] || 0) * sub.price;
-    });
-    return total;
-  }, [targetSession, quantities]);
+  /** Harga total = orang × harga terakumulasi per kategori (sudah mencakup semua lantai terpilih). */
+  const totalPrice = useMemo(
+    () => ageVariants.reduce((sum, v) => sum + (ageCounts[v.key] || 0) * v.totalPricePerPerson, 0),
+    [ageVariants, ageCounts]
+  );
 
   if (!isOpen) return null;
 
   // --- Handlers ---
-  const adjustQuantity = (subCategoryId: string, delta: number) => {
-    setQuantities((prev) => ({
+
+  const toggleFloorSelection = (floorId: string) => {
+    setSelectedFloorIds((prev) =>
+      prev.includes(floorId) ? prev.filter((id) => id !== floorId) : [...prev, floorId]
+    );
+  };
+
+  const adjustQuantity = (variantKey: string, delta: number) => {
+    setAgeCounts((prev) => ({
       ...prev,
-      [subCategoryId]: Math.max(0, (prev[subCategoryId] || 0) + delta),
+      [variantKey]: Math.max(0, (prev[variantKey] || 0) + delta),
     }));
   };
 
-  const handleQuantityInput = (subCategoryId: string, value: string) => {
+  const handleQuantityInput = (variantKey: string, value: string) => {
     const parsed = Math.max(0, parseInt(value, 10) || 0);
-    setQuantities((prev) => ({ ...prev, [subCategoryId]: parsed }));
+    setAgeCounts((prev) => ({ ...prev, [variantKey]: parsed }));
   };
 
   const handleAddCountry = () => setCountryVisitors((prev) => [...prev, { countryCode: "id", count: "" }]);
@@ -162,9 +269,10 @@ const ManualEntryModal: React.FC<ManualEntryModalProps> = ({ isOpen, onClose, on
 
   const handleClose = () => {
     setCustomerName("");
-    setQuantities({});
+    setSelectedFloorIds([]);
+    setAgeCounts({});
     setCountryVisitors([{ countryCode: "id", count: 1 }]);
-    setPayment(CASH_SELECTION);
+    setPayment(null);
     setFormError(null);
     onClose();
   };
@@ -192,21 +300,46 @@ const ManualEntryModal: React.FC<ManualEntryModalProps> = ({ isOpen, onClose, on
       return;
     }
 
+    if (selectedFloorIds.length === 0) {
+      setFormError("Pilih setidaknya satu lantai/lokasi tiket.");
+      return;
+    }
+
     if (totalPeople === 0) {
-      setFormError("Silakan masukkan setidaknya 1 tiket.");
+      setFormError("Silakan masukkan setidaknya 1 pengunjung.");
       return;
     }
 
     if (totalPeople !== totalFromCountries) {
       setFormError(
-        `Jumlah total tiket (${totalPeople}) tidak sama dengan total pengunjung dari daftar asal negara (${totalFromCountries}).`
+        `Jumlah total pengunjung (${totalPeople}) tidak sama dengan total pengunjung dari daftar asal negara (${totalFromCountries}).`
       );
       return;
     }
 
-    const items = Object.entries(quantities)
-      .filter(([, qty]) => qty > 0)
-      .map(([ticket_sub_category_id, quantity]) => ({ ticket_sub_category_id, quantity }));
+    // Pembayaran Tunai tidak diperbolehkan di modal ini — `payment` null
+    // atau `terminalId` null (ciri khas Tunai, lihat `CASH_SELECTION` di
+    // TerminalPicker) berarti belum ada terminal EDC/QRIS yang valid
+    // terpilih. Pemeriksaan ini jaring pengaman terakhir di samping UI
+    // yang memang sudah menyembunyikan opsi Tunai (`excludeCash`).
+    if (!payment || !payment.terminalId) {
+      setFormError(
+        "Pilih metode pembayaran non-tunai (terminal EDC/QRIS) — Tunai tidak diperbolehkan untuk transaksi manual."
+      );
+      return;
+    }
+
+    // Di sinilah orang fisik diterjemahkan jadi unit tiket: satu item
+    // per (kategori usia × lantai terpilih yang menjualnya), masing-
+    // masing sebanyak jumlah orang yang diisi di kategori itu.
+    const items: { ticket_sub_category_id: string; quantity: number }[] = [];
+    ageVariants.forEach((variant) => {
+      const qty = ageCounts[variant.key] || 0;
+      if (qty <= 0) return;
+      variant.locations.forEach((loc) => {
+        items.push({ ticket_sub_category_id: loc.subCategoryId, quantity: qty });
+      });
+    });
 
     const origins = countryVisitors.map((c) => ({
       country_code: c.countryCode,
@@ -283,60 +416,28 @@ const ManualEntryModal: React.FC<ManualEntryModalProps> = ({ isOpen, onClose, on
                   />
                 </div>
 
-                {/* 2. TIKET */}
+                {/* 2. PILIH LANTAI — daftar nama polos, tanpa harga/atribut lain */}
                 <div>
                   <label className="block text-sm font-extrabold text-black mb-3 border-b border-gray-200 pb-2 uppercase tracking-wide">
-                    2. Pilih Tiket ({targetSession.name})
+                    2. Pilih Lantai ({targetSession.name})
                   </label>
-                  <div className="space-y-4">
-                    {groupedTickets.map((group) => {
-                      const theme = getMasterColorTheme(group.masterName);
-                      return (
-                        <div key={group.masterName} className="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm">
-                          <div className={`px-3 py-2 text-xs font-bold border-b uppercase tracking-wide ${theme}`}>
-                            {group.masterName}
-                          </div>
-                          <div className="p-3 space-y-2">
-                            {group.items.map((item) => (
-                              <div key={item.id} className="flex justify-between items-center">
-                                <div>
-                                  <p className="text-sm font-bold text-gray-800">{item.name}</p>
-                                  <p className="text-xs text-gray-400">{formatCurrency(item.price)} / orang</p>
-                                </div>
-                                <div className="flex items-center bg-white border border-gray-300 rounded-md overflow-hidden shadow-sm">
-                                  <button
-                                    type="button"
-                                    onClick={() => adjustQuantity(item.id, -1)}
-                                    disabled={isSubmitting || !isSessionOpen || (quantities[item.id] || 0) <= 0}
-                                    className="w-8 h-8 flex items-center justify-center font-bold text-gray-600 hover:bg-gray-100 disabled:opacity-50"
-                                  >
-                                    -
-                                  </button>
-                                  <input
-                                    type="number"
-                                    min={0}
-                                    value={quantities[item.id] ?? 0}
-                                    onChange={(e) => handleQuantityInput(item.id, e.target.value)}
-                                    onFocus={(e) => e.target.select()}
-                                    disabled={isSubmitting || !isSessionOpen}
-                                    className="w-12 h-8 text-center font-bold text-black border-x border-gray-300 outline-none focus:ring-2 focus:ring-inset focus:ring-[#fb9418] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                                  />
-                                  <button
-                                    type="button"
-                                    onClick={() => adjustQuantity(item.id, 1)}
-                                    disabled={isSubmitting || !isSessionOpen}
-                                    className="w-8 h-8 flex items-center justify-center font-bold text-[#fb9418] hover:bg-orange-50"
-                                  >
-                                    +
-                                  </button>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      );
-                    })}
-                    {groupedTickets.length === 0 && (
+                  <div className="space-y-1.5">
+                    {floorList.map((floor) => (
+                      <label
+                        key={floor.id}
+                        className="flex items-center gap-2.5 px-3 py-2.5 bg-white border border-gray-200 rounded-lg shadow-sm hover:bg-orange-50/50 cursor-pointer"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedFloorIds.includes(floor.id)}
+                          onChange={() => toggleFloorSelection(floor.id)}
+                          disabled={isSubmitting || !isSessionOpen}
+                          className="w-4 h-4 text-[#fb9418] border-gray-300 rounded focus:ring-[#fb9418]"
+                        />
+                        <span className="text-sm text-black font-bold">{floor.label}</span>
+                      </label>
+                    ))}
+                    {floorList.length === 0 && (
                       <p className="text-gray-400 italic text-sm text-center py-4 bg-gray-50 rounded-lg border border-gray-200">
                         Sesi ini belum memiliki tiket aktif.
                       </p>
@@ -344,10 +445,76 @@ const ManualEntryModal: React.FC<ManualEntryModalProps> = ({ isOpen, onClose, on
                   </div>
                 </div>
 
-                {/* 3. ASAL NEGARA */}
+                {/* 3. JUMLAH PENGUNJUNG — satu counter per kategori usia, harga terakumulasi
+                       otomatis dari seluruh lantai yang dicentang di Step 2 */}
+                <div>
+                  <label className="block text-sm font-extrabold text-black mb-3 border-b border-gray-200 pb-2 uppercase tracking-wide">
+                    3. Jumlah Pengunjung
+                  </label>
+                  <div className="space-y-3">
+                    {ageVariants.map((variant) => (
+                      <div key={variant.key} className="p-3 bg-white border border-gray-200 rounded-lg shadow-sm">
+                        <div className="flex justify-between items-center mb-2">
+                          <span className="text-sm font-bold text-gray-800">{variant.displayName}</span>
+                          <span className="text-xs font-bold text-black">
+                            {formatCurrency(variant.totalPricePerPerson)}{" "}
+                            <span className="text-gray-400 font-normal">/ orang</span>
+                          </span>
+                        </div>
+
+                        {/* Rincian akumulasi harga per lantai terpilih — transparan kalau ada >1 lantai */}
+                        {variant.locations.length > 1 && (
+                          <div className="mb-2 space-y-0.5">
+                            {variant.locations.map((loc) => (
+                              <div key={loc.subCategoryId} className="flex justify-between text-[11px] text-gray-400">
+                                <span className="truncate mr-2">{loc.masterName}</span>
+                                <span className="font-mono shrink-0">{formatCurrency(loc.price)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        <div className="flex items-center bg-white border border-gray-300 rounded-md overflow-hidden shadow-sm w-fit">
+                          <button
+                            type="button"
+                            onClick={() => adjustQuantity(variant.key, -1)}
+                            disabled={isSubmitting || !isSessionOpen || (ageCounts[variant.key] || 0) <= 0}
+                            className="w-8 h-8 flex items-center justify-center font-bold text-gray-600 hover:bg-gray-100 disabled:opacity-50"
+                          >
+                            -
+                          </button>
+                          <input
+                            type="number"
+                            min={0}
+                            value={ageCounts[variant.key] ?? 0}
+                            onChange={(e) => handleQuantityInput(variant.key, e.target.value)}
+                            onFocus={(e) => e.target.select()}
+                            disabled={isSubmitting || !isSessionOpen}
+                            className="w-12 h-8 text-center font-bold text-black border-x border-gray-300 outline-none focus:ring-2 focus:ring-inset focus:ring-[#fb9418] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => adjustQuantity(variant.key, 1)}
+                            disabled={isSubmitting || !isSessionOpen}
+                            className="w-8 h-8 flex items-center justify-center font-bold text-[#fb9418] hover:bg-orange-50"
+                          >
+                            +
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                    {ageVariants.length === 0 && (
+                      <p className="text-gray-400 italic text-sm text-center py-4 bg-gray-50 rounded-lg border border-gray-200">
+                        Pilih lantai di Step 2 dahulu untuk menampilkan kategori usia & harganya di sini.
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                {/* 4. ASAL NEGARA */}
                 <div>
                   <div className="flex justify-between items-center mb-3 border-b border-gray-200 pb-2">
-                    <label className="block text-sm font-extrabold text-black uppercase tracking-wide">3. Asal Negara</label>
+                    <label className="block text-sm font-extrabold text-black uppercase tracking-wide">4. Asal Negara</label>
                     <span
                       className={`text-xs font-bold px-2 py-1 rounded-full border ${
                         totalPeople !== totalFromCountries
@@ -407,21 +574,19 @@ const ManualEntryModal: React.FC<ManualEntryModalProps> = ({ isOpen, onClose, on
                   </div>
                 </div>
 
-                {/* 4. METODE PEMBAYARAN — terminal, bukan kategori lepas */}
+                {/* 5. METODE PEMBAYARAN — terminal, bukan kategori lepas. Tunai tidak
+                       tersedia di modal ini (lihat prop `excludeCash`). */}
                 <div>
                   <label className="block text-sm font-extrabold text-black mb-1 border-b border-gray-200 pb-2 uppercase tracking-wide">
-                    4. Metode Pembayaran
+                    5. Metode Pembayaran
                   </label>
-                  <p className="text-[11px] text-gray-400 mb-3">
-                    Pilih terminal yang dipakai menagih. Nama terminal tercatat sebagai Metode Pembayaran
-                    Detail, dan kategorinya mengikuti terminal itu.
-                  </p>
                   <TerminalPicker
                     terminals={terminals}
-                    value={payment}
+                    value={payment ?? { terminalId: "", category: "qris" }}
                     onChange={setPayment}
                     disabled={isSubmitting || !isSessionOpen}
                     name="manual-entry-terminal"
+                    excludeCash
                   />
                 </div>
 

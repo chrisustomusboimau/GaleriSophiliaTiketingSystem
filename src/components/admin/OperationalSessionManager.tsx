@@ -23,7 +23,6 @@ import {
   OperationalSessionPayload,
   TicketMaster,
   UserRole,
-  flattenTicketMasters,
 } from "../../types";
 import {
   formatDateID,
@@ -110,15 +109,19 @@ const OperationalSessionManager: React.FC<OperationalSessionManagerProps> = ({ r
     loadCatalog();
   }, [loadCatalog]);
 
-  const flatCatalog = useMemo(() => flattenTicketMasters(catalog), [catalog]);
-  const groupedCatalog = useMemo(() => {
-    const groups = new Map<string, typeof flatCatalog>();
-    flatCatalog.forEach((sc) => {
-      if (!groups.has(sc.master_name)) groups.set(sc.master_name, []);
-      groups.get(sc.master_name)!.push(sc);
-    });
-    return Array.from(groups.entries());
-  }, [flatCatalog]);
+  /**
+   * Master Tiket yang punya minimal satu Kategori Umur aktif — ini yang
+   * ditampilkan sebagai satu baris pilihan di modal "Sesi Operasional Baru".
+   * Sub-kategori nonaktif (soft-deleted) tidak pernah diikutsertakan.
+   */
+  const selectableMasters = useMemo(
+    () =>
+      catalog
+        .filter((m) => m.is_active)
+        .map((m) => ({ ...m, sub_categories: m.sub_categories.filter((sc) => sc.is_active) }))
+        .filter((m) => m.sub_categories.length > 0),
+    [catalog]
+  );
 
   // --- Create session ---
   const openCreateModal = () => {
@@ -127,13 +130,20 @@ const OperationalSessionManager: React.FC<OperationalSessionManagerProps> = ({ r
     setIsCreateOpen(true);
   };
 
-  const toggleSubCategory = (id: string) => {
-    setCreateForm((prev) => ({
-      ...prev,
-      ticket_sub_category_ids: prev.ticket_sub_category_ids.includes(id)
-        ? prev.ticket_sub_category_ids.filter((x) => x !== id)
-        : [...prev.ticket_sub_category_ids, id],
-    }));
+  /**
+   * Auto-binding: memilih/membatalkan satu Master Tiket akan menambah/
+   * membuang SELURUH id Kategori Umur aktif di bawahnya sekaligus, jadi
+   * admin tidak perlu men-checklist tiap kombinasi satu per satu.
+   */
+  const toggleMaster = (subIds: string[]) => {
+    setCreateForm((prev) => {
+      const allSelected = subIds.every((id) => prev.ticket_sub_category_ids.includes(id));
+      const withoutThisMaster = prev.ticket_sub_category_ids.filter((id) => !subIds.includes(id));
+      return {
+        ...prev,
+        ticket_sub_category_ids: allSelected ? withoutThisMaster : [...withoutThisMaster, ...subIds],
+      };
+    });
   };
 
   /**
@@ -422,26 +432,29 @@ const OperationalSessionManager: React.FC<OperationalSessionManagerProps> = ({ r
 
               <div>
                 <label className="block text-[11px] font-extrabold text-gray-500 uppercase tracking-wider mb-2">Tiket yang Dijual</label>
-                <div className="space-y-3 max-h-64 overflow-y-auto custom-scrollbar pr-1">
-                  {groupedCatalog.map(([masterName, items]) => (
-                    <div key={masterName} className="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm">
-                      <div className="px-3 py-2 text-xs font-bold uppercase tracking-wide bg-gray-50 border-b border-gray-200">{masterName}</div>
-                      <div className="p-2">
-                        {items.map((sc) => (
-                          <label key={sc.id} className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-orange-50/50 cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={createForm.ticket_sub_category_ids.includes(sc.id)}
-                              onChange={() => toggleSubCategory(sc.id)}
-                              className="w-4 h-4 text-[#fb9418] border-gray-300 rounded focus:ring-[#fb9418]"
-                            />
-                            <span className="text-sm text-black font-medium">{sc.name}</span>
-                          </label>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                  {groupedCatalog.length === 0 && (
+                <div className="space-y-1.5 max-h-64 overflow-y-auto custom-scrollbar pr-1">
+                  {selectableMasters.map((master) => {
+                    const subIds = master.sub_categories.map((sc) => sc.id);
+                    const checked = subIds.every((id) => createForm.ticket_sub_category_ids.includes(id));
+                    return (
+                      <label
+                        key={master.id}
+                        className="flex items-center gap-2.5 px-3 py-2.5 bg-white border border-gray-200 rounded-lg shadow-sm hover:bg-orange-50/50 cursor-pointer"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleMaster(subIds)}
+                          className="w-4 h-4 text-[#fb9418] border-gray-300 rounded focus:ring-[#fb9418]"
+                        />
+                        <span className="text-sm text-black font-bold">{master.name}</span>
+                        <span className="text-[11px] text-gray-400 font-medium">
+                          ({master.sub_categories.map((sc) => sc.name).join(", ")})
+                        </span>
+                      </label>
+                    );
+                  })}
+                  {selectableMasters.length === 0 && (
                     <p className="text-sm text-gray-400 italic">Belum ada master tiket. Buat master tiket terlebih dahulu.</p>
                   )}
                 </div>

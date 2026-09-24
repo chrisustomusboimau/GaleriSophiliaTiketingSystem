@@ -14,6 +14,11 @@
  * kategori dan terminal secara terpisah, cepat atau lambat akan ada
  * transaksi berkategori "QRIS" dengan detail "EDC 1" — dan laporan
  * rekonsiliasi langsung tidak bisa dipercaya.
+ *
+ * PROP `excludeCash`: dipakai layar yang tidak boleh mencatat Tunai
+ * sama sekali (mis. modal Tambah Manual). Menyaring baris Tunai
+ * generik MAUPUN terminal sungguhan berkategori `cash`, tanpa
+ * mempengaruhi dua pemakai lain komponen ini.
  */
 
 import React from "react";
@@ -53,6 +58,14 @@ interface TerminalPickerProps {
   disabled?: boolean;
   /** Nama radio group — wajib unik kalau ada dua picker di satu halaman. */
   name?: string;
+  /**
+   * Sembunyikan SEMUA opsi Tunai — baik baris generik ("Tunai" tanpa
+   * terminal) maupun terminal sungguhan berkategori `cash`. Dipakai di
+   * layar yang memang tidak boleh mencatat pembayaran tunai (mis. modal
+   * Tambah Manual), tanpa mengubah tampilan di layar lain yang memakai
+   * komponen yang sama.
+   */
+  excludeCash?: boolean;
 }
 
 const TerminalPicker: React.FC<TerminalPickerProps> = ({
@@ -61,17 +74,22 @@ const TerminalPicker: React.FC<TerminalPickerProps> = ({
   onChange,
   disabled = false,
   name = "payment-terminal",
+  excludeCash = false,
 }) => {
   // Opsi Tunai generik hanya ditawarkan kalau sesi kasir ini TIDAK punya
   // terminal berkategori tunai sendiri — kalau punya, dua baris "Tunai"
   // yang artinya sama hanya akan membingungkan kasir.
   const hasCashTerminal = terminals.some((t) => t.category === "cash");
 
+  // Kalau `excludeCash`, terminal berkategori cash pun ikut disaring dari
+  // daftar yang dirender — bukan hanya baris fallback generiknya.
+  const visibleTerminals = excludeCash ? terminals.filter((t) => t.category !== "cash") : terminals;
+
   const isSelected = (terminalId: string | null) => value.terminalId === terminalId;
 
   return (
     <div className="space-y-2">
-      {terminals.map((terminal) => (
+      {visibleTerminals.map((terminal) => (
         <label
           key={terminal.id}
           className={`flex items-center gap-3 p-3 border-2 rounded-lg transition-all ${
@@ -101,7 +119,7 @@ const TerminalPicker: React.FC<TerminalPickerProps> = ({
         </label>
       ))}
 
-      {!hasCashTerminal && (
+      {!excludeCash && !hasCashTerminal && (
         <label
           className={`flex items-center gap-3 p-3 border-2 rounded-lg transition-all ${
             disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer"
@@ -125,10 +143,11 @@ const TerminalPicker: React.FC<TerminalPickerProps> = ({
         </label>
       )}
 
-      {terminals.length === 0 && (
+      {visibleTerminals.length === 0 && (
         <p className="text-xs text-amber-700 bg-amber-50 border-l-4 border-amber-400 p-3 rounded-r">
-          Sesi kasir Anda tidak memiliki terminal EDC/QRIS. Hanya pembayaran tunai yang bisa dicatat. Untuk
-          menambah terminal, tutup lalu buka kembali sesi kasir dan pilih terminalnya.
+          {excludeCash
+            ? "Sesi kasir Anda tidak memiliki terminal EDC/QRIS, dan pembayaran Tunai tidak diperbolehkan di layar ini. Tutup lalu buka kembali sesi kasir dan pilih terminal non-tunai."
+            : "Sesi kasir Anda tidak memiliki terminal EDC/QRIS. Hanya pembayaran tunai yang bisa dicatat. Untuk menambah terminal, tutup lalu buka kembali sesi kasir dan pilih terminalnya."}
         </p>
       )}
     </div>

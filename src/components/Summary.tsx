@@ -71,8 +71,8 @@ const Summary: React.FC<SummaryProps> = ({ sessions, transactions, exportSlot })
 
   // --- MATRIKS PENGUNJUNG — judul dinamis ---
   const matrixTitle = isCombined
-    ? "Rangkuman Pengunjung Keseluruhan (Laporan Gabungan)"
-    : `Rangkuman Pengunjung - Sesi ${sessions[0]?.name ?? "-"}`;
+    ? "Rangkuman Pengunjung"
+    : `Rangkuman Pengunjung`;
 
   return (
     <div className="space-y-6">
@@ -127,9 +127,6 @@ const Summary: React.FC<SummaryProps> = ({ sessions, transactions, exportSlot })
       <div className="bg-[#fcfcfc] rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
         <div className="p-5 border-b border-gray-200 bg-white">
           <h4 className="text-sm font-extrabold text-black uppercase tracking-wider">{matrixTitle}</h4>
-          <p className="text-xs text-gray-600 mt-1 font-medium">
-            Jumlah pengunjung per kategori umur, disilangkan dengan setiap kemungkinan kombinasi jenis tiket.
-          </p>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse min-w-[720px]">
