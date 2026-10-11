@@ -1,5 +1,5 @@
 /**
- * TicketsUnavailablePage.tsx — BARU
+ * TicketsUnavailablePage.tsx
  * ----------------------------------------------------
  * Halaman tujuan pengunjung ketika TIDAK ADA sesi penjualan yang sedang
  * berjalan. Dicapai lewat dua jalan:
@@ -10,37 +10,14 @@
  *      403 — yaitu ketika sesi keburu berakhir selagi pengunjung mengisi
  *      formulir.
  *
- * Teks permintaan maafnya ditampilkan dalam BAHASA AKTIF pengunjung saja
- * (bukan dua bahasa bertumpuk), konsisten dengan seluruh layar publik lain.
+ * Isi modal berupa informasi jam ketersediaan formulir (ID + EN, teks tetap
+ * sesuai desain) tanpa tombol navigasi apa pun.
  */
 
-import React, { useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { useLanguage } from "../contexts/LanguageContext";
-import { useActiveSession } from "../contexts/ActiveSessionContext";
+import React from "react";
 import Header from "../components/Header";
 
 const TicketsUnavailablePage: React.FC = () => {
-  const navigate = useNavigate();
-  const { language, translations } = useLanguage();
-  const { reload } = useActiveSession();
-  const [isChecking, setIsChecking] = useState(false);
-
-  /**
-   * Sesi berikutnya bisa dibuka admin kapan saja selagi pengunjung berdiri
-   * di halaman ini — tombol ini menanyakan ulang ke server, dan kalau sudah
-   * ada sesi berjalan, langsung mengantar ke pemilihan tiket.
-   */
-  const handleCheckAgain = async () => {
-    setIsChecking(true);
-    try {
-      const nowActive = await reload();
-      if (nowActive) navigate("/ticket-selection", { replace: true });
-    } finally {
-      setIsChecking(false);
-    }
-  };
-
   return (
     <div className="min-h-screen bg-black flex flex-col relative font-sans">
       <Header />
@@ -48,33 +25,32 @@ const TicketsUnavailablePage: React.FC = () => {
       <main className="flex-1 flex flex-col items-center justify-center p-4 sm:p-8 relative">
         <div className="absolute inset-0 bg-gradient-to-b from-black to-zinc-900 -z-10" />
 
-        <div className="w-full max-w-lg bg-[#fcfcfc] rounded-2xl shadow-2xl p-8 sm:p-10 border border-gray-200 text-center">
-
-
-          <h2 className="text-xl sm:text-2xl font-bold text-black uppercase tracking-wide mb-4">
-            {translations.ticketsUnavailableTitle[language]}
+        <div className="w-full max-w-lg bg-black rounded-2xl shadow-2xl p-8 sm:p-10 border border-zinc-700 text-center text-[#fcfcfc]">
+          {/* Judul */}
+          <h2 className="text-xl sm:text-2xl font-normal">
+            Formulir belum tersedia
           </h2>
-
-          <p className="text-gray-600 text-base leading-relaxed mb-8">
-            {translations.ticketsUnavailableMessage[language]}
+          <p className="text-lg sm:text-xl italic mb-8">
+            The form is not available
           </p>
 
-          <div className="flex flex-col sm:flex-row gap-3">
-            <button
-              onClick={() => navigate("/", { replace: true })}
-              className="flex-1 py-4 font-bold text-black bg-white border border-gray-300 hover:bg-gray-100 rounded-xl transition-all duration-200 active:scale-95"
-            >
-              {translations.backToHomeButton[language]}
-            </button>
+          {/* Bahasa Indonesia */}
+          <p className="text-base sm:text-lg mb-4">
+            Formulir ini hanya dapat diakses pada waktu berikut:
+          </p>
+          <ul className="list-disc list-inside font-bold text-base sm:text-lg space-y-1 mb-8">
+            <li>Sabtu tertentu: 12.30 – 16.00</li>
+            <li>Minggu: 11.00 – 14.35</li>
+          </ul>
 
-            <button
-              onClick={handleCheckAgain}
-              disabled={isChecking}
-              className="flex-1 py-4 font-bold text-[#fcfcfc] bg-[#fb9418] hover:bg-orange-500 rounded-xl transition-all duration-200 shadow-md active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isChecking ? translations.checkingSession[language] : translations.checkAgainButton[language]}
-            </button>
-          </div>
+          {/* English */}
+          <p className="text-base sm:text-lg italic mb-4">
+            This form is only available at:
+          </p>
+          <ul className="list-disc list-inside font-bold italic text-base sm:text-lg space-y-1">
+            <li>Selected Saturdays: 12:30 - 16:00</li>
+            <li>Sundays: 11:00 - 14:35</li>
+          </ul>
         </div>
       </main>
     </div>
