@@ -8,6 +8,8 @@
  * varian usia sepenuhnya dinamis — apa pun yang dikonfigurasi admin di
  * Master Data (bisa 2, 3, 5 varian, nama apa saja), diambil langsung dari
  * sesi operasional yang sedang aktif.
+ *
+ * Harga ditampilkan apa adanya, tanpa keterangan "per orang".
  */
 
 import React from "react";
@@ -31,10 +33,9 @@ interface FloorCardProps {
   floor: FloorData;
   isSelected: boolean;
   onToggle: (id: string) => void;
-  perPersonLabel: string;
 }
 
-const FloorCard: React.FC<FloorCardProps> = ({ floor, isSelected, onToggle, perPersonLabel }) => {
+const FloorCard: React.FC<FloorCardProps> = ({ floor, isSelected, onToggle }) => {
   return (
     <button
       onClick={() => onToggle(floor.id)}
@@ -60,9 +61,7 @@ const FloorCard: React.FC<FloorCardProps> = ({ floor, isSelected, onToggle, perP
         {floor.variants.map((v) => (
           <div key={v.id} className="flex justify-between text-sm">
             <span className="text-gray-600 font-medium">{v.name}</span>
-            <span className="font-bold text-black">
-              {formatCurrency(v.price)} <span className="text-gray-400 font-normal text-xs">/ {perPersonLabel}</span>
-            </span>
+            <span className="font-bold text-black">{formatCurrency(v.price)}</span>
           </div>
         ))}
         {floor.variants.length === 0 && <p className="text-xs text-gray-400 italic">-</p>}
