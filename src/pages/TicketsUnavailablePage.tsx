@@ -39,19 +39,23 @@ const TicketsUnavailablePage: React.FC = () => {
           <p className="text-base sm:text-lg mb-4">
             Formulir ini hanya dapat diakses pada waktu berikut:
           </p>
-          <ul className="list-disc list-inside font-bold text-base sm:text-lg space-y-1 mb-8">
-            <li>Sabtu tertentu: 12.30 – 16.00</li>
-            <li>Minggu: 11.00 – 14.35</li>
-          </ul>
+          <div className="text-center mb-8">
+            <ul className="inline-block text-left list-disc pl-6 font-bold text-base sm:text-lg space-y-1">
+              <li>Sabtu tertentu: 12.30 – 16.00</li>
+              <li>Minggu: 11.00 – 14.35</li>
+            </ul>
+          </div>
 
           {/* English */}
           <p className="text-base sm:text-lg italic mb-4">
             This form is only available at:
           </p>
-          <ul className="list-disc list-inside font-bold italic text-base sm:text-lg space-y-1">
-            <li>Selected Saturdays: 12:30 - 16:00</li>
-            <li>Sundays: 11:00 - 14:35</li>
-          </ul>
+          <div className="text-center">
+            <ul className="inline-block text-left list-disc pl-6 font-bold italic text-base sm:text-lg space-y-1">
+              <li>Selected Saturdays: 12:30 - 16:00</li>
+              <li>Sundays: 11:00 - 14:35</li>
+            </ul>
+          </div>
         </div>
       </main>
     </div>
