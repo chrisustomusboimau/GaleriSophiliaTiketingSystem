@@ -385,9 +385,9 @@ const VisitorForm: React.FC = () => {
         // benar-benar dikirim backend (`TicketSubCategoryRead`).
         let ageLabel = "";
         if (sub.max_age !== null && sub.max_age !== undefined) {
-          ageLabel = `${sub.min_age} - ${sub.max_age} ${translations.yearsOld[language]}`;
+          ageLabel = `${sub.min_age} - ${sub.max_age}`;
         } else {
-          ageLabel = `${sub.min_age}+ ${translations.yearsOld[language]}`;
+          ageLabel = `${sub.min_age}+`;
         }
 
         map.set(key, {

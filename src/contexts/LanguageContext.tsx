@@ -415,11 +415,6 @@ const defaultTranslations = {
     en: "Please enter your name.",
     zh: "请填写订购人姓名。",
   },
-  yearsOld: {
-    id: "tahun",
-    en: "years old",
-    zh: "岁",
-  },
   visitorCountTitle: {
     id: "Jumlah Pengunjung",
     en: "Number of Visitors",
