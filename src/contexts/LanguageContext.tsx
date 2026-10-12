@@ -49,12 +49,12 @@ const defaultTranslations = {
     en: "Continue",
     zh: "继续",
   },
-backButton: {
+  backButton: {
     id: "Kembali",
     en: "Back",
     zh: "返回",
   },
-ticketingTitle: {
+  ticketingTitle: {
     id: "Pemesanan Tiket",
     en: "Ticket Booking",
     zh: "门票预订",
@@ -233,12 +233,12 @@ ticketingTitle: {
     zh: "并体验一次宝贵的文化之旅。" 
   },
   continueButton2: { 
-      id: "Klik disini untuk memilih tiket", 
-      en: "Click here to select tickets", 
-      zh: "点击此处选择门票" 
-    },
+    id: "Klik disini untuk memilih tiket", 
+    en: "Click here to select tickets", 
+    zh: "点击此处选择门票" 
+  },
 
-// --- TAMBAHAN BARU UNTUK TICKET SELECTION PAGE ---
+  // --- TAMBAHAN BARU UNTUK TICKET SELECTION PAGE ---
   floor6And7Label: { id: "Lantai 6 & 7", en: "Floor 6 & 7", zh: "6 & 7层" },
   floor5Label: { id: "Lantai 5", en: "Floor 5", zh: "5层" },
   floor1Label: { id: "Lantai 1", en: "Floor 1", zh: "1层" },
@@ -255,7 +255,8 @@ ticketingTitle: {
     en: "Continue ({count} Selected)", 
     zh: "继续 (已选 {count} 项)" 
   },
-// --- TAMBAHAN BARU UNTUK QUEUE DISPLAY PAGE ---
+
+  // --- TAMBAHAN BARU UNTUK QUEUE DISPLAY PAGE ---
   ticketDetails: { id: "Rincian Tiket", en: "Ticket Details", zh: "门票详情" },
   totalPerPerson: { id: "Total per orang:", en: "Total per person:", zh: "人均总计：" },
   noTicketData: { id: "Data tiket tidak tersedia.", en: "Ticket data is not available.", zh: "暂无门票数据。" },
@@ -271,7 +272,8 @@ ticketingTitle: {
     en: "Show your queue number to the cashier and prepare your physical Debit/Credit card for payment using our EDC machine.", 
     zh: "请向收银员出示排队号，并准备好您的实体借记卡/信用卡，以便使用我们的 EDC 机器进行付款。" 
   },
-// --- TAMBAHAN BARU UNTUK QUEUE PAGE ---
+
+  // --- TAMBAHAN BARU UNTUK QUEUE PAGE ---
   visitorNotFoundDetail: { 
     id: "Data pengunjung tidak ditemukan. Tiket mungkin sudah kedaluwarsa atau ID salah.", 
     en: "Visitor data not found. The ticket may have expired or the ID is incorrect.", 
@@ -351,6 +353,7 @@ ticketingTitle: {
     en: "Cash",
     zh: "现金",
   },
+
   // --- BARU: halaman "belum bisa membeli tiket" (tidak ada sesi berjalan) ---
   // Teks ID & EN di bawah adalah salinan PERSIS dari spesifikasi — jangan
   // diubah tanpa persetujuan. Versi ZH ditambahkan agar konsisten dengan
@@ -381,6 +384,76 @@ ticketingTitle: {
     id: "Tunjukkan nomor antrian ke kasir dan siapkan uang tunai pas untuk proses pembayaran.",
     en: "Show your queue number to the cashier and prepare exact cash for payment.",
     zh: "请向收银员出示排队号，并准备好现金以完成付款。",
+  },
+
+  // --- BARU: VisitorForm (dipindahkan dari LOCAL_STRINGS di VisitorForm.tsx) ---
+  // Teks "memuat tiket" dan "tidak ada sesi aktif" memakai kunci yang sudah
+  // ada di atas (`loadingTickets`, `noActiveSessionMessage`) karena isinya
+  // identik di ketiga bahasa.
+  noMatchingTickets: {
+    id: "Pilihan lantai Anda tidak tersedia pada sesi saat ini. Silakan pilih ulang.",
+    en: "Your floor selection is not available in the current session. Please select again.",
+    zh: "您选择的楼层在当前场次中不可用，请重新选择。",
+  },
+  backToSelection: {
+    id: "Pilih Ulang Lantai",
+    en: "Reselect Floors",
+    zh: "重新选择楼层",
+  },
+  customerNameLabel: {
+    id: "Nama Pemesan",
+    en: "Your Name",
+    zh: "订购人姓名",
+  },
+  customerNamePlaceholder: {
+    id: "Masukkan nama Anda",
+    en: "Enter your name",
+    zh: "请输入您的姓名",
+  },
+  customerNameRequired: {
+    id: "Nama pemesan wajib diisi.",
+    en: "Please enter your name.",
+    zh: "请填写订购人姓名。",
+  },
+  yearsOld: {
+    id: "tahun",
+    en: "years old",
+    zh: "岁",
+  },
+  visitorCountTitle: {
+    id: "Jumlah Pengunjung",
+    en: "Number of Visitors",
+    zh: "参观人数",
+  },
+  visitorCountHint: {
+    id: "Isi jumlah orang per kategori usia. Tiket dihitung otomatis untuk setiap lokasi yang Anda pilih.",
+    en: "Enter how many people per age category. Tickets are calculated automatically for each location you selected.",
+    zh: "请按年龄类别填写人数。系统会为您选择的每个区域自动计算门票。",
+  },
+  selectedLocations: {
+    id: "Lokasi dipilih",
+    en: "Selected locations",
+    zh: "已选区域",
+  },
+  ticketMath: {
+    id: "{people} orang × {floors} lokasi = {tickets} tiket",
+    en: "{people} people × {floors} locations = {tickets} tickets",
+    zh: "{people} 人 × {floors} 个区域 = {tickets} 张票",
+  },
+  totalTickets: {
+    id: "Total Tiket",
+    en: "Total Tickets",
+    zh: "门票总数",
+  },
+  notAvailableEverywhere: {
+    id: "Tidak tersedia di semua lokasi terpilih",
+    en: "Not available at every selected location",
+    zh: "并非所有已选区域都提供",
+  },
+  ticketUnit: {
+    id: "tiket",
+    en: "tickets",
+    zh: "张票",
   },
 };
 

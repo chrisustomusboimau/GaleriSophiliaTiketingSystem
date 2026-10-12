@@ -25,6 +25,12 @@
  * Mencampur keduanya adalah kesalahan yang paling mudah terjadi di sini,
  * jadi keduanya dihitung terpisah dan diberi nama eksplisit di bawah
  * (`totalVisitors` vs `totalTickets`).
+ *
+ * PERUBAHAN TAMPILAN (v3) — KARTU COUNTER DISEDERHANAKAN.
+ * Teks "/ orang" dan rincian harga per lokasi dihapus dari kartu. Yang
+ * tersisa hanya harga total per orang. Peringatan ketersediaan
+ * ("Tidak tersedia di semua lokasi terpilih") tetap dipertahankan karena
+ * hanya muncul pada kasus khusus.
  */
 
 import React, { useEffect, useMemo, useState, useRef } from "react";
@@ -54,66 +60,6 @@ const getDefaultCountryByLanguage = (language: "id" | "en" | "zh"): string => {
     zh: "cn",
   };
   return languageToCountryMap[language] || "id";
-};
-
-const LOCAL_STRINGS: Record<"id" | "en" | "zh", Record<string, string>> = {
-  id: {
-    loadingSession: "Memuat tiket yang tersedia...",
-    noActiveSession: "Tidak ada sesi penjualan tiket yang sedang dibuka saat ini. Silakan coba lagi nanti.",
-    noMatchingTickets: "Pilihan lantai Anda tidak tersedia pada sesi saat ini. Silakan pilih ulang.",
-    backToSelection: "Pilih Ulang Lantai",
-    customerNameLabel: "Nama Pemesan",
-    customerNamePlaceholder: "Masukkan nama Anda",
-    customerNameRequired: "Nama pemesan wajib diisi.",
-    yearsOld: "tahun",
-    visitorCountTitle: "Jumlah Pengunjung",
-    visitorCountHint: "Isi jumlah orang per kategori usia. Tiket dihitung otomatis untuk setiap lokasi yang Anda pilih.",
-    selectedLocations: "Lokasi dipilih",
-    perLocation: "per lokasi",
-    ticketMath: "{people} orang × {floors} lokasi = {tickets} tiket",
-    totalTickets: "Total Tiket",
-    notAvailableEverywhere: "Tidak tersedia di semua lokasi terpilih",
-    perPerson: "orang",
-    ticketUnit: "tiket",
-  },
-  en: {
-    loadingSession: "Loading available tickets...",
-    noActiveSession: "There is no open ticket session right now. Please try again later.",
-    noMatchingTickets: "Your floor selection is not available in the current session. Please select again.",
-    backToSelection: "Reselect Floors",
-    customerNameLabel: "Your Name",
-    customerNamePlaceholder: "Enter your name",
-    customerNameRequired: "Please enter your name.",
-    yearsOld: "years old",
-    visitorCountTitle: "Number of Visitors",
-    visitorCountHint: "Enter how many people per age category. Tickets are calculated automatically for each location you selected.",
-    selectedLocations: "Selected locations",
-    perLocation: "per location",
-    ticketMath: "{people} people × {floors} locations = {tickets} tickets",
-    totalTickets: "Total Tickets",
-    notAvailableEverywhere: "Not available at every selected location",
-    perPerson: "person",
-    ticketUnit: "tickets",
-  },
-  zh: {
-    loadingSession: "正在加载可购票种...",
-    noActiveSession: "目前没有开放的售票场次，请稍后再试。",
-    noMatchingTickets: "您选择的楼层在当前场次中不可用，请重新选择。",
-    backToSelection: "重新选择楼层",
-    customerNameLabel: "订购人姓名",
-    customerNamePlaceholder: "请输入您的姓名",
-    customerNameRequired: "请填写订购人姓名。",
-    yearsOld: "岁",
-    visitorCountTitle: "参观人数",
-    visitorCountHint: "请按年龄类别填写人数。系统会为您选择的每个区域自动计算门票。",
-    selectedLocations: "已选区域",
-    perLocation: "每个区域",
-    ticketMath: "{people} 人 × {floors} 个区域 = {tickets} 张票",
-    totalTickets: "门票总数",
-    notAvailableEverywhere: "并非所有已选区域都提供",
-    perPerson: "人",
-    ticketUnit: "张票",
-  },
 };
 
 /* =====================================================
@@ -157,7 +103,6 @@ interface CounterInputProps {
   selectedFloorCount: number;
   value: number | string;
   onChange: (value: number | string) => void;
-  strings: Record<string, string>;
 }
 
 /* =====================================================
@@ -172,8 +117,8 @@ const CounterInput: React.FC<CounterInputProps> = ({
   selectedFloorCount,
   value,
   onChange,
-  strings,
 }) => {
+  const { language, translations } = useLanguage();
   const numericValue = Number(value) || 0;
   const subtotal = numericValue * price;
   const inputId = `counter-${label.replace(/\s+/g, "-").toLowerCase()}`;
@@ -189,7 +134,7 @@ const CounterInput: React.FC<CounterInputProps> = ({
 
   return (
     <div className="mb-4 p-4 border border-gray-200 rounded-xl bg-white shadow-sm">
-      <div className="flex justify-between items-start mb-3 gap-3">
+      <div className="flex justify-between items-start mb-4 gap-3">
         <div className="min-w-0">
           <label htmlFor={inputId} className="font-bold text-black cursor-pointer block">
             {label}
@@ -202,23 +147,14 @@ const CounterInput: React.FC<CounterInputProps> = ({
         </div>
         <div className="text-right shrink-0">
           <span className="text-gray-800 font-bold block">{formatCurrency(price)}</span>
-          <span className="text-[10px] text-gray-400 font-medium">/ {strings.perPerson}</span>
         </div>
       </div>
 
-      {/* Rincian harga per lokasi — pengunjung berhak tahu total di atas
-          berasal dari mana, terutama kalau harganya beda antar lantai. */}
-      <div className="mb-3 space-y-0.5">
-        {locations.map((loc) => (
-          <div key={loc.subCategoryId} className="flex justify-between text-[11px] text-gray-500">
-            <span className="truncate mr-2">{loc.masterName}</span>
-            <span className="font-mono shrink-0">{formatCurrency(loc.price)}</span>
-          </div>
-        ))}
-        {isPartial && (
-          <p className="text-[11px] text-amber-600 font-medium pt-1">{strings.notAvailableEverywhere}</p>
-        )}
-      </div>
+      {/* Peringatan hanya muncul jika varian ini tidak dijual di semua
+          lokasi terpilih, supaya harga total tidak terasa janggal. */}
+      {isPartial && (
+        <p className="mb-3 text-[11px] text-amber-600 font-medium">{translations.notAvailableEverywhere[language]}</p>
+      )}
 
       <div className="flex items-center justify-between">
         <button
@@ -263,7 +199,7 @@ const CounterInput: React.FC<CounterInputProps> = ({
           {numericValue} × {formatCurrency(price)} ={" "}
           <span className="font-bold text-black">{formatCurrency(subtotal)}</span>
           <span className="block text-[11px] text-gray-400">
-            {numericValue * locations.length} {strings.ticketUnit}
+            {numericValue * locations.length} {translations.ticketUnit[language]}
           </span>
         </div>
       )}
@@ -363,7 +299,6 @@ const VisitorForm: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { language, translations } = useLanguage();
-  const t = LOCAL_STRINGS[language] || LOCAL_STRINGS.id;
 
   const selectedFloors: string[] = location.state?.selectedFloors || [];
 
@@ -450,9 +385,9 @@ const VisitorForm: React.FC = () => {
         // benar-benar dikirim backend (`TicketSubCategoryRead`).
         let ageLabel = "";
         if (sub.max_age !== null && sub.max_age !== undefined) {
-          ageLabel = `${sub.min_age} - ${sub.max_age} ${t.yearsOld}`;
+          ageLabel = `${sub.min_age} - ${sub.max_age} ${translations.yearsOld[language]}`;
         } else {
-          ageLabel = `${sub.min_age}+ ${t.yearsOld}`;
+          ageLabel = `${sub.min_age}+ ${translations.yearsOld[language]}`;
         }
 
         map.set(key, {
@@ -477,7 +412,7 @@ const VisitorForm: React.FC = () => {
     // Urutkan menurut usia minimum lewat urutan kemunculan lokasi pertama,
     // supaya Anak selalu di atas Dewasa seperti di katalog.
     return Array.from(map.values());
-  }, [relevantTickets, language, t]);
+  }, [relevantTickets, language, translations]);
 
   useEffect(() => {
     if (ageVariants.length === 0) return;
@@ -556,7 +491,7 @@ const VisitorForm: React.FC = () => {
 
   const validateForm = (): boolean => {
     if (!customerName.trim()) {
-      setError(t.customerNameRequired);
+      setError(translations.customerNameRequired[language]);
       return false;
     }
     if (totalVisitors === 0) {
@@ -637,7 +572,7 @@ const VisitorForm: React.FC = () => {
   if (isLoadingSession) {
     return (
       <div className="max-w-md mx-auto text-black pb-8 text-center py-16">
-        <p className="text-gray-400 font-medium">{t.loadingSession}</p>
+        <p className="text-gray-400 font-medium">{translations.loadingTickets[language]}</p>
       </div>
     );
   }
@@ -646,14 +581,14 @@ const VisitorForm: React.FC = () => {
     return (
       <div className="max-w-md mx-auto text-black pb-8 text-center py-16 px-4">
         <div className="p-5 bg-red-50 border border-red-200 text-red-700 rounded-xl shadow-sm mb-6">
-          {sessionError || t.noActiveSession}
+          {sessionError || translations.noActiveSessionMessage[language]}
         </div>
         <button
           type="button"
           onClick={() => navigate("/ticket-selection")}
           className="px-5 py-3 font-bold text-black bg-white border border-gray-300 hover:bg-gray-100 rounded-xl transition-all"
         >
-          {t.backToSelection}
+          {translations.backToSelection[language]}
         </button>
       </div>
     );
@@ -662,19 +597,19 @@ const VisitorForm: React.FC = () => {
   if (ageVariants.length === 0) {
     return (
       <div className="max-w-md mx-auto text-black pb-8 text-center py-16 px-4">
-        <div className="p-5 bg-red-50 border border-red-200 text-red-700 rounded-xl shadow-sm mb-6">{t.noMatchingTickets}</div>
+        <div className="p-5 bg-red-50 border border-red-200 text-red-700 rounded-xl shadow-sm mb-6">{translations.noMatchingTickets[language]}</div>
         <button
           type="button"
           onClick={() => navigate("/ticket-selection")}
           className="px-5 py-3 font-bold text-black bg-white border border-gray-300 hover:bg-gray-100 rounded-xl transition-all"
         >
-          {t.backToSelection}
+          {translations.backToSelection[language]}
         </button>
       </div>
     );
   }
 
-  const ticketMathText = t.ticketMath
+  const ticketMathText = translations.ticketMath[language]
     .replace("{people}", String(totalVisitors))
     .replace("{floors}", String(selectedLocationNames.length))
     .replace("{tickets}", String(totalTickets));
@@ -684,14 +619,14 @@ const VisitorForm: React.FC = () => {
       {/* Nama Pemesan */}
       <div className="mb-6 p-4 border border-gray-200 rounded-xl bg-[#fcfcfc] shadow-sm">
         <label htmlFor="customer-name" className="block font-bold text-black mb-2">
-          {t.customerNameLabel}
+          {translations.customerNameLabel[language]}
         </label>
         <input
           id="customer-name"
           type="text"
           value={customerName}
           onChange={(e) => setCustomerName(e.target.value)}
-          placeholder={t.customerNamePlaceholder}
+          placeholder={translations.customerNamePlaceholder[language]}
           required
           className="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-[#fb9418] focus:border-[#fb9418] outline-none bg-white font-medium transition-shadow"
         />
@@ -702,12 +637,12 @@ const VisitorForm: React.FC = () => {
         <div className="mb-4 border-b border-orange-200 pb-3">
           <h3 className="font-extrabold text-lg text-black flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-[#fb9418]"></span>
-            {t.visitorCountTitle}
+            {translations.visitorCountTitle[language]}
           </h3>
-          <p className="text-xs text-gray-500 mt-1.5">{t.visitorCountHint}</p>
+          <p className="text-xs text-gray-500 mt-1.5">{translations.visitorCountHint[language]}</p>
           <div className="mt-3 flex flex-wrap items-center gap-1.5">
             <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wide">
-              {t.selectedLocations}:
+              {translations.selectedLocations[language]}:
             </span>
             {selectedLocationNames.map((name) => (
               <span
@@ -731,7 +666,6 @@ const VisitorForm: React.FC = () => {
               selectedFloorCount={selectedLocationNames.length}
               value={counts[variant.key] ?? 0}
               onChange={(v) => updateCount(variant.key, v)}
-              strings={t}
             />
           ))}
         </div>
@@ -833,7 +767,7 @@ const VisitorForm: React.FC = () => {
           </span>
         </div>
         <div className="flex justify-between mb-2 text-sm">
-          <span className="text-gray-600 font-medium">{t.totalTickets}</span>
+          <span className="text-gray-600 font-medium">{translations.totalTickets[language]}</span>
           <span className="font-bold text-black">{totalTickets}</span>
         </div>
         {totalVisitors > 0 && selectedLocationNames.length > 1 && (
