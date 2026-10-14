@@ -26,7 +26,7 @@ const TicketsUnavailablePage: React.FC = () => {
       <main className="flex-1 flex flex-col items-center justify-center p-4 sm:p-8 relative">
         <div className="absolute inset-0 bg-gradient-to-b from-black to-zinc-900 -z-10" />
 
-        <div className="w-full max-w-lg bg-white rounded-2xl shadow-2xl p-8 sm:p-10 border border-gray-200 text-center text-black">
+        <div className="w-full max-w-lg bg-white rounded-2xl shadow-2xl p-8 sm:p-10 border-4 border-[#fb9418] text-center text-black">
           {/* Judul */}
           <h2 className="text-xl sm:text-2xl font-normal">
             Formulir belum tersedia
