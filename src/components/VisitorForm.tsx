@@ -31,6 +31,11 @@
  * tersisa hanya harga total per orang. Peringatan ketersediaan
  * ("Tidak tersedia di semua lokasi terpilih") tetap dipertahankan karena
  * hanya muncul pada kasus khusus.
+ *
+ * PERUBAHAN TAMPILAN (v4) — LAYOUT DIRAPIKAN.
+ * Judul "Jumlah Pengunjung", teks petunjuk, dan daftar "Lokasi dipilih"
+ * dihapus dari kartu. Rentang usia kini tampil sebaris dengan nama tiket
+ * dalam tanda kurung, mis. "Remaja (0 - 17)", dengan gaya yang sama.
  */
 
 import React, { useEffect, useMemo, useState, useRef } from "react";
@@ -134,16 +139,14 @@ const CounterInput: React.FC<CounterInputProps> = ({
 
   return (
     <div className="mb-4 p-4 border border-gray-200 rounded-xl bg-white shadow-sm">
-      <div className="flex justify-between items-start mb-4 gap-3">
+      <div className="flex justify-between items-center mb-4 gap-3">
         <div className="min-w-0">
+          {/* Rentang usia ikut di dalam label, jadi font, ukuran, dan warnanya
+              otomatis sama persis dengan nama tiket. */}
           <label htmlFor={inputId} className="font-bold text-black cursor-pointer block">
             {label}
+            {ageLabel && ` (${ageLabel})`}
           </label>
-          {ageLabel && (
-            <span className="text-xs font-semibold text-orange-600 bg-orange-50 px-2 py-0.5 rounded-md border border-orange-100 inline-block mt-1">
-              {ageLabel}
-            </span>
-          )}
         </div>
         <div className="text-right shrink-0">
           <span className="text-gray-800 font-bold block">{formatCurrency(price)}</span>
@@ -455,7 +458,11 @@ const VisitorForm: React.FC = () => {
     [ageVariants, pureCounts]
   );
 
-  /** Nama lokasi terpilih, untuk ditampilkan di ringkasan atas. */
+  /**
+   * Nama lokasi terpilih. Tidak lagi ditampilkan sebagai badge, tetapi
+   * jumlahnya masih dipakai untuk peringatan ketersediaan dan ringkasan
+   * perhitungan tiket.
+   */
   const selectedLocationNames = useMemo(() => {
     const names = new Map<string, string>();
     ageVariants.forEach((v) =>
@@ -634,27 +641,6 @@ const VisitorForm: React.FC = () => {
 
       {/* Jumlah pengunjung — PER VARIAN USIA, berlaku untuk semua lokasi */}
       <div className="mb-6 p-5 border border-orange-100 rounded-xl bg-orange-50/30 shadow-sm">
-        <div className="mb-4 border-b border-orange-200 pb-3">
-          <h3 className="font-extrabold text-lg text-black flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-[#fb9418]"></span>
-            {translations.visitorCountTitle[language]}
-          </h3>
-          <p className="text-xs text-gray-500 mt-1.5">{translations.visitorCountHint[language]}</p>
-          <div className="mt-3 flex flex-wrap items-center gap-1.5">
-            <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wide">
-              {translations.selectedLocations[language]}:
-            </span>
-            {selectedLocationNames.map((name) => (
-              <span
-                key={name}
-                className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-white text-[#fb9418] border border-orange-200"
-              >
-                {name}
-              </span>
-            ))}
-          </div>
-        </div>
-
         <div className="space-y-1">
           {ageVariants.map((variant) => (
             <CounterInput
