@@ -715,9 +715,24 @@ const VisitorForm: React.FC = () => {
           ))}
         </div>
 
-        <button type="button" onClick={handleAddCountry} className="mt-5 font-bold text-[#fb9418] hover:text-orange-600 transition-colors flex items-center gap-1.5">
-          <span className="text-xl leading-none">+</span> {translations.addCountry[language]}
-        </button>
+      <button
+        type="button"
+        onClick={handleAddCountry}
+        className="mt-5 font-bold text-[#fb9418] hover:text-orange-600 transition-colors flex items-center gap-2"
+      >
+        <svg
+          className="w-5 h-5 shrink-0"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="3"
+          strokeLinecap="round"
+          aria-hidden="true"
+        >
+          <path d="M12 5v14M5 12h14" />
+        </svg>
+        <span className="leading-none">{translations.addCountry[language]}</span>
+      </button>
       </div>
 
       {/* Payment Method Selection */}
