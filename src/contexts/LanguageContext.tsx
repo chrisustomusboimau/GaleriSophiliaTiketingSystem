@@ -40,8 +40,8 @@ const defaultTranslations = {
     zh: "欢迎来到索菲莉亚美术馆", // 画廊 -> 美术馆 (Untuk '索菲莉亚' perlu samaain dengan punya GS, takut beda)
   },
   welcomeDescription: {
-    id: "Silakan pilih bahasa Anda untuk melanjutkan",
-    en: "Please select your language to continue",
+    id: "Silakan pilih bahasa Anda",
+    en: "Please select your language",
     zh: "请选择您的语言以继续",
   },
   continueButton: {
@@ -65,39 +65,9 @@ const defaultTranslations = {
     zh: "访客数量",
   },
   visitorDescription: {
-    id: "Masukkan jumlah pengunjung berdasarkan usia",
-    en: "Please select the number of visitors by age category", // Please select the number of visitors by age category
+    id: "Jumlah pengunjung berdasarkan usia",
+    en: "Visitors by age category", // Please select the number of visitors by age category
     zh: "请按年龄段选择访客人数", // 请按年龄段选择访客人数
-  },
-  childLabel: {
-    id: "Anak \n(7-12)",
-    en: "Child \n(7-12)", 
-    zh: "儿童\n（7-12）",
-  },
-  teenLabel: {
-    id: "Pelajar \n(13-21)",
-    en: "Student \n(13-21)",
-    zh: "学生\n（13-21）",
-  },
-  adultLabel: {
-    id: "Dewasa \n(≥ 22)",
-    en: "Adult \n(≥ 22)", 
-    zh: "成人\n（≥ 22）",
-  },
-  childLabel2: {
-    id: "Anak (7-12)",
-    en: "Child (7-12)", 
-    zh: "儿童（7-12）",
-  },
-  teenLabel2: {
-    id: "Pelajar (13-21)",
-    en: "Student (13-21)",
-    zh: "学生（13-21）",
-  },
-  adultLabel2: {
-    id: "Dewasa (≥ 22)",
-    en: "Adult (≥ 22)", 
-    zh: "成人（≥ 22）",
   },
   totalVisitors: {
     id: "Pengunjung",
@@ -135,8 +105,8 @@ const defaultTranslations = {
     zh: "选择国籍",
   },
   visitorAmountError: {
-    id: "Jumlah pengunjung tidak sesuai dengan negara asal",
-    en: "The number of visitors does not match the country of origin", // their -> the
+    id: "Jumlah pengunjung tidak sesuai",
+    en: "The number of visitors does not match",
     zh: "访客数量与其原籍国不符",
   },
   visitorAmountRequired: {
@@ -145,8 +115,8 @@ const defaultTranslations = {
     zh: "请输入访客人数",
   },
   addCountry: {
-    id: "Tambah Kewarganegaraan",
-    en: "Add Nationality", // Country -> Nationality
+    id: "Tambah",
+    en: "Add",
     zh: "添加国家",
   },
   queueNumberLabel: {
@@ -181,7 +151,7 @@ const defaultTranslations = {
   },
   seeBannerInfo: { 
     id: "Silakan lihat informasi detail pada banner kami.", 
-    en: "Please refer to our information banner for detailed information.", 
+    en: "Please refer to our information banner for details.", 
     zh: "请参阅我们的横幅以获取详细信息。" 
   },
   floor1: { id: "Lantai 1", en: "1ˢᵗ floor", zh: "1层" },
@@ -237,20 +207,7 @@ const defaultTranslations = {
   },
 
   // --- TAMBAHAN BARU UNTUK QUEUE DISPLAY PAGE ---
-  totalPerPerson: { id: "Total per orang:", en: "Total per person:", zh: "人均总计：" },
-  noTicketData: { id: "Data tiket tidak tersedia.", en: "Ticket data is not available.", zh: "暂无门票数据。" },
   totalPayment: { id: "Total Pembayaran:", en: "Total Payment:", zh: "总付款：" },
-  yourPaymentMethod: { id: "Pilihan Pembayaran Anda", en: "Your Payment Method", zh: "您的付款方式" },
-  qrisInstruction: { 
-    id: "Tunjukkan nomor antrian ke kasir dan pindai QR Code yang tersedia di meja resepsionis menggunakan aplikasi M-Banking atau E-Wallet Anda.", 
-    en: "Show your queue number to the cashier and scan the QR Code available at the reception desk using your Mobile Banking or E-Wallet app.", 
-    zh: "请向收银员出示排队号，并使用您的手机银行或电子钱包扫描接待台上的二维码。" 
-  },
-  cardInstruction: { 
-    id: "Tunjukkan nomor antrian ke kasir dan persiapkan kartu Debit/Kredit fisik Anda untuk proses pembayaran menggunakan mesin EDC kami.", 
-    en: "Show your queue number to the cashier and prepare your physical Debit/Credit card for payment using our EDC machine.", 
-    zh: "请向收银员出示排队号，并准备好您的实体借记卡/信用卡，以便使用我们的 EDC 机器进行付款。" 
-  },
 
   // --- TAMBAHAN BARU UNTUK QUEUE PAGE ---
   visitorNotFoundDetail: { 
