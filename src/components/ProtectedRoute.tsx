@@ -10,9 +10,11 @@
  *     selesai memuat profil user (`GET /users/me`) sebelum merender child
  *     route. Ini WAJIB supaya `RequireRole` (dipasang di dalam sini) sudah
  *     punya `user.role` yang valid saat dievaluasi, bukan `null` sesaat.
- * [3] Kalau token ternyata invalid/kedaluwarsa, `api/client.ts` sudah
- *     menangani hard-redirect ke /login secara global (lihat forceLogout).
- *     Baris `!user` di bawah ini hanya jaring pengaman tambahan.
+ * [3] Kalau token ternyata invalid/kedaluwarsa, AuthContext membersihkan
+ *     token dan `user` menjadi null — cabang `!user` di bawah inilah yang
+ *     mengarahkan ke /login (hanya untuk rute terproteksi). Halaman publik
+ *     TIDAK ikut dialihkan. 401 di tengah sesi kerja staf tetap ditangani
+ *     `api/client.ts` (forceLogout).
  */
 import { Navigate, Outlet } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";

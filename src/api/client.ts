@@ -3,7 +3,9 @@
  * ----------------------------------------------------
  * Klien fetch terpusat untuk seluruh aplikasi.
  * - Menyisipkan otomatis header Authorization: Bearer <token>.
- * - Menangani error 401 secara global (bersihkan token & redirect /login).
+ * - Menangani error 401 secara global (bersihkan token & redirect /login),
+ *   kecuali pemanggil memakai `skipAuthRedirect` (halaman publik / cek profil
+ *   saat aplikasi pertama dibuka — lihat AuthContext).
  * - Menyediakan helper apiGet / apiPost / apiPatch / apiDelete yang
  *   sudah di-generic-kan agar tipe respons konsisten di seluruh komponen.
  */
@@ -35,10 +37,19 @@ export function getAuthHeaders(): Record<string, string> {
   };
 }
 
-/** Membersihkan sesi lokal & mengarahkan pengguna kembali ke halaman login. */
-export function forceLogout() {
+/**
+ * Hanya membersihkan token di localStorage — TANPA redirect. Dipakai saat
+ * token basi ditemukan di halaman publik (mis. perangkat kiosk yang dulu
+ * dipakai staf login), supaya pengunjung tidak ditendang ke /login.
+ */
+export function clearAuthStorage() {
   localStorage.removeItem("access_token");
   localStorage.removeItem("token_type");
+}
+
+/** Membersihkan sesi lokal & mengarahkan pengguna kembali ke halaman login. */
+export function forceLogout() {
+  clearAuthStorage();
   if (window.location.pathname !== "/login") {
     window.location.href = "/login";
   }

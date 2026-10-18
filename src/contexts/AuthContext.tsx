@@ -9,10 +9,15 @@
  *
  * Hanya melakukan fetch kalau ada token di localStorage — halaman publik
  * (ScanPage, VisitorForm, dst.) tidak memicu request apa pun.
+ *
+ * Kalau token itu ternyata basi, token dibersihkan diam-diam dan halaman
+ * publik tetap tampil (TIDAK ada redirect otomatis ke /login). Redirect ke
+ * /login hanya terjadi untuk rute terproteksi (ProtectedRoute) atau saat
+ * pengguna membuka /login sendiri.
  */
 
 import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
-import { apiGet, getAccessToken, forceLogout } from "../api/client";
+import { apiGet, ApiError, getAccessToken, forceLogout, clearAuthStorage } from "../api/client";
 import { UserStaff } from "../types";
 
 interface AuthContextValue {
@@ -40,10 +45,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       setIsLoading(true);
       setError(null);
-      const fetched = await apiGet<UserStaff>("/users/me");
+      // skipAuthRedirect: AuthProvider dipasang di ROOT, jadi cek profil ini
+      // juga jalan di halaman publik (/, /info, /queue/:id, dst.). Kalau di
+      // perangkat itu masih tersimpan token basi, 401 di sini TIDAK boleh
+      // memaksa pengunjung pindah ke /login. Untuk halaman terproteksi,
+      // `ProtectedRoute` yang mengarahkan ke /login (user === null).
+      const fetched = await apiGet<UserStaff>("/users/me", { skipAuthRedirect: true });
       setUser(fetched);
       return fetched;
     } catch (err) {
+      // Token ditolak server (kedaluwarsa/tidak valid) -> buang diam-diam.
+      // Error jaringan/server (bukan 401) TIDAK menghapus token.
+      if (err instanceof ApiError && err.status === 401) {
+        clearAuthStorage();
+      }
       setUser(null);
       setError(err instanceof Error ? err.message : "Gagal memuat profil staf.");
       return null;

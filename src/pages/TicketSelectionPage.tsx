@@ -151,7 +151,6 @@ const TicketSelectionPage: React.FC = () => {
                   floor={floor}
                   isSelected={selectedFloors.includes(floor.id)}
                   onToggle={toggleFloor}
-                  perPersonLabel={translations.perPersonLabel[language]}
                 />
               ))}
             </div>
