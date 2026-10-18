@@ -661,7 +661,7 @@ const VisitorForm: React.FC = () => {
       <div className="mb-8 p-5 border border-gray-200 rounded-xl bg-[#fcfcfc] shadow-sm">
         <div className="flex justify-between items-center mb-5 border-b border-gray-200 pb-3">
           <label className="block font-bold text-black">
-            {translations.citizenship?.[language] || "Kewarganegaraan"}
+            {translations.citizenship?.[language] || "Negara Asal"}
           </label>
           {/* Dibandingkan dengan ORANG FISIK, bukan unit tiket. */}
           <span

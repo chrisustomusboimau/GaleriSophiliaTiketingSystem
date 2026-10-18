@@ -111,12 +111,12 @@ const defaultTranslations = {
   },
   getQueueButton: {
     id: "Pesan Sekarang",
-    en: "Order Now",
+    en: "Book Now",
     zh: "立即下单", 
   },
   processing: {
-    id: "Memproses...",
-    en: "Processing...",
+    id: "Mengirim...",
+    en: "Submitting...",
     zh: "处理中...",
   },
   people: {
@@ -125,13 +125,13 @@ const defaultTranslations = {
     zh: "位", // 位
   },
   citizenship: {
-    id: "Kewarganegaraan",
-    en: "Citizenship",
+    id: "Negara Asal",
+    en: "Country",
     zh: "国籍",
   },
   selectCitizenship: {
-    id: "Pilih kewarganegaraan",
-    en: "Select citizenship",
+    id: "Pilih negara asal",
+    en: "Select country",
     zh: "选择国籍",
   },
   visitorAmountError: {
@@ -145,7 +145,7 @@ const defaultTranslations = {
     zh: "请输入访客人数",
   },
   addCountry: {
-    id: "Tambah Negara",
+    id: "Tambah Kewarganegaraan",
     en: "Add Nationality", // Country -> Nationality
     zh: "添加国家",
   },
@@ -154,25 +154,15 @@ const defaultTranslations = {
     en: "Your Queue Number",
     zh: "您的排队号码",
   },
-  visitorDetailTitle: {
-    id: "Detail Pengunjung",
-    en: "Visitor Information", // Details -> Information
-    zh: "访客详情",
-  },
   totalPriceLabel: {
     id: "Total Harga",
     en: "Total Price", 
     zh: "总价", 
   },
   queueInstruction: {
-    id: "Silakan tunjukkan nomor antrian ini kepada petugas kasir untuk melakukan pembayaran dan mendapatkan tiket masuk fisik Anda.",
-    en: "Please present this ticket number to the cashier for payment and to collect your physical entrance ticket.", 
-    zh: "请向收银员出示此排队号码以完成付款并领取实体门票",
-  },
-  floorSelectionDesc: { 
-    id: "Anda memilih {count} lantai. Harga yang tertera adalah total biaya per orang untuk akses tersebut.", 
-    en: "You selected {count} floors. The price shown is the total cost per person for the access.", 
-    zh: "您选择了 {count} 层。显示的价格是该访问权限的人均总费用。" 
+    id: "Mohon tunggu dipanggil sesuai nomor antrian. Setelah mendapatkan tiket, silakan titipkan tas, botol minum, dan kamera di bagian loker.",
+    en: "Please wait for your queue number to be called. Once you have your ticket, kindly store your bags, drink bottles, and cameras in the locker area.",
+    zh: "请耐心等待叫号。领取门票后，请将背包、水瓶和相机寄存在储物柜区域。",
   },
   paymentMethod: { id: "Metode Pembayaran", en: "Payment Method", zh: "支付方式" },
   creditDebitCard: { id: "Kartu Kredit/Debit", en: "Credit/Debit Card", zh: "信用卡/借记卡" },
@@ -223,33 +213,23 @@ const defaultTranslations = {
     zh: "请选择您的门票" 
   },
   forOneTwoOrAll: { 
-    id: "untuk satu, dua, atau semua sekaligus", 
-    en: "for one, two, or all at once", 
+    id: "boleh satu, dua, atau semua sekaligus", 
+    en: "you may choose one, two, or all", 
     zh: "选择一层、两层或全部" 
   },
   enjoyCulturalJourney: { 
     id: "dan rasakan perjalanan budaya yang berharga.", 
-    en: "and experience a valuable cultural journey.", 
+    en: "and embark on a valuable cultural journey.", 
     zh: "并体验一次宝贵的文化之旅。" 
   },
   continueButton2: { 
     id: "Klik disini untuk memilih tiket", 
-    en: "Click here to select tickets", 
+    en: "Click here to choose your tickets", 
     zh: "点击此处选择门票" 
   },
 
   // --- TAMBAHAN BARU UNTUK TICKET SELECTION PAGE ---
-  floor6And7Label: { id: "Lantai 6 & 7", en: "Floor 6 & 7", zh: "6 & 7层" },
-  floor5Label: { id: "Lantai 5", en: "Floor 5", zh: "5层" },
-  floor1Label: { id: "Lantai 1", en: "Floor 1", zh: "1层" },
   exhibitionArea: { id: "Area Pameran", en: "Exhibition Area", zh: "展览区域" },
-  floorInfoAria: { id: "Informasi Lantai", en: "Floor Information", zh: "楼层信息" },
-  floorInfoTitle: { id: "Lihat informasi kurasi lantai", en: "View floor curation information", zh: "查看楼层策展信息" },
-  selectFloorInstruction: { 
-    id: "Silakan pilih tiket Anda untuk satu, dua, atau semua sekaligus", 
-    en: "Please select your tickets for one, two, or all at once", 
-    zh: "请选择您的门票，可选一个、两个或全部" 
-  },
   continueSelected: { 
     id: "Lanjutkan ({count} Dipilih)", 
     en: "Continue ({count} Selected)", 
@@ -257,7 +237,6 @@ const defaultTranslations = {
   },
 
   // --- TAMBAHAN BARU UNTUK QUEUE DISPLAY PAGE ---
-  ticketDetails: { id: "Rincian Tiket", en: "Ticket Details", zh: "门票详情" },
   totalPerPerson: { id: "Total per orang:", en: "Total per person:", zh: "人均总计：" },
   noTicketData: { id: "Data tiket tidak tersedia.", en: "Ticket data is not available.", zh: "暂无门票数据。" },
   totalPayment: { id: "Total Pembayaran:", en: "Total Payment:", zh: "总付款：" },

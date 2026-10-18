@@ -106,7 +106,6 @@ const TicketSelectionPage: React.FC = () => {
             <div className="flex items-center justify-center gap-2">
               <h2 className="text-xl font-bold text-black uppercase tracking-wide">{translations.exhibitionArea[language]}</h2>
             </div>
-            <p className="text-gray-500 text-sm mt-2">{translations.selectFloorInstruction[language]}</p>
           </div>
 
           {isLoading && (
