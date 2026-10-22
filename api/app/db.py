@@ -307,6 +307,19 @@ class OperationalSession(Base):
     end_time   = Column(Time, nullable=False)             # e.g., 16:00:00
     status     = Column(String, nullable=False, default="draft")  # draft, opened, closed
 
+    # BARU (v4) — PEMILIK sesi: admin yang membuatnya. Dipakai pemeriksaan
+    # kepemilikan (ownership check) di PATCH/DELETE /sessions/{id}.
+    # SET NULL, bukan RESTRICT/CASCADE: menghapus akun admin yang sudah
+    # resign tidak boleh menghalangi, dan tidak boleh ikut menghapus
+    # sesi (beserta riwayat transaksinya). Sesi tanpa pemilik (NULL —
+    # baris lama sebelum v4, atau pemiliknya sudah dihapus) dapat dikelola
+    # admin mana pun; lihat `_assert_session_owner` di app.py.
+    created_by_id = Column(
+        Uuid(as_uuid=True),
+        ForeignKey("user.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
     __table_args__ = (
         CheckConstraint("status IN ('draft','opened','closed')", name="ck_session_status_valid"),
     )

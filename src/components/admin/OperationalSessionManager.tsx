@@ -14,13 +14,18 @@
  * - Buka (Open) & Tutup (Close) sesi: ADMIN SAJA (kasir tidak lagi bisa).
  * - Isi/edit nomor tiket awal & akhir: admin & kasir, kapan saja selama
  *   status sesi 'opened' (tidak lagi terkunci setelah diisi sekali).
+ * - Edit & Hapus sesi: admin PEMILIK sesi saja (lihat `canManageRow`).
+ *   Edit -> `SessionEditModal`; Hapus -> `ConfirmDialog` dulu. Hasil
+ *   keduanya langsung tercermin di tabel (state lokal dari respons server),
+ *   tanpa perlu refresh halaman.
  */
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { apiGet, apiPost, apiPatch, ApiError } from "../../api/client";
+import { apiGet, apiPost, apiPatch, apiDelete, ApiError } from "../../api/client";
 import {
   OperationalSession,
   OperationalSessionPayload,
+  OperationalSessionUpdatePayload,
   TicketMaster,
   UserRole,
 } from "../../types";
@@ -34,16 +39,21 @@ import {
   SESSION_LIVE_BADGE,
 } from "../../utils/formatters";
 import SessionAuditForm from "./SessionAuditForm";
+import SessionEditModal from "./SessionEditModal";
+import ConfirmDialog from "../ConfirmDialog";
+import { Toast, useToast } from "../Toast";
 
 interface OperationalSessionManagerProps {
   role: UserRole | null;
+  /** ID user yang sedang login — untuk menentukan sesi mana yang dimilikinya (tombol Edit/Hapus). */
+  currentUserId?: string | null;
   /** Dipanggil saat user menekan "Ke Detail Sesi" — biasanya `navigate('/sesi/' + id)`. */
   onGoToDetail: (sessionId: string) => void;
 }
 
 const emptyForm = { name: "", date: "", start_time: "", end_time: "", ticket_sub_category_ids: [] as string[] };
 
-const OperationalSessionManager: React.FC<OperationalSessionManagerProps> = ({ role, onGoToDetail }) => {
+const OperationalSessionManager: React.FC<OperationalSessionManagerProps> = ({ role, currentUserId, onGoToDetail }) => {
   const isAdmin = role === "admin";
   /** Buka & Tutup sesi: admin saja. */
   const canManageSession = role === "admin";
@@ -67,9 +77,20 @@ const OperationalSessionManager: React.FC<OperationalSessionManagerProps> = ({ r
   const [detailError, setDetailError] = useState<string | null>(null);
   const [statusSaving, setStatusSaving] = useState(false);
 
-  const loadSessions = useCallback(async () => {
+  // Edit & Hapus
+  const [editingSession, setEditingSession] = useState<OperationalSession | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<OperationalSession | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const { toast, showToast } = useToast();
+
+  /**
+   * @param silent true = muat ulang di latar TANPA menampilkan "Memuat
+   *   sesi..." (tabel tidak berkedip). Dipakai setelah edit untuk
+   *   menyelaraskan urutan & filter dengan server.
+   */
+  const loadSessions = useCallback(async (silent = false) => {
     try {
-      setIsLoading(true);
+      if (!silent) setIsLoading(true);
       setError(null);
       const params = new URLSearchParams();
       if (dateFilter) params.set("date", dateFilter);
@@ -88,7 +109,7 @@ const OperationalSessionManager: React.FC<OperationalSessionManagerProps> = ({ r
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Gagal memuat sesi operasional.");
     } finally {
-      setIsLoading(false);
+      if (!silent) setIsLoading(false);
     }
   }, [dateFilter, statusFilter, isAdmin]);
 
@@ -249,6 +270,59 @@ const OperationalSessionManager: React.FC<OperationalSessionManagerProps> = ({ r
     }
   };
 
+  // --- Edit & Hapus sesi ---
+
+  /**
+   * Hanya admin PEMILIK sesi yang melihat tombol Edit/Hapus. Sesi tanpa
+   * pemilik (`created_by_id` null: data lama / akun pembuatnya sudah
+   * dihapus) bisa dikelola admin mana pun. INI HANYA UX: backend tetap
+   * memeriksa ulang dan membalas 403 kalau aturan ini dilanggar.
+   */
+  const canManageRow = (s: OperationalSession) =>
+    isAdmin && (!s.created_by_id || s.created_by_id === currentUserId);
+
+  const handleUpdateSession = async (target: OperationalSession, changes: OperationalSessionUpdatePayload) => {
+    try {
+      const updated = await apiPatch<OperationalSession>(`/sessions/${target.id}`, changes);
+      // Instan: tukar baris lama dengan versi dari server (sumber kebenaran).
+      setSessions((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
+      setEditingSession(null);
+      showToast(`Sesi "${updated.name}" berhasil diperbarui.`);
+      // Tanggal/jam yang berubah bisa menggeser urutan atau mengeluarkan
+      // baris dari filter tanggal aktif — selaraskan diam-diam di latar.
+      void loadSessions(true);
+    } catch (err) {
+      showToast(err instanceof ApiError ? err.message : "Gagal memperbarui sesi.", "error");
+      throw err; // modal menampilkan pesan yang sama di dalam form & tetap terbuka
+    }
+  };
+
+  /**
+   * Hapus TIDAK dibuat optimistik-di-depan (baris dihapus sebelum server
+   * menjawab): server bisa menolak (409 — sesi sudah punya transaksi), dan
+   * baris yang sudah hilang lalu "muncul lagi" lebih membingungkan daripada
+   * menunggu ~100 ms. Jadi: tunggu OK dari server, lalu buang baris dari
+   * state lokal SEKETIKA — tanpa refetch & tanpa refresh halaman.
+   */
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget) return;
+    const target = deleteTarget;
+    try {
+      setDeleting(true);
+      await apiDelete(`/sessions/${target.id}`);
+      setSessions((prev) => prev.filter((s) => s.id !== target.id));
+      setDeleteTarget(null);
+      showToast(`Sesi "${target.name}" berhasil dihapus.`);
+    } catch (err) {
+      setDeleteTarget(null);
+      showToast(err instanceof ApiError ? err.message : "Gagal menghapus sesi.", "error");
+      // Data mungkin basi (mis. sesi sudah dihapus admin lain -> 404): segarkan daftar.
+      void loadSessions(true);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   return (
     <div className="w-full max-w-6xl mx-auto text-black">
       <div className="mb-6 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 border-b border-gray-200 pb-5">
@@ -365,6 +439,25 @@ const OperationalSessionManager: React.FC<OperationalSessionManagerProps> = ({ r
                         >
                           Ke Detail Sesi
                         </button>
+                      )}
+                      {canManageRow(s) && (
+                        <>
+                          <button
+                            onClick={() => setEditingSession(s)}
+                            disabled={s.status === "closed"}
+                            title={s.status === "closed" ? "Sesi yang sudah ditutup tidak bisa diubah" : "Edit sesi"}
+                            className="text-xs font-bold px-3 py-1.5 rounded-lg border border-gray-300 text-gray-600 hover:border-[#fb9418] hover:text-[#fb9418] disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-gray-300 disabled:hover:text-gray-600"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => setDeleteTarget(s)}
+                            title="Hapus sesi"
+                            className="text-xs font-bold px-3 py-1.5 rounded-lg border border-red-200 text-red-600 hover:bg-red-600 hover:text-white hover:border-red-600"
+                          >
+                            Hapus
+                          </button>
+                        </>
                       )}
                     </div>
                   </td>
@@ -543,6 +636,45 @@ const OperationalSessionManager: React.FC<OperationalSessionManagerProps> = ({ r
           </div>
         </div>
       )}
+
+      {/* MODAL EDIT — key = id sesi agar form selalu dibuat ulang & pre-filled */}
+      {editingSession && (
+        <SessionEditModal
+          key={editingSession.id}
+          session={editingSession}
+          otherSessions={sessions}
+          onSubmit={(changes) => handleUpdateSession(editingSession, changes)}
+          onClose={() => setEditingSession(null)}
+        />
+      )}
+
+      {/* DIALOG KONFIRMASI HAPUS */}
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        danger
+        loading={deleting}
+        title="Hapus sesi ini?"
+        confirmLabel="Ya, Hapus"
+        message={
+          deleteTarget && (
+            <>
+              <p>
+                Sesi <strong className="text-black">{deleteTarget.name}</strong> (
+                {formatDateID(deleteTarget.date)}, {toTimeInputValue(deleteTarget.start_time)}–
+                {toTimeInputValue(deleteTarget.end_time)}) beserta daftar tiket & audit nomor tiketnya akan dihapus
+                permanen. Tindakan ini tidak bisa dibatalkan.
+              </p>
+              <p className="mt-2 text-xs text-gray-500">
+                Sesi yang sudah memiliki transaksi atau sesi kasir tidak dapat dihapus.
+              </p>
+            </>
+          )
+        }
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setDeleteTarget(null)}
+      />
+
+      <Toast toast={toast} />
     </div>
   );
 };

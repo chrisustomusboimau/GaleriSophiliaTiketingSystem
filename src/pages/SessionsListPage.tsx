@@ -73,7 +73,7 @@ const SessionsListPage: React.FC = () => {
 
       <main className="flex-1 p-4 sm:p-6 lg:p-8">
         <div className="max-w-7xl mx-auto text-black">
-          <OperationalSessionManager role={user.role} onGoToDetail={(sessionId) => navigate(`/sesi/${sessionId}`)} />
+          <OperationalSessionManager role={user.role} currentUserId={user.id} onGoToDetail={(sessionId) => navigate(`/sesi/${sessionId}`)} />
         </div>
       </main>
     </div>

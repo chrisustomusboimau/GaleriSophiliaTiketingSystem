@@ -25,7 +25,8 @@ from app.schema import (
     TransactionUpdateData,
     TicketMasterCreate, TicketMasterRead, TicketMasterUpdate,
     TicketSubCategoryCreate, TicketSubCategoryRead, TicketSubCategoryUpdate,
-    OperationalSessionCreate, OperationalSessionRead, OperationalSessionUpdate,
+    OperationalSessionCreate, OperationalSessionRead, OperationalSessionStaffRead,
+    OperationalSessionUpdate,
     SessionTicketAuditRead, SessionTicketAuditStartUpdate, SessionTicketAuditEndUpdate,
     SessionTicketAuditBulkUpdate,
     ActiveSessionStatusRead,
@@ -872,7 +873,7 @@ async def _assert_no_session_overlap(
         )
 
 
-@app.post(f"{PREFIX}/sessions", response_model=OperationalSessionRead, status_code=201, tags=["sessions"])
+@app.post(f"{PREFIX}/sessions", response_model=OperationalSessionStaffRead, status_code=201, tags=["sessions"])
 async def create_operational_session(
     payload: OperationalSessionCreate,
     session: AsyncSession = Depends(get_async_session),
@@ -907,6 +908,7 @@ async def create_operational_session(
         start_time=payload.start_time,
         end_time=payload.end_time,
         status="draft",
+        created_by_id=admin.id,   # pemilik sesi — dasar ownership check PATCH/DELETE
         active_tickets=session_tickets
     )
     session.add(new_session)
@@ -927,7 +929,7 @@ async def create_operational_session(
         raise HTTPException(status_code=500, detail=f"Gagal membuat sesi: {e}")
 
 
-@app.get(f"{PREFIX}/sessions", response_model=List[OperationalSessionRead], tags=["sessions"])
+@app.get(f"{PREFIX}/sessions", response_model=List[OperationalSessionStaffRead], tags=["sessions"])
 async def list_operational_sessions(
     date_filter: Optional[date] = Query(None, alias="date", description="Filter tanggal, format YYYY-MM-DD"),
     status: Optional[str] = Query(None, description="Filter status: draft, opened, closed"),
@@ -1027,7 +1029,7 @@ async def get_active_session_status(
     )
 
 
-@app.get(f"{PREFIX}/sessions/{{session_id}}", response_model=OperationalSessionRead, tags=["sessions"])
+@app.get(f"{PREFIX}/sessions/{{session_id}}", response_model=OperationalSessionStaffRead, tags=["sessions"])
 async def get_operational_session(
     session_id: uuid.UUID,
     session: AsyncSession = Depends(get_async_session),
@@ -1039,6 +1041,169 @@ async def get_operational_session(
     if not entry:
         raise HTTPException(status_code=404, detail="Sesi tidak ditemukan.")
     return entry
+
+
+# ----------------------------------------------------------
+# EDIT & HAPUS SESI (ADMIN PEMILIK)
+# ----------------------------------------------------------
+
+async def _get_session_for_update(session: AsyncSession, session_id: uuid.UUID) -> OperationalSession:
+    """
+    Memuat sesi + MENGUNCI barisnya (SELECT ... FOR UPDATE) sampai transaksi
+    selesai, atau 404. Kunci ini menutup race: tanpa itu, sesi yang
+    dibaca berstatus 'draft' bisa keburu dibuka admin lain sebelum PATCH
+    kita commit, dan aturan "jadwal terkunci setelah dibuka" jadi bocor.
+    """
+    result = await session.execute(
+        select(OperationalSession)
+        .where(OperationalSession.id == session_id)
+        .with_for_update()
+    )
+    entry = result.scalars().first()
+    if not entry:
+        raise HTTPException(status_code=404, detail="Sesi tidak ditemukan.")
+    return entry
+
+
+def _assert_session_owner(entry: OperationalSession, user: User) -> None:
+    """
+    Ownership check: hanya admin yang membuat sesi yang boleh mengubah /
+    menghapusnya (403 kalau bukan). Role admin sudah dijamin oleh
+    dependency `current_admin` di endpoint; ini lapisan kedua.
+
+    Sesi tanpa pemilik (`created_by_id IS NULL` — baris sebelum migrasi v4,
+    atau akun pemiliknya sudah dihapus) dapat dikelola admin mana pun,
+    kalau tidak sesi itu "yatim" dan tak bisa diubah siapa pun selamanya.
+
+    Mau melonggarkan jadi "semua admin boleh"? Cukup hapus pemanggilan
+    fungsi ini di dua endpoint di bawah.
+    """
+    if entry.created_by_id is not None and entry.created_by_id != user.id:
+        raise HTTPException(
+            status_code=403,
+            detail="Akses ditolak. Sesi ini dibuat oleh admin lain; hanya pembuatnya yang bisa mengubah atau menghapusnya.",
+        )
+
+
+@app.patch(f"{PREFIX}/sessions/{{session_id}}", response_model=OperationalSessionStaffRead, tags=["sessions"])
+async def update_operational_session(
+    session_id: uuid.UUID,
+    payload: OperationalSessionUpdate,
+    session: AsyncSession = Depends(get_async_session),
+    admin: User = Depends(current_admin),
+):
+    """ADMIN PEMILIK: Mengubah nama / tanggal / jam sesi (partial update).
+
+    Urutan pemeriksaan: 404 sesi tidak ada → 403 bukan pemilik →
+    409 status sesi tidak mengizinkan → 400 jadwal tidak valid / bentrok.
+    (Body yang tidak valid ditolak lebih awal oleh Pydantic, 422.)
+
+    Aturan per status:
+      - draft  : nama, tanggal, jam boleh diubah.
+      - opened : HANYA nama. Jadwal dikunci karena sesi sudah bisa
+                 melayani pembelian & transaksi mungkin sudah masuk;
+                 menggeser jamnya diam-diam akan mengubah arti laporan.
+      - closed : tidak bisa diubah sama sekali (arsip laporan).
+    """
+    entry = await _get_session_for_update(session, session_id)
+    _assert_session_owner(entry, admin)
+
+    # Hanya field yang BENAR-BENAR berbeda dari nilai sekarang.
+    # Mengirim ulang nilai yang sama bukan "perubahan" (dan tak boleh
+    # memicu penolakan karena jadwal terkunci).
+    requested = payload.model_dump(exclude_unset=True)
+    changes = {k: v for k, v in requested.items() if getattr(entry, k) != v}
+    if not changes:
+        return entry
+
+    if entry.status == "closed":
+        raise HTTPException(
+            status_code=409,
+            detail="Sesi yang sudah ditutup tidak bisa diubah karena menjadi arsip laporan.",
+        )
+    locked = sorted(set(changes) - {"name"})
+    if entry.status == "opened" and locked:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Sesi yang sedang dibuka hanya boleh diubah namanya. Jadwal ({', '.join(locked)}) terkunci.",
+        )
+
+    # Jadwal hasil penggabungan (nilai baru ditimpa ke nilai lama): inilah
+    # yang harus valid, bukan field-nya satu per satu — mengubah hanya
+    # start_time bisa saja membuatnya melewati end_time yang lama.
+    new_date  = changes.get("date", entry.date)
+    new_start = changes.get("start_time", entry.start_time)
+    new_end   = changes.get("end_time", entry.end_time)
+    if new_end <= new_start:
+        raise HTTPException(status_code=400, detail="end_time harus lebih besar dari start_time.")
+
+    if {"date", "start_time", "end_time"} & set(changes):
+        # exclude_id: sesi ini tidak boleh dianggap bentrok dengan dirinya sendiri.
+        await _assert_no_session_overlap(session, new_date, new_start, new_end, exclude_id=entry.id)
+
+    for field, value in changes.items():
+        setattr(entry, field, value)
+
+    try:
+        await session.commit()
+        return entry
+    except Exception as e:
+        await session.rollback()
+        raise HTTPException(status_code=500, detail=f"Gagal mengubah sesi: {e}")
+
+
+@app.delete(f"{PREFIX}/sessions/{{session_id}}", tags=["sessions"])
+async def delete_operational_session(
+    session_id: uuid.UUID,
+    session: AsyncSession = Depends(get_async_session),
+    admin: User = Depends(current_admin),
+):
+    """ADMIN PEMILIK: Menghapus sesi PERMANEN — hanya kalau belum punya riwayat.
+
+    Mengapa bukan soft delete seperti Master Tiket? Sesi yang punya
+    transaksi / sesi kasir adalah dasar laporan keuangan & audit, dan FK-nya
+    ke sana memang RESTRICT. Maka aturannya:
+
+      - Sesi KOSONG (salah buat, batal dipakai): dihapus sungguhan, beserta
+        daftar tiket aktif & audit nomor tiketnya (ikut terhapus via cascade).
+      - Sesi dengan transaksi / sesi kasir: DITOLAK 409. Data itu tidak
+        boleh hilang; sesi tetap tersimpan sebagai arsip.
+    """
+    entry = await _get_session_for_update(session, session_id)
+    _assert_session_owner(entry, admin)
+
+    tx_count = await session.scalar(
+        select(func.count()).select_from(TransactionEntry).where(TransactionEntry.session_id == entry.id)
+    )
+    cashier_count = await session.scalar(
+        select(func.count()).select_from(CashierSession).where(CashierSession.session_id == entry.id)
+    )
+    if tx_count or cashier_count:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Sesi '{entry.name}' tidak bisa dihapus karena sudah memiliki "
+                f"{tx_count} transaksi dan {cashier_count} sesi kasir. "
+                f"Data ini dipertahankan untuk laporan & audit."
+            ),
+        )
+
+    name = entry.name
+    try:
+        await session.delete(entry)
+        await session.commit()
+        return {"success": True, "message": f"Sesi '{name}' berhasil dihapus."}
+    except IntegrityError:
+        # Jaring pengaman terakhir: transaksi / sesi kasir baru saja masuk
+        # di antara pengecekan di atas dan DELETE ini (FK RESTRICT menolak).
+        await session.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Sesi tidak bisa dihapus karena baru saja digunakan oleh transaksi atau sesi kasir.",
+        )
+    except Exception as e:
+        await session.rollback()
+        raise HTTPException(status_code=500, detail=f"Gagal menghapus sesi: {e}")
 
 
 @app.patch(f"{PREFIX}/sessions/{{session_id}}/open", response_model=OperationalSessionRead, tags=["sessions"])

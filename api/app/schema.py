@@ -27,7 +27,7 @@ from enum import Enum
 from typing import Annotated, Dict, List, Optional
 
 from fastapi_users import schemas
-from pydantic import AfterValidator, BaseModel, Field
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.i18n import normalize_name_i18n
 
@@ -275,11 +275,53 @@ class OperationalSessionCreate(BaseModel):
     )
 
 
+_Date = date  # alias; lihat catatan di OperationalSessionUpdate.date
+
+
 class OperationalSessionUpdate(BaseModel):
-    name: Optional[str] = None
-    date: Optional[date] = None
+    """
+    Body `PATCH /sessions/{id}` — PARTIAL update: kirim hanya field yang
+    berubah. Validasi di sini hanya yang bisa diputuskan dari body itu
+    sendiri; aturan yang butuh data di database (status sesi, pemilik,
+    tabrakan jadwal, jam mulai/selesai yang digabung dengan nilai lama)
+    ditegakkan di endpoint.
+    """
+    # Field di luar daftar ini (mis. `status`, `created_by_id`) DITOLAK,
+    # bukan diam-diam diabaikan — supaya klien yang salah kirim tahu.
+    model_config = ConfigDict(extra="forbid")
+
+    name: Optional[str] = Field(default=None, max_length=100)
+    # JEBAKAN: field bernama `date` + default `None` membuat Pydantic me-resolve
+    # anotasi `Optional[date]` di namespace kelas, di mana `date` sudah = None
+    # -> tipenya jadi "harus None" dan semua tanggal ditolak (422). Maka
+    # tipenya dirujuk lewat alias `_Date`, bukan nama `date`.
+    date: Optional[_Date] = None
     start_time: Optional[time] = None
     end_time: Optional[time] = None
+
+    @field_validator("name")
+    @classmethod
+    def _name_not_blank(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        v = v.strip()
+        if not v:
+            raise ValueError("Nama sesi tidak boleh kosong.")
+        return v
+
+    @model_validator(mode="after")
+    def _validate_body(self):
+        provided = self.model_fields_set
+        if not provided:
+            raise ValueError("Tidak ada field yang dikirim untuk diubah.")
+        # `null` eksplisit ambigu (hapus? abaikan?) dan tak ada kolom yang
+        # boleh NULL — tolak, jangan tebak.
+        for field in provided:
+            if getattr(self, field) is None:
+                raise ValueError(f"Field '{field}' tidak boleh null.")
+        if self.start_time and self.end_time and self.end_time <= self.start_time:
+            raise ValueError("end_time harus lebih besar dari start_time.")
+        return self
 
 
 class SessionTicketAuditRead(BaseModel):
@@ -341,6 +383,19 @@ class OperationalSessionRead(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class OperationalSessionStaffRead(OperationalSessionRead):
+    """
+    Versi `OperationalSessionRead` untuk endpoint KHUSUS STAF. Menambah
+    `created_by_id` (pemilik sesi) supaya UI admin bisa menyembunyikan
+    tombol Edit/Hapus pada sesi milik admin lain.
+
+    Sengaja BUKAN bagian dari `OperationalSessionRead`, karena skema itu
+    juga dibungkus `ActiveSessionStatusRead` yang dikirim ke endpoint
+    PUBLIK — UUID admin tidak boleh bocor ke pengunjung.
+    """
+    created_by_id: Optional[uuid.UUID] = None
 
 
 class ActiveSessionStatusRead(BaseModel):

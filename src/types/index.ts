@@ -309,6 +309,14 @@ export interface OperationalSession {
    * pengunjung yang bisa salah. Ini yang memberi label "Berlangsung".
    */
   is_live: boolean;
+  /**
+   * Admin pemilik sesi (pembuatnya). Hanya dikirim endpoint STAF — endpoint
+   * publik sengaja tidak memuatnya. `null` = sesi tanpa pemilik (data lama /
+   * akun pemiliknya sudah dihapus) yang boleh dikelola admin mana pun.
+   * Dipakai UI hanya untuk MENYEMBUNYIKAN tombol Edit/Hapus; yang
+   * menegakkan aturannya tetap backend (403).
+   */
+  created_by_id?: string | null;
   active_tickets: SessionTicket[];
 }
 
@@ -319,6 +327,11 @@ export interface OperationalSessionPayload {
   end_time: string;
   ticket_sub_category_ids: string[];
 }
+
+/** Body `PATCH /sessions/{id}` — partial: kirim hanya field yang berubah. */
+export type OperationalSessionUpdatePayload = Partial<
+  Pick<OperationalSessionPayload, "name" | "date" | "start_time" | "end_time">
+>;
 
 /** Satu baris perubahan dalam permintaan bulk-save nomor tiket fisik. */
 export interface SessionTicketAuditBulkItem {
