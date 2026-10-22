@@ -1,5 +1,6 @@
 // src/components/LoginForm.tsx
 import React, { useState } from 'react';
+import PasswordInput from './PasswordInput';
 
 interface LoginFormProps {
   onSubmit: (username: string, password: string) => Promise<void>;
@@ -46,10 +47,10 @@ export default function LoginForm({ onSubmit, isLoading, error }: LoginFormProps
 
       <div className="flex flex-col text-gray-400 py-2">
         <label htmlFor="password">Password</label>
-        <input 
+        <PasswordInput
           id="password"
-          className="p-2 rounded-lg bg-gray-700 mt-2 focus:border-teal-500 focus:bg-gray-800 focus:outline-none text-white" 
-          type="password" 
+          wrapperClassName="mt-2"
+          className="p-2 rounded-lg bg-gray-700 focus:border-teal-500 focus:bg-gray-800 focus:outline-none text-white"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           required
